@@ -2941,14 +2941,6 @@ class _AuthScreenState extends State<AuthScreen>
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.stretch,
                               children: [
-                                if (!widget.backendStatus.isReady) ...[
-                                  BackendSetupBanner(
-                                    message:
-                                        widget.backendStatus.errorMessage ??
-                                        'الباكند غير متصل حاليًا.',
-                                  ),
-                                  const SizedBox(height: 16),
-                                ],
                                 registerMode
                                     ? const RegisterCard()
                                     : const LoginCard(
