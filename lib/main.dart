@@ -8663,6 +8663,7 @@ class StudentDashboard extends StatelessWidget {
                 ? 'لم يتم ربطك بقسم بعد'
                 : 'قسم ${selectedSection.title}',
             icon: Icons.auto_stories_rounded,
+            logoAsset: 'assets/onboarding/epsilon_logo.jpeg',
           ),
           const SizedBox(height: 14),
           Row(
@@ -8887,50 +8888,27 @@ class _StudentInvoiceCardState extends State<StudentInvoiceCard> {
 
   @override
   Widget build(BuildContext context) {
-    final subjectText = widget.subjects.isEmpty
-        ? 'القسم كامل'
-        : widget.subjects.join('، ');
-
     return SectionCard(
       title: 'فاتورة الاشتراك',
       icon: Icons.receipt_long_rounded,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Container(
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(
-              color: const Color(0xFFF8FAFF),
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: const Color(0xFFE0E8FF)),
-            ),
-            child: Column(
-              children: [
-                InfoRow(label: 'القسم أو الدورة', value: widget.course.title),
-                InfoRow(label: 'المواد', value: subjectText),
-                InfoRow(label: 'السعر', value: widget.amount),
-                const InfoRow(
-                  label: 'الحالة',
-                  value: 'مدفوعة ومؤكدة من الإدارة',
-                ),
-              ],
-            ),
+      child: FilledButton.icon(
+        onPressed: isDownloading ? null : downloadInvoice,
+        icon: isDownloading
+            ? const SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            : const Icon(Icons.download_rounded),
+        label: Text(
+          isDownloading ? 'جاري إنشاء الفاتورة...' : 'تحميل الفاتورة PDF',
+        ),
+        style: FilledButton.styleFrom(
+          minimumSize: const Size.fromHeight(48),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
           ),
-          const SizedBox(height: 12),
-          FilledButton.icon(
-            onPressed: isDownloading ? null : downloadInvoice,
-            icon: isDownloading
-                ? const SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Icon(Icons.download_rounded),
-            label: Text(
-              isDownloading ? 'جاري إنشاء الفاتورة...' : 'تحميل الفاتورة PDF',
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }
@@ -10326,12 +10304,14 @@ class HeaderPanel extends StatelessWidget {
     required this.title,
     required this.subtitle,
     required this.icon,
+    this.logoAsset,
     super.key,
   });
 
   final String title;
   final String subtitle;
   final IconData icon;
+  final String? logoAsset;
 
   @override
   Widget build(BuildContext context) {
@@ -10354,7 +10334,29 @@ class HeaderPanel extends StatelessWidget {
       ),
       child: Row(
         children: [
-          Icon(icon, color: Colors.white, size: 44),
+          if (logoAsset == null)
+            Icon(icon, color: Colors.white, size: 44)
+          else
+            Container(
+              width: 58,
+              height: 58,
+              padding: const EdgeInsets.all(5),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(18),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.10),
+                    blurRadius: 18,
+                    offset: const Offset(0, 8),
+                  ),
+                ],
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(14),
+                child: Image.asset(logoAsset!, fit: BoxFit.cover),
+              ),
+            ),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
