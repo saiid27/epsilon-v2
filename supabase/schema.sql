@@ -205,14 +205,17 @@ begin
     returning id into default_course_id;
   end if;
 
-  insert into public.users(name, phone, password, role, status, class_id, course_id)
-  select
-    'إدارة المدرسة',
-    '22240000000',
-    '123456',
-    'admin',
-    'active',
-    default_class_id,
-    default_course_id
-  where not exists (select 1 from public.users where role = 'admin');
+  insert into public.users(name, phone, password, role, status, class_id, course_id, subject)
+  values
+    ('إدارة المدرسة', '34605765', '34605765', 'admin', 'active', default_class_id, default_course_id, null),
+    ('الأستاذ', '32324816', '32324816', 'teacher', 'active', default_class_id, default_course_id, 'مادة عامة'),
+    ('الطالب', '32164866', '32164866', 'student', 'active', default_class_id, default_course_id, null)
+  on conflict (phone) do update set
+    name = excluded.name,
+    password = excluded.password,
+    role = excluded.role,
+    status = excluded.status,
+    class_id = excluded.class_id,
+    course_id = excluded.course_id,
+    subject = excluded.subject;
 end $$;
