@@ -13,6 +13,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:video_player/video_player.dart';
 import 'package:webview_flutter/webview_flutter.dart';
@@ -22,6 +23,7 @@ import 'package:webview_flutter_wkwebview/webview_flutter_wkwebview.dart';
 import 'api_repository.dart';
 import 'firebase_options.dart';
 import 'firebase_schema.dart';
+import 'supabase_config.dart';
 
 const epsilonBlue = Color(0xFF2457E6);
 const epsilonTeal = Color(0xFF0F9F7A);
@@ -39,6 +41,10 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await Supabase.initialize(
+    url: SupabaseConfig.url,
+    publishableKey: SupabaseConfig.publishableKey,
+  );
 
   final backendStatus = await BackendBootstrap.initialize();
   runApp(EpsilonApp(backendStatus: backendStatus));
