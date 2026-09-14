@@ -5516,16 +5516,6 @@ class _StudentCourseSelectionPageState
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                const Text(
-                  'الأقسام التي تضيفها الإدارة تظهر هنا مباشرة من الموقع أو التطبيق.',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    color: epsilonInk,
-                    fontWeight: FontWeight.w900,
-                    height: 1.35,
-                  ),
-                ),
-                const SizedBox(height: 12),
                 TextField(
                   onChanged: (value) => setState(() => query = value),
                   textDirection: TextDirection.rtl,
@@ -5622,29 +5612,6 @@ class _StudentCourseSelectionPageState
                 );
               }).toList(),
             ),
-          const SizedBox(height: 14),
-          Container(
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(
-              color: const Color(0xFFEAF1FF),
-              borderRadius: BorderRadius.circular(14),
-            ),
-            child: const Row(
-              children: [
-                Icon(Icons.info_rounded, color: Color(0xFF2F5BEA)),
-                SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    'جميع الأقسام وموادها يتم تحديثها باستمرار للحصول على جديد المحتوى التعليمي.',
-                    style: TextStyle(
-                      color: Color(0xFF374151),
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
         ],
       ),
     );
