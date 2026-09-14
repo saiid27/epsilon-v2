@@ -28,3 +28,24 @@ flutter run
 - `lib/firebase_repository.dart`
 - `lib/firebase_schema.dart`
 - `lib/firebase_options.dart`
+
+## Supabase
+
+تم ربط التطبيق بـ Supabase من خلال:
+
+- `lib/supabase_config.dart`
+- `lib/supabase_repository.dart`
+- `supabase/schema.sql`
+
+قبل تشغيل التطبيق على Supabase لأول مرة، افتح Supabase SQL Editor وشغّل محتوى:
+
+```text
+supabase/schema.sql
+```
+
+حساب الإدارة الابتدائي الذي ينشئه الملف:
+
+```text
+phone: 22240000000
+password: 123456
+```

@@ -20,7 +20,7 @@ import 'package:webview_flutter/webview_flutter.dart';
 import 'package:webview_flutter_android/webview_flutter_android.dart';
 import 'package:webview_flutter_wkwebview/webview_flutter_wkwebview.dart';
 
-import 'api_repository.dart';
+import 'supabase_repository.dart';
 import 'firebase_options.dart';
 import 'firebase_schema.dart';
 import 'supabase_config.dart';
@@ -63,20 +63,13 @@ class BackendBootstrap {
       }),
     );
     try {
-      final repository = ApiRepository();
-      if (!repository.hasBaseUrl) {
-        return const BackendBootstrap(
-          isReady: false,
-          errorMessage: 'لم يتم إعداد رابط باكند للتطبيق.',
-        );
-      }
-      final health = await repository.get('/api/health');
-      if (health['ok'] == true && health['database'] == true) {
+      final repository = SupabaseRepository();
+      if (await repository.healthCheck()) {
         return const BackendBootstrap(isReady: true);
       }
       return const BackendBootstrap(
         isReady: false,
-        errorMessage: 'الباكند غير متصل بقاعدة البيانات.',
+        errorMessage: 'Supabase غير جاهز. شغّل ملف SQL أولاً.',
       );
     } on Object catch (error) {
       return BackendBootstrap(isReady: false, errorMessage: error.toString());
@@ -456,7 +449,7 @@ class SchoolStore extends ChangeNotifier {
   SchoolStore({required this.backendEnabled}) {
     unawaited(_loadReadNotifications());
     if (backendEnabled) {
-      _repository = ApiRepository();
+      _repository = SupabaseRepository();
       unawaited(_bindApi());
     } else {
       _seed();
@@ -658,7 +651,7 @@ class SchoolStore extends ChangeNotifier {
 
   Future<void> _bindApi() async {
     try {
-      final repository = _repository as ApiRepository;
+      final repository = _repository as SupabaseRepository;
       await repository.initialize();
       await _loadPublicApiData();
       final userData = await repository.currentUser();
@@ -678,7 +671,7 @@ class SchoolStore extends ChangeNotifier {
   }
 
   Future<void> _loadPublicApiData() async {
-    final repository = _repository as ApiRepository;
+    final repository = _repository as SupabaseRepository;
     final settingsData = await repository.settings();
     _applySettingsFromApi(settingsData['settings']);
 
@@ -769,7 +762,7 @@ class SchoolStore extends ChangeNotifier {
   }
 
   Future<void> _loadSignedInApiData() async {
-    final repository = _repository as ApiRepository;
+    final repository = _repository as SupabaseRepository;
     final user = currentUser;
     if (user == null) {
       return;
@@ -889,7 +882,7 @@ class SchoolStore extends ChangeNotifier {
       return;
     }
     try {
-      final repository = _repository as ApiRepository;
+      final repository = _repository as SupabaseRepository;
       final notificationsData = await repository.get('/api/notifications');
       _replaceNotificationsFromApi(notificationsData, alertNew: true);
       notifyListeners();
@@ -1473,7 +1466,7 @@ class SchoolStore extends ChangeNotifier {
         isLoading = true;
         lastError = null;
         notifyListeners();
-        final userData = await (_repository as ApiRepository).signIn(
+        final userData = await (_repository as SupabaseRepository).signIn(
           phone: phone,
           password: password,
         );
@@ -1486,7 +1479,7 @@ class SchoolStore extends ChangeNotifier {
         return true;
       } on Object catch (error) {
         lastError = error.toString();
-        unawaited((_repository as ApiRepository).signOut());
+        unawaited((_repository as SupabaseRepository).signOut());
         return false;
       } finally {
         isLoading = false;
@@ -1510,7 +1503,7 @@ class SchoolStore extends ChangeNotifier {
 
   void logout() {
     if (backendEnabled) {
-      unawaited((_repository as ApiRepository).signOut());
+      unawaited((_repository as SupabaseRepository).signOut());
     }
     currentUser = null;
     users.clear();
@@ -1584,7 +1577,7 @@ class SchoolStore extends ChangeNotifier {
       if (course == null) {
         return;
       }
-      await (_repository as ApiRepository).registerStudent(
+      await (_repository as SupabaseRepository).registerStudent(
         name: name,
         phone: phone,
         password: password,
@@ -1626,7 +1619,7 @@ class SchoolStore extends ChangeNotifier {
         return;
       }
       unawaited(
-        (_repository as ApiRepository)
+        (_repository as SupabaseRepository)
             .createUser(
               name: name,
               phone: phone,
@@ -1664,7 +1657,7 @@ class SchoolStore extends ChangeNotifier {
     required String subject,
   }) async {
     if (backendEnabled) {
-      await (_repository as ApiRepository).createUser(
+      await (_repository as SupabaseRepository).createUser(
         name: name,
         phone: phone,
         password: password,
@@ -1695,7 +1688,7 @@ class SchoolStore extends ChangeNotifier {
   void approveUser(AppUser user) {
     if (backendEnabled) {
       unawaited(
-        (_repository as ApiRepository)
+        (_repository as SupabaseRepository)
             .updateAccountStatus(user.id, _statusValue(AccountStatus.active))
             .then((_) => _loadSignedInApiData())
             .catchError(_rememberError),
@@ -1709,7 +1702,7 @@ class SchoolStore extends ChangeNotifier {
   void blockUser(AppUser user) {
     if (backendEnabled) {
       unawaited(
-        (_repository as ApiRepository)
+        (_repository as SupabaseRepository)
             .updateAccountStatus(user.id, _statusValue(AccountStatus.blocked))
             .then((_) => _loadSignedInApiData())
             .catchError(_rememberError),
@@ -1723,7 +1716,7 @@ class SchoolStore extends ChangeNotifier {
   void rejectUser(AppUser user) {
     if (backendEnabled) {
       unawaited(
-        (_repository as ApiRepository)
+        (_repository as SupabaseRepository)
             .updateAccountStatus(user.id, _statusValue(AccountStatus.rejected))
             .then((_) => _loadSignedInApiData())
             .catchError(_rememberError),
@@ -1737,7 +1730,7 @@ class SchoolStore extends ChangeNotifier {
   void activateUser(AppUser user) {
     if (backendEnabled) {
       unawaited(
-        (_repository as ApiRepository)
+        (_repository as SupabaseRepository)
             .updateAccountStatus(user.id, _statusValue(AccountStatus.active))
             .then((_) => _loadSignedInApiData())
             .catchError(_rememberError),
@@ -1750,7 +1743,7 @@ class SchoolStore extends ChangeNotifier {
 
   Future<void> deleteUser(AppUser user) async {
     if (backendEnabled) {
-      await (_repository as ApiRepository).deleteUserAccount(user.id);
+      await (_repository as SupabaseRepository).deleteUserAccount(user.id);
       await _loadSignedInApiData();
       return;
     }
@@ -1768,7 +1761,7 @@ class SchoolStore extends ChangeNotifier {
   }) {
     if (backendEnabled) {
       unawaited(
-        (_repository as ApiRepository)
+        (_repository as SupabaseRepository)
             .createCourse(
               title: title,
               classId: classId,
@@ -1806,7 +1799,7 @@ class SchoolStore extends ChangeNotifier {
       paymentNumber = value.trim();
       notifyListeners();
       unawaited(
-        (_repository as ApiRepository)
+        (_repository as SupabaseRepository)
             .updateSettings(paymentNumber: paymentNumber)
             .then((data) => _applySettingsFromApi(data['settings']))
             .catchError(_rememberError),
@@ -1822,7 +1815,7 @@ class SchoolStore extends ChangeNotifier {
       paymentAmount = value.trim();
       notifyListeners();
       unawaited(
-        (_repository as ApiRepository)
+        (_repository as SupabaseRepository)
             .updateSettings(paymentAmount: paymentAmount)
             .then((data) => _applySettingsFromApi(data['settings']))
             .catchError(_rememberError),
@@ -1845,7 +1838,7 @@ class SchoolStore extends ChangeNotifier {
     }
     if (backendEnabled) {
       unawaited(
-        (_repository as ApiRepository)
+        (_repository as SupabaseRepository)
             .createPaymentMethod(
               name: methodName,
               accountNumber: methodNumber,
@@ -1870,7 +1863,7 @@ class SchoolStore extends ChangeNotifier {
   void deletePaymentMethod(PaymentMethod method) {
     if (backendEnabled) {
       unawaited(
-        (_repository as ApiRepository)
+        (_repository as SupabaseRepository)
             .deletePaymentMethod(method.id)
             .then((data) => _applySettingsFromApi(data['settings']))
             .catchError(_rememberError),
@@ -1884,7 +1877,7 @@ class SchoolStore extends ChangeNotifier {
   void createClass({required String name, required String level}) {
     if (backendEnabled) {
       unawaited(
-        (_repository as ApiRepository)
+        (_repository as SupabaseRepository)
             .post('/api/classes', {
               'name': name.trim(),
               'level': level.trim(),
@@ -1910,7 +1903,7 @@ class SchoolStore extends ChangeNotifier {
   void deleteCourse(Course course) {
     if (backendEnabled) {
       unawaited(
-        (_repository as ApiRepository)
+        (_repository as SupabaseRepository)
             .deleteCourse(course.id)
             .then((_) => _loadPublicApiData())
             .catchError(_rememberError),
@@ -1965,7 +1958,7 @@ class SchoolStore extends ChangeNotifier {
 
     if (backendEnabled) {
       unawaited(
-        (_repository as ApiRepository)
+        (_repository as SupabaseRepository)
             .createLesson(
               title: title,
               url: url,
@@ -2006,7 +1999,7 @@ class SchoolStore extends ChangeNotifier {
         return;
       }
       unawaited(
-        (_repository as ApiRepository)
+        (_repository as SupabaseRepository)
             .updateLesson(lessonId: lesson.id, title: title, url: url)
             .then((_) => _loadSignedInApiData())
             .catchError(_rememberError),
@@ -2026,7 +2019,7 @@ class SchoolStore extends ChangeNotifier {
   void deleteLesson(Lesson lesson) {
     if (backendEnabled) {
       unawaited(
-        (_repository as ApiRepository)
+        (_repository as SupabaseRepository)
             .deleteLesson(lesson.id)
             .then((_) => _loadSignedInApiData())
             .catchError(_rememberError),
@@ -2045,7 +2038,7 @@ class SchoolStore extends ChangeNotifier {
   }) {
     if (backendEnabled) {
       unawaited(
-        (_repository as ApiRepository)
+        (_repository as SupabaseRepository)
             .createGuestContent(
               contentType: 'guest_video',
               title: title,
@@ -2081,7 +2074,7 @@ class SchoolStore extends ChangeNotifier {
   }) {
     if (backendEnabled) {
       unawaited(
-        (_repository as ApiRepository)
+        (_repository as SupabaseRepository)
             .createGuestContent(
               contentType: 'archive_file',
               title: title,
@@ -2112,7 +2105,7 @@ class SchoolStore extends ChangeNotifier {
   void deleteGuestVideo(GuestContentItem item) {
     if (backendEnabled) {
       unawaited(
-        (_repository as ApiRepository)
+        (_repository as SupabaseRepository)
             .deleteGuestContent(item.id)
             .then((_) => _loadPublicApiData())
             .catchError(_rememberError),
@@ -2133,7 +2126,7 @@ class SchoolStore extends ChangeNotifier {
   }) {
     if (backendEnabled) {
       unawaited(
-        (_repository as ApiRepository)
+        (_repository as SupabaseRepository)
             .updateGuestContent(
               id: item.id,
               title: title,
@@ -2157,7 +2150,7 @@ class SchoolStore extends ChangeNotifier {
   void deleteArchiveFile(GuestContentItem item) {
     if (backendEnabled) {
       unawaited(
-        (_repository as ApiRepository)
+        (_repository as SupabaseRepository)
             .deleteGuestContent(item.id)
             .then((_) => _loadPublicApiData())
             .catchError(_rememberError),
@@ -2178,7 +2171,7 @@ class SchoolStore extends ChangeNotifier {
   }) {
     if (backendEnabled) {
       unawaited(
-        (_repository as ApiRepository)
+        (_repository as SupabaseRepository)
             .updateGuestContent(
               id: item.id,
               title: title,
@@ -2205,7 +2198,7 @@ class SchoolStore extends ChangeNotifier {
   }) async {
     if (backendEnabled) {
       try {
-        await (_repository as ApiRepository).addNotification(
+        await (_repository as SupabaseRepository).addNotification(
           title: title,
           body: body,
         );
@@ -2236,7 +2229,7 @@ class SchoolStore extends ChangeNotifier {
     required String body,
   }) async {
     if (backendEnabled) {
-      await (_repository as ApiRepository).updateNotification(
+      await (_repository as SupabaseRepository).updateNotification(
         id: notification.id,
         title: title,
         body: body,
@@ -2264,7 +2257,9 @@ class SchoolStore extends ChangeNotifier {
 
   Future<void> deleteNotification(AppNotification notification) async {
     if (backendEnabled) {
-      await (_repository as ApiRepository).deleteNotification(notification.id);
+      await (_repository as SupabaseRepository).deleteNotification(
+        notification.id,
+      );
       await _loadSignedInApiData();
       notifyListeners();
       return;
@@ -2282,11 +2277,12 @@ class SchoolStore extends ChangeNotifier {
     if (!backendEnabled) {
       return const [];
     }
-    final items = await (_repository as ApiRepository).searchNationalResults(
-      examType: examType,
-      query: query,
-      center: center,
-    );
+    final items = await (_repository as SupabaseRepository)
+        .searchNationalResults(
+          examType: examType,
+          query: query,
+          center: center,
+        );
     return items.map(_nationalResultFromApi).toList();
   }
 
@@ -2294,7 +2290,7 @@ class SchoolStore extends ChangeNotifier {
     if (!backendEnabled) {
       return const [];
     }
-    return (_repository as ApiRepository).nationalResultCenters(
+    return (_repository as SupabaseRepository).nationalResultCenters(
       examType: examType,
     );
   }
@@ -2303,7 +2299,7 @@ class SchoolStore extends ChangeNotifier {
     if (!backendEnabled) {
       return const [];
     }
-    final items = await (_repository as ApiRepository).offers();
+    final items = await (_repository as SupabaseRepository).offers();
     return items.map(_offerSlideFromApi).toList();
   }
 
@@ -2311,7 +2307,7 @@ class SchoolStore extends ChangeNotifier {
     if (!backendEnabled) {
       return const OfferTextSection(title: '', body: '', active: false);
     }
-    final data = await (_repository as ApiRepository).offerTextSection();
+    final data = await (_repository as SupabaseRepository).offerTextSection();
     return _offerTextFromApi(data);
   }
 
@@ -2323,7 +2319,7 @@ class SchoolStore extends ChangeNotifier {
     if (!backendEnabled) {
       return 0;
     }
-    return (_repository as ApiRepository).uploadNationalResults(
+    return (_repository as SupabaseRepository).uploadNationalResults(
       examType: examType,
       filePath: filePath,
       fileName: fileName,
