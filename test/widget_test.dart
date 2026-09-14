@@ -7,7 +7,7 @@ void main() {
     SharedPreferences.setMockInitialValues({'epsilon_onboarding_seen': true});
 
     await tester.pumpWidget(
-      const EpsilonApp(firebaseStatus: FirebaseBootstrap(isReady: false)),
+      const EpsilonApp(backendStatus: BackendBootstrap(isReady: false)),
     );
     await tester.pump(const Duration(seconds: 4));
     await tester.pump(const Duration(milliseconds: 300));

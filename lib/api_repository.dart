@@ -17,12 +17,10 @@ class ApiRepository {
   ApiRepository({String? baseUrl})
     : baseUrl =
           baseUrl ??
-          const String.fromEnvironment(
-            'EPSILON_API_URL',
-            defaultValue: 'https://epsilon-app.onrender.com',
-          );
+          const String.fromEnvironment('EPSILON_API_URL', defaultValue: '');
 
   final String baseUrl;
+  bool get hasBaseUrl => baseUrl.trim().isNotEmpty;
   static const _tokenKey = 'epsilon_api_token';
   String? _token;
 
@@ -251,6 +249,41 @@ class ApiRepository {
 
   Future<void> deleteNotification(String id) async {
     await delete('/api/notifications/$id');
+  }
+
+  Future<Map<String, dynamic>> createGuestContent({
+    required String contentType,
+    required String title,
+    required String url,
+    required String description,
+    required String courseId,
+  }) {
+    return post('/api/guest-content', {
+      'contentType': contentType,
+      'title': title,
+      'url': url,
+      'description': description,
+      'courseId': courseId,
+    });
+  }
+
+  Future<Map<String, dynamic>> updateGuestContent({
+    required String id,
+    required String title,
+    required String url,
+    required String description,
+    required String courseId,
+  }) {
+    return patch('/api/guest-content/$id', {
+      'title': title,
+      'url': url,
+      'description': description,
+      'courseId': courseId,
+    });
+  }
+
+  Future<void> deleteGuestContent(String id) async {
+    await delete('/api/guest-content/$id');
   }
 
   Future<List<Map<String, dynamic>>> searchNationalResults({

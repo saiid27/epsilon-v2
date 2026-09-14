@@ -40,23 +40,41 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  final firebaseStatus = await FirebaseBootstrap.initialize();
-  runApp(EpsilonApp(firebaseStatus: firebaseStatus));
+  final backendStatus = await BackendBootstrap.initialize();
+  runApp(EpsilonApp(backendStatus: backendStatus));
 }
 
-class FirebaseBootstrap {
-  const FirebaseBootstrap({required this.isReady, this.errorMessage});
+class BackendBootstrap {
+  const BackendBootstrap({required this.isReady, this.errorMessage});
 
   final bool isReady;
   final String? errorMessage;
 
-  static Future<FirebaseBootstrap> initialize() async {
+  static Future<BackendBootstrap> initialize() async {
     unawaited(
       PushNotifications.initialize().catchError((Object error) {
         debugPrint('Local notifications initialization skipped: $error');
       }),
     );
-    return const FirebaseBootstrap(isReady: true);
+    try {
+      final repository = ApiRepository();
+      if (!repository.hasBaseUrl) {
+        return const BackendBootstrap(
+          isReady: false,
+          errorMessage: 'لم يتم إعداد رابط باكند للتطبيق.',
+        );
+      }
+      final health = await repository.get('/api/health');
+      if (health['ok'] == true && health['database'] == true) {
+        return const BackendBootstrap(isReady: true);
+      }
+      return const BackendBootstrap(
+        isReady: false,
+        errorMessage: 'الباكند غير متصل بقاعدة البيانات.',
+      );
+    } on Object catch (error) {
+      return BackendBootstrap(isReady: false, errorMessage: error.toString());
+    }
   }
 }
 
@@ -169,7 +187,7 @@ class PushNotifications {
   }
 }
 
-String friendlyFirebaseError(Object error) {
+String friendlyApiError(Object error) {
   final text = error.toString().toLowerCase();
 
   if (text.contains('unauthenticated') || text.contains('not-signed-in')) {
@@ -429,9 +447,9 @@ class PaymentMethod {
 }
 
 class SchoolStore extends ChangeNotifier {
-  SchoolStore({required this.firebaseEnabled}) {
+  SchoolStore({required this.backendEnabled}) {
     unawaited(_loadReadNotifications());
-    if (firebaseEnabled) {
+    if (backendEnabled) {
       _repository = ApiRepository();
       unawaited(_bindApi());
     } else {
@@ -439,7 +457,7 @@ class SchoolStore extends ChangeNotifier {
     }
   }
 
-  final bool firebaseEnabled;
+  final bool backendEnabled;
   dynamic _repository;
   final List<StreamSubscription<Object?>> _subscriptions = [];
   StreamSubscription<Object?>? _usersSubscription;
@@ -500,7 +518,7 @@ class SchoolStore extends ChangeNotifier {
 
   String get defaultClassId {
     if (classes.isEmpty) {
-      if (firebaseEnabled) {
+      if (backendEnabled) {
         return 'default';
       }
       createClass(name: 'عام', level: 'كل المستويات');
@@ -861,7 +879,7 @@ class SchoolStore extends ChangeNotifier {
   }
 
   Future<void> _pollNotifications() async {
-    if (!firebaseEnabled || currentUser == null) {
+    if (!backendEnabled || currentUser == null) {
       return;
     }
     try {
@@ -956,7 +974,7 @@ class SchoolStore extends ChangeNotifier {
   }
 
   Future<void> _enforceStudentDevice(AppUser user) async {
-    if (!firebaseEnabled || _claimingStudentDevice) {
+    if (!backendEnabled || _claimingStudentDevice) {
       return;
     }
 
@@ -1444,7 +1462,7 @@ class SchoolStore extends ChangeNotifier {
   }
 
   Future<bool> login(String phone, String password) async {
-    if (firebaseEnabled) {
+    if (backendEnabled) {
       try {
         isLoading = true;
         lastError = null;
@@ -1485,7 +1503,7 @@ class SchoolStore extends ChangeNotifier {
   }
 
   void logout() {
-    if (firebaseEnabled) {
+    if (backendEnabled) {
       unawaited((_repository as ApiRepository).signOut());
     }
     currentUser = null;
@@ -1500,7 +1518,7 @@ class SchoolStore extends ChangeNotifier {
     required String currentPassword,
     required String newPassword,
   }) async {
-    if (firebaseEnabled) {
+    if (backendEnabled) {
       lastError = 'تغيير كلمة المرور غير متاح من التطبيق حالياً.';
       notifyListeners();
       return false;
@@ -1539,7 +1557,7 @@ class SchoolStore extends ChangeNotifier {
   }
 
   Future<void> sendPasswordResetEmail(String phone) async {
-    if (firebaseEnabled) {
+    if (backendEnabled) {
       lastError = 'استعادة كلمة المرور تتم حالياً من موقع الإدارة.';
       notifyListeners();
       return;
@@ -1556,7 +1574,7 @@ class SchoolStore extends ChangeNotifier {
     required String paymentSenderPhone,
   }) async {
     final course = courseById(courseId);
-    if (firebaseEnabled) {
+    if (backendEnabled) {
       if (course == null) {
         return;
       }
@@ -1597,7 +1615,7 @@ class SchoolStore extends ChangeNotifier {
     required String courseId,
   }) {
     final course = courseById(courseId);
-    if (firebaseEnabled) {
+    if (backendEnabled) {
       if (course == null) {
         return;
       }
@@ -1639,7 +1657,7 @@ class SchoolStore extends ChangeNotifier {
     required String courseId,
     required String subject,
   }) async {
-    if (firebaseEnabled) {
+    if (backendEnabled) {
       await (_repository as ApiRepository).createUser(
         name: name,
         phone: phone,
@@ -1669,7 +1687,7 @@ class SchoolStore extends ChangeNotifier {
   }
 
   void approveUser(AppUser user) {
-    if (firebaseEnabled) {
+    if (backendEnabled) {
       unawaited(
         (_repository as ApiRepository)
             .updateAccountStatus(user.id, _statusValue(AccountStatus.active))
@@ -1683,7 +1701,7 @@ class SchoolStore extends ChangeNotifier {
   }
 
   void blockUser(AppUser user) {
-    if (firebaseEnabled) {
+    if (backendEnabled) {
       unawaited(
         (_repository as ApiRepository)
             .updateAccountStatus(user.id, _statusValue(AccountStatus.blocked))
@@ -1697,7 +1715,7 @@ class SchoolStore extends ChangeNotifier {
   }
 
   void rejectUser(AppUser user) {
-    if (firebaseEnabled) {
+    if (backendEnabled) {
       unawaited(
         (_repository as ApiRepository)
             .updateAccountStatus(user.id, _statusValue(AccountStatus.rejected))
@@ -1711,7 +1729,7 @@ class SchoolStore extends ChangeNotifier {
   }
 
   void activateUser(AppUser user) {
-    if (firebaseEnabled) {
+    if (backendEnabled) {
       unawaited(
         (_repository as ApiRepository)
             .updateAccountStatus(user.id, _statusValue(AccountStatus.active))
@@ -1725,7 +1743,7 @@ class SchoolStore extends ChangeNotifier {
   }
 
   Future<void> deleteUser(AppUser user) async {
-    if (firebaseEnabled) {
+    if (backendEnabled) {
       await (_repository as ApiRepository).deleteUserAccount(user.id);
       await _loadSignedInApiData();
       return;
@@ -1742,7 +1760,7 @@ class SchoolStore extends ChangeNotifier {
     required String price,
     required List<Map<String, String>> subjects,
   }) {
-    if (firebaseEnabled) {
+    if (backendEnabled) {
       unawaited(
         (_repository as ApiRepository)
             .createCourse(
@@ -1778,7 +1796,7 @@ class SchoolStore extends ChangeNotifier {
   }
 
   void updatePaymentNumber(String value) {
-    if (firebaseEnabled) {
+    if (backendEnabled) {
       paymentNumber = value.trim();
       notifyListeners();
       unawaited(
@@ -1794,7 +1812,7 @@ class SchoolStore extends ChangeNotifier {
   }
 
   void updatePaymentAmount(String value) {
-    if (firebaseEnabled) {
+    if (backendEnabled) {
       paymentAmount = value.trim();
       notifyListeners();
       unawaited(
@@ -1819,7 +1837,7 @@ class SchoolStore extends ChangeNotifier {
     if (methodName.isEmpty || methodNumber.isEmpty) {
       return;
     }
-    if (firebaseEnabled) {
+    if (backendEnabled) {
       unawaited(
         (_repository as ApiRepository)
             .createPaymentMethod(
@@ -1844,7 +1862,7 @@ class SchoolStore extends ChangeNotifier {
   }
 
   void deletePaymentMethod(PaymentMethod method) {
-    if (firebaseEnabled) {
+    if (backendEnabled) {
       unawaited(
         (_repository as ApiRepository)
             .deletePaymentMethod(method.id)
@@ -1858,7 +1876,7 @@ class SchoolStore extends ChangeNotifier {
   }
 
   void createClass({required String name, required String level}) {
-    if (firebaseEnabled) {
+    if (backendEnabled) {
       unawaited(
         (_repository as ApiRepository)
             .post('/api/classes', {
@@ -1884,7 +1902,7 @@ class SchoolStore extends ChangeNotifier {
   }
 
   void deleteCourse(Course course) {
-    if (firebaseEnabled) {
+    if (backendEnabled) {
       unawaited(
         (_repository as ApiRepository)
             .deleteCourse(course.id)
@@ -1905,7 +1923,7 @@ class SchoolStore extends ChangeNotifier {
   }
 
   void deleteClass(SchoolClass schoolClass) {
-    if (firebaseEnabled) {
+    if (backendEnabled) {
       deleteCourse(
         Course(
           id: schoolClass.id,
@@ -1939,7 +1957,7 @@ class SchoolStore extends ChangeNotifier {
       return;
     }
 
-    if (firebaseEnabled) {
+    if (backendEnabled) {
       unawaited(
         (_repository as ApiRepository)
             .createLesson(
@@ -1977,7 +1995,7 @@ class SchoolStore extends ChangeNotifier {
     required String courseId,
   }) {
     final course = courseById(courseId);
-    if (firebaseEnabled) {
+    if (backendEnabled) {
       if (course == null) {
         return;
       }
@@ -2000,7 +2018,7 @@ class SchoolStore extends ChangeNotifier {
   }
 
   void deleteLesson(Lesson lesson) {
-    if (firebaseEnabled) {
+    if (backendEnabled) {
       unawaited(
         (_repository as ApiRepository)
             .deleteLesson(lesson.id)
@@ -2019,6 +2037,22 @@ class SchoolStore extends ChangeNotifier {
     required String description,
     required String courseId,
   }) {
+    if (backendEnabled) {
+      unawaited(
+        (_repository as ApiRepository)
+            .createGuestContent(
+              contentType: 'guest_video',
+              title: title,
+              url: url,
+              description: description,
+              courseId: courseId,
+            )
+            .then((_) => _loadPublicApiData())
+            .catchError(_rememberError),
+      );
+      return;
+    }
+
     guestVideos.insert(
       0,
       GuestContentItem(
@@ -2039,6 +2073,22 @@ class SchoolStore extends ChangeNotifier {
     required String description,
     required String courseId,
   }) {
+    if (backendEnabled) {
+      unawaited(
+        (_repository as ApiRepository)
+            .createGuestContent(
+              contentType: 'archive_file',
+              title: title,
+              url: url,
+              description: description,
+              courseId: courseId,
+            )
+            .then((_) => _loadPublicApiData())
+            .catchError(_rememberError),
+      );
+      return;
+    }
+
     archiveFiles.insert(
       0,
       GuestContentItem(
@@ -2054,6 +2104,16 @@ class SchoolStore extends ChangeNotifier {
   }
 
   void deleteGuestVideo(GuestContentItem item) {
+    if (backendEnabled) {
+      unawaited(
+        (_repository as ApiRepository)
+            .deleteGuestContent(item.id)
+            .then((_) => _loadPublicApiData())
+            .catchError(_rememberError),
+      );
+      return;
+    }
+
     guestVideos.remove(item);
     notifyListeners();
   }
@@ -2065,6 +2125,22 @@ class SchoolStore extends ChangeNotifier {
     required String description,
     required String courseId,
   }) {
+    if (backendEnabled) {
+      unawaited(
+        (_repository as ApiRepository)
+            .updateGuestContent(
+              id: item.id,
+              title: title,
+              url: url,
+              description: description,
+              courseId: courseId,
+            )
+            .then((_) => _loadPublicApiData())
+            .catchError(_rememberError),
+      );
+      return;
+    }
+
     item.title = title.trim();
     item.url = url.trim();
     item.description = description.trim();
@@ -2073,6 +2149,16 @@ class SchoolStore extends ChangeNotifier {
   }
 
   void deleteArchiveFile(GuestContentItem item) {
+    if (backendEnabled) {
+      unawaited(
+        (_repository as ApiRepository)
+            .deleteGuestContent(item.id)
+            .then((_) => _loadPublicApiData())
+            .catchError(_rememberError),
+      );
+      return;
+    }
+
     archiveFiles.remove(item);
     notifyListeners();
   }
@@ -2084,6 +2170,22 @@ class SchoolStore extends ChangeNotifier {
     required String description,
     required String courseId,
   }) {
+    if (backendEnabled) {
+      unawaited(
+        (_repository as ApiRepository)
+            .updateGuestContent(
+              id: item.id,
+              title: title,
+              url: url,
+              description: description,
+              courseId: courseId,
+            )
+            .then((_) => _loadPublicApiData())
+            .catchError(_rememberError),
+      );
+      return;
+    }
+
     item.title = title.trim();
     item.url = url.trim();
     item.description = description.trim();
@@ -2095,7 +2197,7 @@ class SchoolStore extends ChangeNotifier {
     required String title,
     required String body,
   }) async {
-    if (firebaseEnabled) {
+    if (backendEnabled) {
       try {
         await (_repository as ApiRepository).addNotification(
           title: title,
@@ -2127,7 +2229,7 @@ class SchoolStore extends ChangeNotifier {
     required String title,
     required String body,
   }) async {
-    if (firebaseEnabled) {
+    if (backendEnabled) {
       await (_repository as ApiRepository).updateNotification(
         id: notification.id,
         title: title,
@@ -2155,7 +2257,7 @@ class SchoolStore extends ChangeNotifier {
   }
 
   Future<void> deleteNotification(AppNotification notification) async {
-    if (firebaseEnabled) {
+    if (backendEnabled) {
       await (_repository as ApiRepository).deleteNotification(notification.id);
       await _loadSignedInApiData();
       notifyListeners();
@@ -2171,7 +2273,7 @@ class SchoolStore extends ChangeNotifier {
     required String query,
     String? center,
   }) async {
-    if (!firebaseEnabled) {
+    if (!backendEnabled) {
       return const [];
     }
     final items = await (_repository as ApiRepository).searchNationalResults(
@@ -2183,7 +2285,7 @@ class SchoolStore extends ChangeNotifier {
   }
 
   Future<List<String>> nationalResultCenters({required String examType}) async {
-    if (!firebaseEnabled) {
+    if (!backendEnabled) {
       return const [];
     }
     return (_repository as ApiRepository).nationalResultCenters(
@@ -2192,7 +2294,7 @@ class SchoolStore extends ChangeNotifier {
   }
 
   Future<List<OfferSlide>> offers() async {
-    if (!firebaseEnabled) {
+    if (!backendEnabled) {
       return const [];
     }
     final items = await (_repository as ApiRepository).offers();
@@ -2200,7 +2302,7 @@ class SchoolStore extends ChangeNotifier {
   }
 
   Future<OfferTextSection> offerTextSection() async {
-    if (!firebaseEnabled) {
+    if (!backendEnabled) {
       return const OfferTextSection(title: '', body: '', active: false);
     }
     final data = await (_repository as ApiRepository).offerTextSection();
@@ -2212,7 +2314,7 @@ class SchoolStore extends ChangeNotifier {
     required String filePath,
     required String fileName,
   }) async {
-    if (!firebaseEnabled) {
+    if (!backendEnabled) {
       return 0;
     }
     return (_repository as ApiRepository).uploadNationalResults(
@@ -2276,9 +2378,9 @@ class StoreScope extends InheritedNotifier<SchoolStore> {
 }
 
 class EpsilonApp extends StatefulWidget {
-  const EpsilonApp({required this.firebaseStatus, super.key});
+  const EpsilonApp({required this.backendStatus, super.key});
 
-  final FirebaseBootstrap firebaseStatus;
+  final BackendBootstrap backendStatus;
 
   @override
   State<EpsilonApp> createState() => _EpsilonAppState();
@@ -2286,7 +2388,7 @@ class EpsilonApp extends StatefulWidget {
 
 class _EpsilonAppState extends State<EpsilonApp> {
   late final SchoolStore store = SchoolStore(
-    firebaseEnabled: widget.firebaseStatus.isReady,
+    backendEnabled: widget.backendStatus.isReady,
   );
 
   @override
@@ -2420,7 +2522,7 @@ class _EpsilonAppState extends State<EpsilonApp> {
                 ),
               ),
             ),
-            home: StartupSplashGate(firebaseStatus: widget.firebaseStatus),
+            home: StartupSplashGate(backendStatus: widget.backendStatus),
           );
         },
       ),
@@ -2429,9 +2531,9 @@ class _EpsilonAppState extends State<EpsilonApp> {
 }
 
 class StartupSplashGate extends StatefulWidget {
-  const StartupSplashGate({required this.firebaseStatus, super.key});
+  const StartupSplashGate({required this.backendStatus, super.key});
 
-  final FirebaseBootstrap firebaseStatus;
+  final BackendBootstrap backendStatus;
 
   @override
   State<StartupSplashGate> createState() => _StartupSplashGateState();
@@ -2463,7 +2565,7 @@ class _StartupSplashGateState extends State<StartupSplashGate> {
       return const StartupSplashScreen();
     }
 
-    return OnboardingGate(firebaseStatus: widget.firebaseStatus);
+    return OnboardingGate(backendStatus: widget.backendStatus);
   }
 }
 
@@ -2496,9 +2598,9 @@ class StartupSplashScreen extends StatelessWidget {
 }
 
 class OnboardingGate extends StatefulWidget {
-  const OnboardingGate({required this.firebaseStatus, super.key});
+  const OnboardingGate({required this.backendStatus, super.key});
 
-  final FirebaseBootstrap firebaseStatus;
+  final BackendBootstrap backendStatus;
 
   @override
   State<OnboardingGate> createState() => _OnboardingGateState();
@@ -2568,7 +2670,7 @@ class _OnboardingGateState extends State<OnboardingGate> {
     }
 
     if (onboardingDone) {
-      return AppShell(firebaseStatus: widget.firebaseStatus);
+      return AppShell(backendStatus: widget.backendStatus);
     }
 
     return Scaffold(
@@ -2696,9 +2798,9 @@ class OnboardingImagePage extends StatelessWidget {
 }
 
 class AppShell extends StatelessWidget {
-  const AppShell({required this.firebaseStatus, super.key});
+  const AppShell({required this.backendStatus, super.key});
 
-  final FirebaseBootstrap firebaseStatus;
+  final BackendBootstrap backendStatus;
 
   @override
   Widget build(BuildContext context) {
@@ -2706,7 +2808,7 @@ class AppShell extends StatelessWidget {
     final user = store.currentUser;
 
     if (user == null) {
-      return AuthScreen(firebaseStatus: firebaseStatus);
+      return AuthScreen(backendStatus: backendStatus);
     }
 
     if (user.status == AccountStatus.pending) {
@@ -2768,9 +2870,9 @@ class EpsilonBackground extends StatelessWidget {
 }
 
 class AuthScreen extends StatefulWidget {
-  const AuthScreen({required this.firebaseStatus, super.key});
+  const AuthScreen({required this.backendStatus, super.key});
 
-  final FirebaseBootstrap firebaseStatus;
+  final BackendBootstrap backendStatus;
 
   @override
   State<AuthScreen> createState() => _AuthScreenState();
@@ -2837,11 +2939,11 @@ class _AuthScreenState extends State<AuthScreen>
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.stretch,
                               children: [
-                                if (!widget.firebaseStatus.isReady) ...[
-                                  FirebaseSetupBanner(
+                                if (!widget.backendStatus.isReady) ...[
+                                  BackendSetupBanner(
                                     message:
-                                        widget.firebaseStatus.errorMessage ??
-                                        'Firebase غير متصل حاليًا.',
+                                        widget.backendStatus.errorMessage ??
+                                        'الباكند غير متصل حاليًا.',
                                   ),
                                   const SizedBox(height: 16),
                                 ],
@@ -3346,7 +3448,7 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
                             setState(() {
                               success = false;
                               message =
-                                  'تعذر إرسال الرابط: ${friendlyFirebaseError(error)}';
+                                  'تعذر إرسال الرابط: ${friendlyApiError(error)}';
                             });
                           } finally {
                             if (mounted) {
@@ -6868,8 +6970,8 @@ class PaymentProofDetailsPage extends StatelessWidget {
   }
 }
 
-class FirebaseSetupBanner extends StatelessWidget {
-  const FirebaseSetupBanner({required this.message, super.key});
+class BackendSetupBanner extends StatelessWidget {
+  const BackendSetupBanner({required this.message, super.key});
 
   final String message;
 
@@ -8675,7 +8777,7 @@ class _CreateTeacherFormState extends State<CreateTeacherForm> {
                         }
                         setState(
                           () => message =
-                              'فشل إنشاء الأستاذ: ${friendlyFirebaseError(error)}',
+                              'فشل إنشاء الأستاذ: ${friendlyApiError(error)}',
                         );
                       } finally {
                         if (mounted) {
@@ -10125,7 +10227,7 @@ class _DeleteAccountDialogState extends State<DeleteAccountDialog> {
                       setState(() {
                         isDeleting = false;
                         error =
-                            'تعذر حذف الحساب: ${friendlyFirebaseError(exception)}';
+                            'تعذر حذف الحساب: ${friendlyApiError(exception)}';
                       });
                     }
                   }
