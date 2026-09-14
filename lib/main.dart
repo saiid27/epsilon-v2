@@ -5347,10 +5347,28 @@ class _RegisterCardState extends State<RegisterCard> {
 
   String get stepTitle {
     return switch (step) {
-      0 => 'ما اسمك؟',
-      1 => 'ما رقم هاتفك؟',
-      2 => 'اختر كلمة المرور',
-      _ => 'أكد كلمة المرور',
+      0 => 'الاسم الكامل',
+      1 => 'رقم الهاتف',
+      2 => 'كلمة المرور',
+      _ => 'تأكيد كلمة المرور',
+    };
+  }
+
+  IconData get stepIcon {
+    return switch (step) {
+      0 => Icons.badge_outlined,
+      1 => Icons.phone_iphone_rounded,
+      2 => Icons.lock_outline_rounded,
+      _ => Icons.verified_user_outlined,
+    };
+  }
+
+  String get stepHint {
+    return switch (step) {
+      0 => 'اكتب اسم الطالب كما سيظهر في لوحة الإدارة.',
+      1 => 'سيستخدم هذا الرقم لتسجيل الدخول ومراجعة الطلب.',
+      2 => 'اختر كلمة مرور لا تقل عن 6 أحرف أو أرقام.',
+      _ => 'أعد كتابة كلمة المرور للمتابعة إلى اختيار القسم.',
     };
   }
 
@@ -5451,26 +5469,102 @@ class _RegisterCardState extends State<RegisterCard> {
   Widget build(BuildContext context) {
     final store = StoreScope.of(context);
 
-    return Card(
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: const Color(0xFFE3EAF8)),
+        boxShadow: [
+          BoxShadow(
+            color: epsilonBlue.withValues(alpha: 0.08),
+            blurRadius: 28,
+            offset: const Offset(0, 16),
+          ),
+        ],
+      ),
       child: Padding(
-        padding: const EdgeInsets.all(18),
+        padding: const EdgeInsets.all(20),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            Row(
+              children: [
+                Container(
+                  width: 50,
+                  height: 50,
+                  decoration: BoxDecoration(
+                    color: epsilonBlue.withValues(alpha: 0.10),
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: Icon(stepIcon, color: epsilonBlue, size: 26),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'إنشاء حساب طالب',
+                        style: Theme.of(context).textTheme.titleMedium
+                            ?.copyWith(
+                              color: epsilonMuted,
+                              fontWeight: FontWeight.w800,
+                            ),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        stepTitle,
+                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                          fontWeight: FontWeight.w900,
+                          color: epsilonInk,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Text(
+                  '${step + 1}/4',
+                  style: const TextStyle(
+                    color: epsilonBlue,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
             Text(
-              stepTitle,
-              style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                fontWeight: FontWeight.w900,
-                color: epsilonInk,
+              stepHint,
+              style: const TextStyle(
+                color: epsilonMuted,
+                height: 1.35,
+                fontWeight: FontWeight.w700,
               ),
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 16),
             LinearProgressIndicator(
               value: (step + 1) / 4,
               borderRadius: BorderRadius.circular(999),
-              minHeight: 7,
+              minHeight: 8,
+              backgroundColor: const Color(0xFFEAF0FB),
+              color: epsilonBlue,
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 16),
+            Row(
+              children: List.generate(4, (index) {
+                final active = index <= step;
+                return Expanded(
+                  child: Container(
+                    height: 4,
+                    margin: EdgeInsetsDirectional.only(end: index == 3 ? 0 : 6),
+                    decoration: BoxDecoration(
+                      color: active ? epsilonBlue : const Color(0xFFE2E8F0),
+                      borderRadius: BorderRadius.circular(99),
+                    ),
+                  ),
+                );
+              }),
+            ),
+            const SizedBox(height: 18),
             currentStepField(),
             if (store.courses.isEmpty) ...[
               const SizedBox(height: 10),
@@ -5483,7 +5577,9 @@ class _RegisterCardState extends State<RegisterCard> {
             const SizedBox(height: 16),
             FilledButton.icon(
               onPressed: () => goNext(store),
-              icon: const Icon(Icons.arrow_back_rounded),
+              icon: Icon(
+                step == 3 ? Icons.school_rounded : Icons.arrow_back_rounded,
+              ),
               label: Text(nextLabel),
             ),
             if (step > 0)
@@ -5492,7 +5588,7 @@ class _RegisterCardState extends State<RegisterCard> {
                   step -= 1;
                   error = null;
                 }),
-                child: const Text('رجوع'),
+                child: const Text('رجوع خطوة'),
               ),
           ],
         ),
@@ -8556,6 +8652,9 @@ class StudentDashboard extends StatelessWidget {
     for (final lesson in visibleLessons) {
       lessonsBySubject.putIfAbsent(lesson.subject, () => []).add(lesson);
     }
+    final completedSubjects = lessonsBySubject.values
+        .where((items) => items.isNotEmpty)
+        .length;
 
     return Scaffold(
       backgroundColor: const Color(0xFFF7F9FF),
@@ -8568,44 +8667,191 @@ class StudentDashboard extends StatelessWidget {
             subtitle: selectedSection == null
                 ? 'لم يتم ربطك بقسم بعد'
                 : 'قسم ${selectedSection.title}',
-            icon: Icons.person_rounded,
+            icon: Icons.auto_stories_rounded,
           ),
-          const SizedBox(height: 16),
-          SectionCard(
-            title: 'قسمي',
-            icon: Icons.menu_book_rounded,
-            child: visibleSections.isEmpty
-                ? const EmptyState(text: 'لا يوجد قسم مفعل لهذا الحساب.')
-                : Column(
-                    children: visibleSections
-                        .map(
-                          (course) => ListTile(
-                            leading: const Icon(Icons.book_rounded),
-                            title: Text(course.title),
-                            subtitle: Text(
-                              'المواد: ${allowedSubjects.join('، ')}',
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              Expanded(
+                child: StudentStatCard(
+                  icon: Icons.subject_rounded,
+                  value: '${allowedSubjects.length}',
+                  label: 'موادك',
+                  color: epsilonBlue,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: StudentStatCard(
+                  icon: Icons.play_circle_rounded,
+                  value: '${visibleLessons.length}',
+                  label: 'الدروس',
+                  color: epsilonTeal,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: StudentStatCard(
+                  icon: Icons.check_circle_rounded,
+                  value: '$completedSubjects',
+                  label: 'نشطة',
+                  color: epsilonGold,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          if (visibleSections.isEmpty)
+            const SectionCard(
+              title: 'قسمي',
+              icon: Icons.menu_book_rounded,
+              child: EmptyState(text: 'لا يوجد قسم مفعل لهذا الحساب.'),
+            )
+          else
+            for (final course in visibleSections) ...[
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(18),
+                  border: Border.all(color: const Color(0xFFDDE7FF)),
+                  boxShadow: [
+                    BoxShadow(
+                      color: epsilonBlue.withValues(alpha: 0.07),
+                      blurRadius: 24,
+                      offset: const Offset(0, 14),
+                    ),
+                  ],
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 54,
+                      height: 54,
+                      decoration: BoxDecoration(
+                        color: courseAccent(
+                          course.title,
+                        ).withValues(alpha: 0.11),
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      child: Icon(
+                        Icons.school_rounded,
+                        color: courseAccent(course.title),
+                        size: 28,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            course.title,
+                            style: const TextStyle(
+                              color: epsilonInk,
+                              fontWeight: FontWeight.w900,
+                              fontSize: 18,
                             ),
                           ),
-                        )
-                        .toList(),
-                  ),
-          ),
-          const SizedBox(height: 16),
+                          const SizedBox(height: 4),
+                          Text(
+                            allowedSubjects.isEmpty
+                                ? 'كل مواد القسم متاحة لك'
+                                : allowedSubjects.join('، '),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: epsilonMuted,
+                              height: 1.3,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 14),
+            ],
           SectionCard(
-            title: 'مواد قسمي',
+            title: 'موادك الدراسية',
             icon: Icons.folder_special_rounded,
             child: lessonsBySubject.isEmpty
                 ? const EmptyState(text: 'لا توجد مواد في هذا القسم.')
-                : Column(
-                    children: lessonsBySubject.entries
-                        .map(
-                          (entry) => SubjectCard(
-                            subject: entry.key,
-                            lessons: entry.value,
-                          ),
-                        )
-                        .toList(),
+                : LayoutBuilder(
+                    builder: (context, constraints) {
+                      final wide = constraints.maxWidth > 390;
+                      return Wrap(
+                        spacing: 10,
+                        runSpacing: 10,
+                        children: lessonsBySubject.entries.map((entry) {
+                          final width = wide
+                              ? (constraints.maxWidth - 10) / 2
+                              : constraints.maxWidth;
+                          return SizedBox(
+                            width: width,
+                            child: SubjectCard(
+                              subject: entry.key,
+                              lessons: entry.value,
+                            ),
+                          );
+                        }).toList(),
+                      );
+                    },
                   ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class StudentStatCard extends StatelessWidget {
+  const StudentStatCard({
+    required this.icon,
+    required this.value,
+    required this.label,
+    required this.color,
+    super.key,
+  });
+
+  final IconData icon;
+  final String value;
+  final String label;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: color.withValues(alpha: 0.18)),
+      ),
+      child: Column(
+        children: [
+          Icon(icon, color: color, size: 24),
+          const SizedBox(height: 6),
+          Text(
+            value,
+            style: TextStyle(
+              color: color,
+              fontSize: 20,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: epsilonMuted,
+              fontSize: 12,
+              fontWeight: FontWeight.w800,
+            ),
           ),
         ],
       ),
@@ -10467,14 +10713,17 @@ class SubjectCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      margin: const EdgeInsets.only(bottom: 14),
       decoration: BoxDecoration(
-        color: const Color(0xFFFAFBFF),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: const Color(0xFFE8EEFF)),
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: lessons.isEmpty
+              ? const Color(0xFFE8EEFF)
+              : epsilonBlue.withValues(alpha: 0.24),
+        ),
       ),
       child: InkWell(
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(16),
         onTap: () => Navigator.of(context).push(
           MaterialPageRoute(
             builder: (_) =>
@@ -10483,49 +10732,71 @@ class SubjectCard extends StatelessWidget {
         ),
         child: Padding(
           padding: const EdgeInsets.all(14),
-          child: Row(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Container(
-                width: 46,
-                height: 46,
-                decoration: BoxDecoration(
-                  color: const Color(0xFF2F5BEA).withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                child: const Icon(
-                  Icons.folder_special_rounded,
-                  color: Color(0xFF2F5BEA),
-                  size: 25,
+              Row(
+                children: [
+                  Container(
+                    width: 42,
+                    height: 42,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF2F5BEA).withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: const Icon(
+                      Icons.folder_special_rounded,
+                      color: Color(0xFF2F5BEA),
+                      size: 23,
+                    ),
+                  ),
+                  const Spacer(),
+                  StatusPill(text: '${lessons.length} درس'),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Text(
+                subject,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: epsilonInk,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w900,
                 ),
               ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      subject,
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w900,
-                      ),
-                    ),
-                    const SizedBox(height: 5),
-                    Text(
-                      lessons.isEmpty
-                          ? 'لا توجد دروس بعد'
-                          : 'اضغط لعرض دروس المادة',
-                      style: const TextStyle(
-                        color: Color(0xFF6B7280),
-                        fontSize: 12,
-                      ),
-                    ),
-                  ],
+              const SizedBox(height: 6),
+              Text(
+                lessons.isEmpty
+                    ? 'لا توجد دروس منشورة بعد'
+                    : 'آخر درس: ${lessons.first.title}',
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: Color(0xFF6B7280),
+                  fontSize: 12,
+                  height: 1.3,
+                  fontWeight: FontWeight.w700,
                 ),
               ),
-              StatusPill(text: '${lessons.length} فيديو'),
-              const SizedBox(width: 8),
-              const Icon(Icons.chevron_left_rounded, color: Color(0xFF9CA3AF)),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Text(
+                    lessons.isEmpty ? 'تفقد لاحقًا' : 'عرض الدروس',
+                    style: const TextStyle(
+                      color: Color(0xFF2F5BEA),
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  const Icon(
+                    Icons.chevron_left_rounded,
+                    color: Color(0xFF2F5BEA),
+                    size: 20,
+                  ),
+                ],
+              ),
             ],
           ),
         ),
