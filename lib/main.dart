@@ -5928,11 +5928,7 @@ class _StudentSubjectSelectionPageState
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
         children: [
-          HeaderPanel(
-            title: widget.course.title,
-            subtitle: 'اختر المواد التي تريد الاشتراك فيها',
-            icon: Icons.fact_check_rounded,
-          ),
+          SubjectSelectionHero(course: widget.course),
           const SizedBox(height: 16),
           SectionCard(
             title: 'المواد المتاحة',
@@ -6064,6 +6060,182 @@ class _StudentSubjectSelectionPageState
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class SubjectSelectionHero extends StatelessWidget {
+  const SubjectSelectionHero({required this.course, super.key});
+
+  final Course course;
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = courseAccent(course.title);
+
+    return Container(
+      decoration: BoxDecoration(
+        color: const Color(0xFF111B3D),
+        borderRadius: BorderRadius.circular(22),
+        boxShadow: [
+          BoxShadow(
+            color: accent.withValues(alpha: 0.20),
+            blurRadius: 28,
+            offset: const Offset(0, 16),
+          ),
+        ],
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Stack(
+        children: [
+          Positioned.fill(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: AlignmentDirectional.topStart,
+                  end: AlignmentDirectional.bottomEnd,
+                  colors: [
+                    const Color(0xFF111B3D),
+                    accent.withValues(alpha: 0.94),
+                    epsilonTeal.withValues(alpha: 0.86),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          PositionedDirectional(
+            top: -18,
+            end: -28,
+            child: Transform.rotate(
+              angle: -0.32,
+              child: Container(
+                width: 150,
+                height: 54,
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.10),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+              ),
+            ),
+          ),
+          PositionedDirectional(
+            bottom: -14,
+            start: -24,
+            child: Transform.rotate(
+              angle: -0.32,
+              child: Container(
+                width: 180,
+                height: 42,
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+              ),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.all(18),
+            child: Row(
+              children: [
+                Container(
+                  width: 58,
+                  height: 58,
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(18),
+                  ),
+                  child: Icon(
+                    Icons.fact_check_rounded,
+                    color: accent,
+                    size: 32,
+                  ),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        course.title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 25,
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: 0,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      const TypewriterLine(
+                        text: 'اختر المواد التي تريد الاشتراك فيها',
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class TypewriterLine extends StatefulWidget {
+  const TypewriterLine({required this.text, super.key});
+
+  final String text;
+
+  @override
+  State<TypewriterLine> createState() => _TypewriterLineState();
+}
+
+class _TypewriterLineState extends State<TypewriterLine> {
+  Timer? timer;
+  int visibleCharacters = 0;
+  bool showCursor = true;
+
+  @override
+  void initState() {
+    super.initState();
+    timer = Timer.periodic(const Duration(milliseconds: 45), (timer) {
+      if (!mounted) {
+        return;
+      }
+      if (visibleCharacters >= widget.text.characters.length) {
+        setState(() => showCursor = !showCursor);
+        return;
+      }
+      setState(() => visibleCharacters += 1);
+    });
+  }
+
+  @override
+  void dispose() {
+    timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final text = widget.text.characters.take(visibleCharacters).toString();
+
+    return AnimatedSize(
+      duration: const Duration(milliseconds: 120),
+      alignment: AlignmentDirectional.centerStart,
+      child: Text(
+        '$text${showCursor ? '|' : ''}',
+        maxLines: 2,
+        overflow: TextOverflow.ellipsis,
+        style: TextStyle(
+          color: Colors.white.withValues(alpha: 0.92),
+          fontSize: 14,
+          height: 1.4,
+          fontWeight: FontWeight.w800,
+          letterSpacing: 0,
+        ),
       ),
     );
   }
