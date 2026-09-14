@@ -11428,7 +11428,7 @@ Future<File> createStudentInvoicePdf({
   final logo = pw.MemoryImage(logoBytes.buffer.asUint8List());
   final pdf = pw.Document();
   final invoiceNumber =
-      'EPS-${student.phone}-${now.year}${twoDigits(now.month)}${twoDigits(now.day)}${twoDigits(now.hour)}${twoDigits(now.minute)}';
+      'INV-${now.year}${twoDigits(now.month)}${twoDigits(now.day)}-${twoDigits(now.hour)}${twoDigits(now.minute)}-${student.phone}';
   final subjectText = subjects.isEmpty ? 'القسم كامل' : subjects.join('، ');
 
   pdf.addPage(
@@ -11478,7 +11478,8 @@ Future<File> createStudentInvoicePdf({
                           crossAxisAlignment: pw.CrossAxisAlignment.start,
                           children: [
                             pw.Text(
-                              'Epsilon Education',
+                              'منصة إبسيلون التعليمية',
+                              textAlign: pw.TextAlign.right,
                               style: pw.TextStyle(
                                 color: PdfColors.white,
                                 fontSize: 24,
@@ -11488,6 +11489,7 @@ Future<File> createStudentInvoicePdf({
                             pw.SizedBox(height: 4),
                             pw.Text(
                               'فاتورة اشتراك رسمية',
+                              textAlign: pw.TextAlign.right,
                               style: const pw.TextStyle(
                                 color: PdfColors.white,
                                 fontSize: 15,
@@ -11559,6 +11561,8 @@ Future<File> createStudentInvoicePdf({
                             pw.Spacer(),
                             pw.Text(
                               amount,
+                              textDirection: invoiceTextDirection(amount),
+                              textAlign: pw.TextAlign.left,
                               style: pw.TextStyle(
                                 color: PdfColor.fromInt(0xFF2457E6),
                                 fontSize: 20,
@@ -11632,14 +11636,16 @@ pw.Widget invoicePdfInfoBox({required String label, required String value}) {
       children: [
         pw.Text(
           label,
+          textAlign: pw.TextAlign.right,
           style: const pw.TextStyle(
             color: PdfColor.fromInt(0xFF66708F),
             fontSize: 10,
           ),
         ),
         pw.SizedBox(height: 4),
-        pw.Text(
+        invoicePdfText(
           value,
+          textAlign: pw.TextAlign.right,
           style: pw.TextStyle(
             color: PdfColor.fromInt(0xFF17213D),
             fontSize: 12,
@@ -11673,8 +11679,9 @@ pw.Widget invoicePdfCell(String text, {bool isLabel = false}) {
   return pw.Container(
     padding: const pw.EdgeInsets.symmetric(horizontal: 10, vertical: 9),
     color: isLabel ? PdfColor.fromInt(0xFFF8FAFC) : PdfColors.white,
-    child: pw.Text(
+    child: invoicePdfText(
       text,
+      textAlign: pw.TextAlign.right,
       style: pw.TextStyle(
         color: isLabel
             ? PdfColor.fromInt(0xFF475569)
@@ -11684,6 +11691,23 @@ pw.Widget invoicePdfCell(String text, {bool isLabel = false}) {
       ),
     ),
   );
+}
+
+pw.Widget invoicePdfText(
+  String text, {
+  required pw.TextStyle style,
+  pw.TextAlign textAlign = pw.TextAlign.right,
+}) {
+  return pw.Directionality(
+    textDirection: invoiceTextDirection(text),
+    child: pw.Text(text, textAlign: textAlign, style: style),
+  );
+}
+
+pw.TextDirection invoiceTextDirection(String text) {
+  return RegExp(r'[\u0600-\u06FF]').hasMatch(text)
+      ? pw.TextDirection.rtl
+      : pw.TextDirection.ltr;
 }
 
 pw.Widget invoiceSignatureBox({required String title, required String name}) {
