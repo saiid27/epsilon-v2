@@ -12,6 +12,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:pdf/pdf.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:share_plus/share_plus.dart' as share;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -8640,6 +8644,12 @@ class StudentDashboard extends StatelessWidget {
     final completedSubjects = lessonsBySubject.values
         .where((items) => items.isNotEmpty)
         .length;
+    final invoiceAmount = studentInvoiceAmount(
+      store: store,
+      student: student,
+      course: selectedSection,
+      allowedSubjects: allowedSubjects,
+    );
 
     return Scaffold(
       backgroundColor: const Color(0xFFF7F9FF),
@@ -8686,6 +8696,15 @@ class StudentDashboard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 14),
+          if (selectedSection != null) ...[
+            StudentInvoiceCard(
+              student: student,
+              course: selectedSection,
+              subjects: allowedSubjects,
+              amount: invoiceAmount,
+            ),
+            const SizedBox(height: 14),
+          ],
           if (visibleSections.isEmpty)
             const SectionCard(
               title: 'قسمي',
@@ -8785,6 +8804,131 @@ class StudentDashboard extends StatelessWidget {
                       );
                     },
                   ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class StudentInvoiceCard extends StatefulWidget {
+  const StudentInvoiceCard({
+    required this.student,
+    required this.course,
+    required this.subjects,
+    required this.amount,
+    super.key,
+  });
+
+  final AppUser student;
+  final Course course;
+  final List<String> subjects;
+  final String amount;
+
+  @override
+  State<StudentInvoiceCard> createState() => _StudentInvoiceCardState();
+}
+
+class _StudentInvoiceCardState extends State<StudentInvoiceCard> {
+  bool isDownloading = false;
+
+  Future<void> downloadInvoice() async {
+    setState(() => isDownloading = true);
+    try {
+      final file = await createStudentInvoicePdf(
+        student: widget.student,
+        course: widget.course,
+        subjects: widget.subjects,
+        amount: widget.amount,
+      );
+      if (!mounted) {
+        return;
+      }
+      final box = context.findRenderObject() as RenderBox?;
+      await share.SharePlus.instance.share(
+        share.ShareParams(
+          title: 'فاتورة الاشتراك',
+          subject: 'فاتورة اشتراك Epsilon Education',
+          text: 'فاتورة اشتراك ${widget.student.name}',
+          files: [
+            share.XFile(
+              file.path,
+              mimeType: 'application/pdf',
+              name: file.uri.pathSegments.last,
+            ),
+          ],
+          fileNameOverrides: [file.uri.pathSegments.last],
+          sharePositionOrigin: box == null
+              ? null
+              : box.localToGlobal(Offset.zero) & box.size,
+        ),
+      );
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('تم حفظ الفاتورة: ${file.uri.pathSegments.last}'),
+        ),
+      );
+    } on Object catch (error) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('تعذر إنشاء الفاتورة: $error')));
+    } finally {
+      if (mounted) {
+        setState(() => isDownloading = false);
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final subjectText = widget.subjects.isEmpty
+        ? 'القسم كامل'
+        : widget.subjects.join('، ');
+
+    return SectionCard(
+      title: 'فاتورة الاشتراك',
+      icon: Icons.receipt_long_rounded,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: const Color(0xFFF8FAFF),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: const Color(0xFFE0E8FF)),
+            ),
+            child: Column(
+              children: [
+                InfoRow(label: 'القسم أو الدورة', value: widget.course.title),
+                InfoRow(label: 'المواد', value: subjectText),
+                InfoRow(label: 'السعر', value: widget.amount),
+                const InfoRow(
+                  label: 'الحالة',
+                  value: 'مدفوعة ومؤكدة من الإدارة',
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+          FilledButton.icon(
+            onPressed: isDownloading ? null : downloadInvoice,
+            icon: isDownloading
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.download_rounded),
+            label: Text(
+              isDownloading ? 'جاري إنشاء الفاتورة...' : 'تحميل الفاتورة PDF',
+            ),
           ),
         ],
       ),
@@ -11237,6 +11381,362 @@ List<Map<String, String>> parseSubjectInputs(String raw) {
           {'name': 'مادة عامة', 'price': ''},
         ]
       : uniqueSubjects;
+}
+
+String studentInvoiceAmount({
+  required SchoolStore store,
+  required AppUser student,
+  required Course? course,
+  required List<String> allowedSubjects,
+}) {
+  if (course == null) {
+    return store.paymentAmount.trim().isEmpty
+        ? 'غير محدد'
+        : store.paymentAmount;
+  }
+
+  final fullCourse =
+      allowedSubjects.isEmpty ||
+      (allowedSubjects.length == course.subjects.length &&
+          allowedSubjects.every(course.subjects.contains));
+  if (fullCourse && course.price.trim().isNotEmpty) {
+    return course.price.trim();
+  }
+  if (allowedSubjects.isNotEmpty) {
+    final selectedAmount = selectedSubjectsAmount(course, allowedSubjects);
+    if (selectedAmount != 'غير محدد') {
+      return selectedAmount;
+    }
+  }
+  return store.paymentAmount.trim().isEmpty ? 'غير محدد' : store.paymentAmount;
+}
+
+Future<File> createStudentInvoicePdf({
+  required AppUser student,
+  required Course course,
+  required List<String> subjects,
+  required String amount,
+}) async {
+  final now = DateTime.now();
+  final logoBytes = await rootBundle.load(
+    'assets/onboarding/epsilon_logo.jpeg',
+  );
+  final fontBytes = await rootBundle.load('assets/fonts/SFArabic.ttf');
+  final arabicFont = pw.Font.ttf(fontBytes);
+  final logo = pw.MemoryImage(logoBytes.buffer.asUint8List());
+  final pdf = pw.Document();
+  final invoiceNumber =
+      'EPS-${student.phone}-${now.year}${twoDigits(now.month)}${twoDigits(now.day)}${twoDigits(now.hour)}${twoDigits(now.minute)}';
+  final subjectText = subjects.isEmpty ? 'القسم كامل' : subjects.join('، ');
+
+  pdf.addPage(
+    pw.Page(
+      pageFormat: PdfPageFormat.a4,
+      margin: const pw.EdgeInsets.all(32),
+      theme: pw.ThemeData.withFont(base: arabicFont, bold: arabicFont),
+      build: (context) {
+        return pw.Directionality(
+          textDirection: pw.TextDirection.rtl,
+          child: pw.Container(
+            decoration: pw.BoxDecoration(
+              border: pw.Border.all(color: PdfColor.fromInt(0xFFDDE6F5)),
+              borderRadius: pw.BorderRadius.circular(14),
+            ),
+            child: pw.Column(
+              crossAxisAlignment: pw.CrossAxisAlignment.stretch,
+              children: [
+                pw.Container(
+                  padding: const pw.EdgeInsets.all(20),
+                  decoration: pw.BoxDecoration(
+                    color: PdfColor.fromInt(0xFF2457E6),
+                    borderRadius: const pw.BorderRadius.only(
+                      topLeft: pw.Radius.circular(14),
+                      topRight: pw.Radius.circular(14),
+                    ),
+                  ),
+                  child: pw.Row(
+                    children: [
+                      pw.Container(
+                        width: 72,
+                        height: 72,
+                        padding: const pw.EdgeInsets.all(6),
+                        decoration: pw.BoxDecoration(
+                          color: PdfColors.white,
+                          borderRadius: pw.BorderRadius.circular(16),
+                        ),
+                        child: pw.Image(logo, fit: pw.BoxFit.cover),
+                      ),
+                      pw.SizedBox(width: 16),
+                      pw.Expanded(
+                        child: pw.Column(
+                          crossAxisAlignment: pw.CrossAxisAlignment.start,
+                          children: [
+                            pw.Text(
+                              'Epsilon Education',
+                              style: pw.TextStyle(
+                                color: PdfColors.white,
+                                fontSize: 24,
+                                fontWeight: pw.FontWeight.bold,
+                              ),
+                            ),
+                            pw.SizedBox(height: 4),
+                            pw.Text(
+                              'فاتورة اشتراك رسمية',
+                              style: const pw.TextStyle(
+                                color: PdfColors.white,
+                                fontSize: 15,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                pw.Padding(
+                  padding: const pw.EdgeInsets.all(22),
+                  child: pw.Column(
+                    crossAxisAlignment: pw.CrossAxisAlignment.stretch,
+                    children: [
+                      pw.Row(
+                        children: [
+                          pw.Expanded(
+                            child: invoicePdfInfoBox(
+                              label: 'رقم الفاتورة',
+                              value: invoiceNumber,
+                            ),
+                          ),
+                          pw.SizedBox(width: 12),
+                          pw.Expanded(
+                            child: invoicePdfInfoBox(
+                              label: 'التاريخ والوقت',
+                              value:
+                                  '${formatArabicDate(now)} - ${formatTime(now)}',
+                            ),
+                          ),
+                        ],
+                      ),
+                      pw.SizedBox(height: 18),
+                      pw.Text(
+                        'بيانات الطالب',
+                        style: pw.TextStyle(
+                          color: PdfColor.fromInt(0xFF17213D),
+                          fontSize: 17,
+                          fontWeight: pw.FontWeight.bold,
+                        ),
+                      ),
+                      pw.SizedBox(height: 10),
+                      invoicePdfTable([
+                        ['اسم الطالب', student.name],
+                        ['رقم الهاتف', student.phone],
+                        ['القسم أو الدورة', course.title],
+                        ['المواد', subjectText],
+                        ['حالة الدفع', 'مدفوعة ومؤكدة من الإدارة'],
+                      ]),
+                      pw.SizedBox(height: 18),
+                      pw.Container(
+                        padding: const pw.EdgeInsets.all(16),
+                        decoration: pw.BoxDecoration(
+                          color: PdfColor.fromInt(0xFFEFF6FF),
+                          borderRadius: pw.BorderRadius.circular(12),
+                        ),
+                        child: pw.Row(
+                          children: [
+                            pw.Text(
+                              'المبلغ الإجمالي',
+                              style: pw.TextStyle(
+                                color: PdfColor.fromInt(0xFF17213D),
+                                fontSize: 16,
+                                fontWeight: pw.FontWeight.bold,
+                              ),
+                            ),
+                            pw.Spacer(),
+                            pw.Text(
+                              amount,
+                              style: pw.TextStyle(
+                                color: PdfColor.fromInt(0xFF2457E6),
+                                fontSize: 20,
+                                fontWeight: pw.FontWeight.bold,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      pw.SizedBox(height: 70),
+                      pw.Row(
+                        children: [
+                          pw.Expanded(
+                            child: invoiceSignatureBox(
+                              title: 'المدير العام',
+                              name: 'احمد طالب عمر',
+                            ),
+                          ),
+                          pw.SizedBox(width: 16),
+                          pw.Expanded(
+                            child: invoiceSignatureBox(
+                              title: 'مدير المالية والرقمنة',
+                              name: 'محمد سعيد محمدن',
+                            ),
+                          ),
+                        ],
+                      ),
+                      pw.SizedBox(height: 14),
+                      pw.Center(
+                        child: pw.Text(
+                          'تم إصدار هذه الفاتورة إلكترونياً بعد تأكيد عملية الدفع من طرف الإدارة.',
+                          style: const pw.TextStyle(
+                            color: PdfColor.fromInt(0xFF66708F),
+                            fontSize: 11,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    ),
+  );
+
+  final directory = await getApplicationDocumentsDirectory();
+  final invoicesDirectory = Directory('${directory.path}/invoices');
+  if (!await invoicesDirectory.exists()) {
+    await invoicesDirectory.create(recursive: true);
+  }
+  final fileName =
+      'epsilon_invoice_${safeFileSegment(student.phone)}_${now.millisecondsSinceEpoch}.pdf';
+  final file = File('${invoicesDirectory.path}/$fileName');
+  await file.writeAsBytes(await pdf.save(), flush: true);
+  return file;
+}
+
+pw.Widget invoicePdfInfoBox({required String label, required String value}) {
+  return pw.Container(
+    padding: const pw.EdgeInsets.all(12),
+    decoration: pw.BoxDecoration(
+      color: PdfColor.fromInt(0xFFF8FAFC),
+      border: pw.Border.all(color: PdfColor.fromInt(0xFFE2E8F0)),
+      borderRadius: pw.BorderRadius.circular(10),
+    ),
+    child: pw.Column(
+      crossAxisAlignment: pw.CrossAxisAlignment.start,
+      children: [
+        pw.Text(
+          label,
+          style: const pw.TextStyle(
+            color: PdfColor.fromInt(0xFF66708F),
+            fontSize: 10,
+          ),
+        ),
+        pw.SizedBox(height: 4),
+        pw.Text(
+          value,
+          style: pw.TextStyle(
+            color: PdfColor.fromInt(0xFF17213D),
+            fontSize: 12,
+            fontWeight: pw.FontWeight.bold,
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+pw.Widget invoicePdfTable(List<List<String>> rows) {
+  return pw.Table(
+    border: pw.TableBorder.all(color: PdfColor.fromInt(0xFFE2E8F0)),
+    columnWidths: const {
+      0: pw.FlexColumnWidth(1.2),
+      1: pw.FlexColumnWidth(2.2),
+    },
+    children: rows.map((row) {
+      return pw.TableRow(
+        children: [
+          invoicePdfCell(row[0], isLabel: true),
+          invoicePdfCell(row[1]),
+        ],
+      );
+    }).toList(),
+  );
+}
+
+pw.Widget invoicePdfCell(String text, {bool isLabel = false}) {
+  return pw.Container(
+    padding: const pw.EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+    color: isLabel ? PdfColor.fromInt(0xFFF8FAFC) : PdfColors.white,
+    child: pw.Text(
+      text,
+      style: pw.TextStyle(
+        color: isLabel
+            ? PdfColor.fromInt(0xFF475569)
+            : PdfColor.fromInt(0xFF17213D),
+        fontSize: 11,
+        fontWeight: isLabel ? pw.FontWeight.bold : pw.FontWeight.normal,
+      ),
+    ),
+  );
+}
+
+pw.Widget invoiceSignatureBox({required String title, required String name}) {
+  return pw.Container(
+    height: 98,
+    padding: const pw.EdgeInsets.all(12),
+    decoration: pw.BoxDecoration(
+      border: pw.Border.all(color: PdfColor.fromInt(0xFFDDE6F5)),
+      borderRadius: pw.BorderRadius.circular(12),
+    ),
+    child: pw.Column(
+      crossAxisAlignment: pw.CrossAxisAlignment.stretch,
+      children: [
+        pw.Text(
+          title,
+          textAlign: pw.TextAlign.center,
+          style: const pw.TextStyle(
+            color: PdfColor.fromInt(0xFF66708F),
+            fontSize: 10,
+          ),
+        ),
+        pw.SizedBox(height: 8),
+        pw.Container(height: 1, color: PdfColor.fromInt(0xFFDDE6F5)),
+        pw.Spacer(),
+        pw.Text(
+          name,
+          textAlign: pw.TextAlign.center,
+          style: pw.TextStyle(
+            color: PdfColor.fromInt(0xFF17213D),
+            fontSize: 13,
+            fontWeight: pw.FontWeight.bold,
+          ),
+        ),
+        pw.SizedBox(height: 2),
+        pw.Text(
+          'التوقيع',
+          textAlign: pw.TextAlign.center,
+          style: const pw.TextStyle(
+            color: PdfColor.fromInt(0xFF94A3B8),
+            fontSize: 9,
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+String formatArabicDate(DateTime date) {
+  return '${twoDigits(date.day)}/${twoDigits(date.month)}/${date.year}';
+}
+
+String formatTime(DateTime date) {
+  return '${twoDigits(date.hour)}:${twoDigits(date.minute)}';
+}
+
+String twoDigits(int value) => value.toString().padLeft(2, '0');
+
+String safeFileSegment(String value) {
+  return value.replaceAll(RegExp(r'[^a-zA-Z0-9_-]+'), '_');
 }
 
 String selectedSubjectsAmount(
