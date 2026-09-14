@@ -8615,13 +8615,6 @@ class StudentDashboard extends StatelessWidget {
     final allowedSubjects = student.selectedSubjects.isNotEmpty
         ? student.selectedSubjects
         : selectedSection?.subjects ?? <String>[];
-    final visibleSections = store.courses
-        .where(
-          (course) =>
-              course.isActive &&
-              (student.courseId == null || course.id == student.courseId),
-        )
-        .toList();
     final visibleLessons =
         store.lessons
             .where(
@@ -8706,79 +8699,6 @@ class StudentDashboard extends StatelessWidget {
             ),
             const SizedBox(height: 14),
           ],
-          if (visibleSections.isEmpty)
-            const SectionCard(
-              title: 'قسمي',
-              icon: Icons.menu_book_rounded,
-              child: EmptyState(text: 'لا يوجد قسم مفعل لهذا الحساب.'),
-            )
-          else
-            for (final course in visibleSections) ...[
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(18),
-                  border: Border.all(color: const Color(0xFFDDE7FF)),
-                  boxShadow: [
-                    BoxShadow(
-                      color: epsilonBlue.withValues(alpha: 0.07),
-                      blurRadius: 24,
-                      offset: const Offset(0, 14),
-                    ),
-                  ],
-                ),
-                child: Row(
-                  children: [
-                    Container(
-                      width: 54,
-                      height: 54,
-                      decoration: BoxDecoration(
-                        color: courseAccent(
-                          course.title,
-                        ).withValues(alpha: 0.11),
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                      child: Icon(
-                        Icons.school_rounded,
-                        color: courseAccent(course.title),
-                        size: 28,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            course.title,
-                            style: const TextStyle(
-                              color: epsilonInk,
-                              fontWeight: FontWeight.w900,
-                              fontSize: 18,
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            allowedSubjects.isEmpty
-                                ? 'كل مواد القسم متاحة لك'
-                                : allowedSubjects.join('، '),
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              color: epsilonMuted,
-                              height: 1.3,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 14),
-            ],
           SectionCard(
             title: 'موادك الدراسية',
             icon: Icons.folder_special_rounded,
