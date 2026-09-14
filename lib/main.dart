@@ -11423,6 +11423,8 @@ Future<File> createStudentInvoicePdf({
   );
   final fontBytes = await rootBundle.load('assets/fonts/SFArabic.ttf');
   final arabicFont = pw.Font.ttf(fontBytes);
+  final latinFont = pw.Font.helvetica();
+  final latinBoldFont = pw.Font.helveticaBold();
   final logo = pw.MemoryImage(logoBytes.buffer.asUint8List());
   final pdf = pw.Document();
   final invoiceNumber =
@@ -11433,7 +11435,11 @@ Future<File> createStudentInvoicePdf({
     pw.Page(
       pageFormat: PdfPageFormat.a4,
       margin: const pw.EdgeInsets.all(32),
-      theme: pw.ThemeData.withFont(base: arabicFont, bold: arabicFont),
+      theme: pw.ThemeData.withFont(
+        base: arabicFont,
+        bold: arabicFont,
+        fontFallback: [latinFont, latinBoldFont],
+      ),
       build: (context) {
         return pw.Directionality(
           textDirection: pw.TextDirection.rtl,
