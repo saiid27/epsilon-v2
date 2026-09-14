@@ -15,7 +15,7 @@ void main() {
     expect(find.text('تسجيل الدخول'), findsOneWidget);
     expect(find.text('رقم الهاتف'), findsWidgets);
     expect(find.text('كلمة المرور'), findsOneWidget);
-    expect(find.text('نتائج المسابقات الوطنية'), findsOneWidget);
+    expect(find.text('نتائج المسابقات الوطنية'), findsNothing);
     expect(find.text('Google'), findsNothing);
     expect(find.text('Facebook'), findsNothing);
     expect(find.text('Apple'), findsNothing);
