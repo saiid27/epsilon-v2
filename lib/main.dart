@@ -7300,11 +7300,15 @@ class AdminFinanceCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: const Color(0xFF1F2937),
+        gradient: const LinearGradient(
+          begin: AlignmentDirectional.topStart,
+          end: AlignmentDirectional.bottomEnd,
+          colors: [Color(0xFF2457E6), Color(0xFF1D75D8), Color(0xFF0F9F7A)],
+        ),
         borderRadius: BorderRadius.circular(26),
         boxShadow: [
           BoxShadow(
-            color: const Color(0xFF1F2937).withValues(alpha: 0.18),
+            color: epsilonBlue.withValues(alpha: 0.20),
             blurRadius: 28,
             offset: const Offset(0, 16),
           ),
@@ -7318,7 +7322,19 @@ class AdminFinanceCard extends StatelessWidget {
             child: Icon(
               Icons.account_balance_wallet_rounded,
               size: 178,
-              color: Colors.white.withValues(alpha: 0.035),
+              color: Colors.white.withValues(alpha: 0.055),
+            ),
+          ),
+          PositionedDirectional(
+            bottom: -34,
+            end: -26,
+            child: Container(
+              width: 126,
+              height: 126,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: epsilonGold.withValues(alpha: 0.18),
+              ),
             ),
           ),
           Column(
@@ -7343,7 +7359,7 @@ class AdminFinanceCard extends StatelessWidget {
                         const Text(
                           'أهلا بكم',
                           style: TextStyle(
-                            color: Color(0xFFCBD5E1),
+                            color: Color(0xFFEAF4FF),
                             fontWeight: FontWeight.w700,
                           ),
                         ),
@@ -7364,7 +7380,7 @@ class AdminFinanceCard extends StatelessWidget {
                     width: 40,
                     height: 40,
                     decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.10),
+                      color: Colors.white.withValues(alpha: 0.16),
                       shape: BoxShape.circle,
                     ),
                     child: const Icon(
@@ -7378,9 +7394,9 @@ class AdminFinanceCard extends StatelessWidget {
               Container(
                 padding: const EdgeInsets.all(18),
                 decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.08),
+                  color: Colors.white.withValues(alpha: 0.18),
                   borderRadius: BorderRadius.circular(22),
-                  border: Border.all(color: Colors.white12),
+                  border: Border.all(color: Colors.white30),
                 ),
                 child: Row(
                   children: [
@@ -7388,7 +7404,7 @@ class AdminFinanceCard extends StatelessWidget {
                       width: 48,
                       height: 48,
                       decoration: BoxDecoration(
-                        color: Colors.black.withValues(alpha: 0.18),
+                        color: Colors.white.withValues(alpha: 0.18),
                         shape: BoxShape.circle,
                       ),
                       child: const Icon(
@@ -7404,7 +7420,7 @@ class AdminFinanceCard extends StatelessWidget {
                           const Text(
                             'إجمالي الموجود في الصندوق',
                             style: TextStyle(
-                              color: Color(0xFFE2E8F0),
+                              color: Color(0xFFEAF4FF),
                               fontWeight: FontWeight.w800,
                             ),
                           ),
@@ -7426,7 +7442,7 @@ class AdminFinanceCard extends StatelessWidget {
                         vertical: 8,
                       ),
                       decoration: BoxDecoration(
-                        color: const Color(0xFFF2B544),
+                        color: epsilonGold,
                         borderRadius: BorderRadius.circular(999),
                       ),
                       child: Text(
