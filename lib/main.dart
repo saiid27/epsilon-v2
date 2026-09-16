@@ -7133,12 +7133,21 @@ class AdminDashboard extends StatelessWidget {
     final actions = [
       AdminQuickActionData(
         title: 'الحسابات',
-        metric: '${store.pendingStudents.length}',
+        metric: '${store.students.length}',
         icon: Icons.manage_accounts_rounded,
         color: const Color(0xFFB63B65),
         onTap: () => Navigator.of(
           context,
         ).push(MaterialPageRoute(builder: (_) => const AdminAccountsPage())),
+      ),
+      AdminQuickActionData(
+        title: 'طلبات الدفع',
+        metric: '${store.pendingStudents.length}',
+        icon: Icons.fact_check_rounded,
+        color: const Color(0xFFF59E0B),
+        onTap: () => Navigator.of(context).push(
+          MaterialPageRoute(builder: (_) => const AdminPaymentRequestsPage()),
+        ),
       ),
       AdminQuickActionData(
         title: 'كشف الطلاب',
@@ -8304,27 +8313,13 @@ class AdminAccountsPage extends StatelessWidget {
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
         children: [
           AdminPageHeader(
-            title: 'مراجعة حسابات الطلاب',
-            subtitle: 'تحقق من إثبات الدفع ثم قرر حالة الحساب',
-            icon: Icons.receipt_long_rounded,
-            color: const Color(0xFF2F5BEA),
+            title: 'حسابات الطلاب',
+            subtitle: 'متابعة حالات الطلاب وتفعيل أو تجميد الحسابات',
+            icon: Icons.people_alt_rounded,
+            color: const Color(0xFFB63B65),
           ),
           const SizedBox(height: 16),
           AccountStatusFilters(students: students),
-          const SizedBox(height: 16),
-          const CreateStudentForm(),
-          const SizedBox(height: 16),
-          SectionCard(
-            title: 'طلبات الطلاب وإثباتات الدفع',
-            icon: Icons.receipt_long_rounded,
-            child: store.pendingStudents.isEmpty
-                ? const EmptyState(text: 'لا توجد طلبات دفع بانتظار المراجعة.')
-                : Column(
-                    children: store.pendingStudents
-                        .map((student) => PaymentReviewTile(user: student))
-                        .toList(),
-                  ),
-          ),
           const SizedBox(height: 16),
           SectionCard(
             title: 'كل حسابات الطلاب',
@@ -8339,6 +8334,43 @@ class AdminAccountsPage extends StatelessWidget {
                             trailing: AccountActionButton(user: student),
                           ),
                         )
+                        .toList(),
+                  ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class AdminPaymentRequestsPage extends StatelessWidget {
+  const AdminPaymentRequestsPage({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final store = StoreScope.of(context);
+
+    return Scaffold(
+      backgroundColor: const Color(0xFFF7F9FF),
+      appBar: const EpsilonAppBar(title: 'طلبات الدفع', showLogout: false),
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+        children: [
+          AdminPageHeader(
+            title: 'طلبات الطلاب وإثباتات الدفع',
+            subtitle: 'راجع صورة الدفع ورقم المرسل ثم قرر قبول الحساب',
+            icon: Icons.fact_check_rounded,
+            color: const Color(0xFFF59E0B),
+          ),
+          const SizedBox(height: 16),
+          SectionCard(
+            title: 'طلبات بانتظار المراجعة',
+            icon: Icons.receipt_long_rounded,
+            child: store.pendingStudents.isEmpty
+                ? const EmptyState(text: 'لا توجد طلبات دفع بانتظار المراجعة.')
+                : Column(
+                    children: store.pendingStudents
+                        .map((student) => PaymentReviewTile(user: student))
                         .toList(),
                   ),
           ),
