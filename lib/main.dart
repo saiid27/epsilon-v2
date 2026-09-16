@@ -7159,6 +7159,15 @@ class AdminDashboard extends StatelessWidget {
         ).push(MaterialPageRoute(builder: (_) => const AdminExpensesPage())),
       ),
       AdminQuickActionData(
+        title: 'طرق الدفع',
+        metric: '${store.paymentMethods.length}',
+        icon: Icons.account_balance_wallet_rounded,
+        color: const Color(0xFF2457E6),
+        onTap: () => Navigator.of(context).push(
+          MaterialPageRoute(builder: (_) => const AdminPaymentSettingsPage()),
+        ),
+      ),
+      AdminQuickActionData(
         title: 'الأساتذة',
         metric: '${store.teachers.length}',
         icon: Icons.co_present_rounded,
@@ -7543,6 +7552,31 @@ class AdminExpensesPage extends StatelessWidget {
           icon: Icons.receipt_long_rounded,
           child: EmptyState(text: 'سيتم تحديد طريقة حساب المصاريف لاحقا.'),
         ),
+      ),
+    );
+  }
+}
+
+class AdminPaymentSettingsPage extends StatelessWidget {
+  const AdminPaymentSettingsPage({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFFF7F9FF),
+      appBar: const EpsilonAppBar(title: 'طرق الدفع', showLogout: false),
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+        children: const [
+          AdminPageHeader(
+            title: 'طرق الدفع',
+            subtitle: 'إدارة أرقام الدفع والطرق التي تظهر للطلاب',
+            icon: Icons.account_balance_wallet_rounded,
+            color: epsilonBlue,
+          ),
+          SizedBox(height: 16),
+          PaymentNumberForm(),
+        ],
       ),
     );
   }
@@ -8544,8 +8578,6 @@ class AdminCoursesPage extends StatelessWidget {
             icon: Icons.menu_book_rounded,
             color: const Color(0xFF7C3AED),
           ),
-          const SizedBox(height: 16),
-          const PaymentNumberForm(),
           const SizedBox(height: 16),
           const CreateCourseForm(),
           const SizedBox(height: 16),
@@ -9551,19 +9583,125 @@ class CreateCourseForm extends StatefulWidget {
 
 class _CreateCourseFormState extends State<CreateCourseForm> {
   final titleController = TextEditingController();
-  final descriptionController = TextEditingController();
   final priceController = TextEditingController();
-  final subjectsController = TextEditingController(
-    text: 'الرياضيات:1500، الفيزياء:1500، الكيمياء:1200',
-  );
+  final subjectNameControllers = <TextEditingController>[];
+  final subjectPriceControllers = <TextEditingController>[];
+  int step = 0;
+  int subjectCount = 3;
+  String? error;
+
+  static const maxSubjects = 17;
+
+  @override
+  void initState() {
+    super.initState();
+    syncSubjectControllers();
+  }
 
   @override
   void dispose() {
     titleController.dispose();
-    descriptionController.dispose();
     priceController.dispose();
-    subjectsController.dispose();
+    for (final controller in subjectNameControllers) {
+      controller.dispose();
+    }
+    for (final controller in subjectPriceControllers) {
+      controller.dispose();
+    }
     super.dispose();
+  }
+
+  void syncSubjectControllers() {
+    while (subjectNameControllers.length < subjectCount) {
+      subjectNameControllers.add(TextEditingController());
+      subjectPriceControllers.add(TextEditingController());
+    }
+    while (subjectNameControllers.length > subjectCount) {
+      subjectNameControllers.removeLast().dispose();
+      subjectPriceControllers.removeLast().dispose();
+    }
+  }
+
+  void setSubjectCount(int value) {
+    setState(() {
+      subjectCount = value.clamp(1, maxSubjects);
+      syncSubjectControllers();
+      error = null;
+    });
+  }
+
+  bool validateCurrentStep() {
+    if (step == 0 && titleController.text.trim().isEmpty) {
+      setState(() => error = 'اكتب اسم الدورة أو القسم أولا.');
+      return false;
+    }
+    if (step == 2) {
+      final missing = subjectNameControllers.any(
+        (controller) => controller.text.trim().isEmpty,
+      );
+      if (missing) {
+        setState(() => error = 'اكتب اسم كل مادة قبل الانتقال للأسعار.');
+        return false;
+      }
+    }
+    setState(() => error = null);
+    return true;
+  }
+
+  void goNext() {
+    if (!validateCurrentStep()) {
+      return;
+    }
+    setState(() => step = min(step + 1, 3));
+  }
+
+  void goBack() {
+    setState(() {
+      step = max(step - 1, 0);
+      error = null;
+    });
+  }
+
+  void createCourse(SchoolStore store) {
+    if (!validateCurrentStep()) {
+      return;
+    }
+    final subjects = <Map<String, String>>[
+      for (var index = 0; index < subjectCount; index++)
+        {
+          'name': subjectNameControllers[index].text.trim(),
+          'price': subjectPriceControllers[index].text.trim(),
+        },
+    ];
+    if (subjects.any((subject) => subject['name']!.isEmpty)) {
+      setState(() => error = 'تأكد من كتابة كل أسماء المواد.');
+      return;
+    }
+
+    store.createCourse(
+      title: titleController.text,
+      classId: store.defaultClassId,
+      description: 'دروس وتمارين وملخصات منظمة للطلاب',
+      price: priceController.text,
+      subjects: subjects,
+    );
+    titleController.clear();
+    priceController.clear();
+    for (final controller in subjectNameControllers) {
+      controller.clear();
+    }
+    for (final controller in subjectPriceControllers) {
+      controller.clear();
+    }
+    setState(() {
+      step = 0;
+      subjectCount = 3;
+      syncSubjectControllers();
+      error = null;
+    });
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('تمت إضافة القسم')));
   }
 
   @override
@@ -9574,61 +9712,383 @@ class _CreateCourseFormState extends State<CreateCourseForm> {
       title: 'إنشاء قسم',
       icon: Icons.add_circle_outline_rounded,
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          TextField(
-            controller: titleController,
-            decoration: const InputDecoration(labelText: 'اسم القسم'),
+          CourseCreationStepper(currentStep: step),
+          const SizedBox(height: 14),
+          AnimatedSwitcher(
+            duration: const Duration(milliseconds: 260),
+            switchInCurve: Curves.easeOutCubic,
+            switchOutCurve: Curves.easeInCubic,
+            transitionBuilder: (child, animation) {
+              return FadeTransition(
+                opacity: animation,
+                child: SlideTransition(
+                  position: Tween<Offset>(
+                    begin: const Offset(0.05, 0),
+                    end: Offset.zero,
+                  ).animate(animation),
+                  child: child,
+                ),
+              );
+            },
+            child: switch (step) {
+              0 => CourseNameStep(
+                key: const ValueKey('course-name'),
+                titleController: titleController,
+              ),
+              1 => SubjectCountStep(
+                key: const ValueKey('subject-count'),
+                count: subjectCount,
+                maxSubjects: maxSubjects,
+                onChanged: setSubjectCount,
+              ),
+              2 => SubjectNamesStep(
+                key: const ValueKey('subject-names'),
+                controllers: subjectNameControllers,
+              ),
+              _ => SubjectPricesStep(
+                key: const ValueKey('subject-prices'),
+                coursePriceController: priceController,
+                subjectNameControllers: subjectNameControllers,
+                subjectPriceControllers: subjectPriceControllers,
+              ),
+            },
           ),
-          const SizedBox(height: 10),
-          TextField(
-            controller: descriptionController,
-            minLines: 2,
-            maxLines: 3,
-            decoration: const InputDecoration(labelText: 'وصف القسم'),
+          if (error != null) ...[
+            const SizedBox(height: 10),
+            Text(error!, style: TextStyle(color: Colors.red.shade700)),
+          ],
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              if (step > 0)
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: goBack,
+                    icon: const Icon(Icons.arrow_forward_rounded),
+                    label: const Text('رجوع'),
+                  ),
+                ),
+              if (step > 0) const SizedBox(width: 10),
+              Expanded(
+                flex: 2,
+                child: FilledButton.icon(
+                  onPressed: step == 3 ? () => createCourse(store) : goNext,
+                  icon: Icon(
+                    step == 3 ? Icons.add_rounded : Icons.arrow_back_rounded,
+                  ),
+                  label: Text(step == 3 ? 'إضافة القسم' : 'التالي'),
+                ),
+              ),
+            ],
           ),
-          const SizedBox(height: 10),
+        ],
+      ),
+    );
+  }
+}
+
+class CourseCreationStepper extends StatelessWidget {
+  const CourseCreationStepper({required this.currentStep, super.key});
+
+  final int currentStep;
+
+  @override
+  Widget build(BuildContext context) {
+    final labels = ['الاسم', 'العدد', 'المواد', 'الأسعار'];
+    return Row(
+      children: [
+        for (var index = 0; index < labels.length; index++) ...[
+          Expanded(
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 220),
+              padding: const EdgeInsets.symmetric(vertical: 9),
+              decoration: BoxDecoration(
+                color: index <= currentStep
+                    ? epsilonBlue.withValues(alpha: 0.10)
+                    : const Color(0xFFF4F7FC),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: index == currentStep ? epsilonBlue : epsilonLine,
+                ),
+              ),
+              child: Text(
+                labels[index],
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: index <= currentStep ? epsilonBlue : epsilonMuted,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ),
+          ),
+          if (index != labels.length - 1) const SizedBox(width: 7),
+        ],
+      ],
+    );
+  }
+}
+
+class CourseNameStep extends StatelessWidget {
+  const CourseNameStep({required this.titleController, super.key});
+
+  final TextEditingController titleController;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const StepIntro(
+          icon: Icons.school_rounded,
+          title: 'اسم الدورة أو القسم',
+          subtitle: 'مثال: البكالوريا، الروابع، التحضير للمسابقات',
+        ),
+        const SizedBox(height: 12),
+        TextField(
+          controller: titleController,
+          textInputAction: TextInputAction.next,
+          decoration: const InputDecoration(
+            labelText: 'اسم الدورة أو القسم',
+            prefixIcon: Icon(Icons.drive_file_rename_outline_rounded),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class SubjectCountStep extends StatelessWidget {
+  const SubjectCountStep({
+    required this.count,
+    required this.maxSubjects,
+    required this.onChanged,
+    super.key,
+  });
+
+  final int count;
+  final int maxSubjects;
+  final ValueChanged<int> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const StepIntro(
+          icon: Icons.format_list_numbered_rounded,
+          title: 'كم مادة في هذا القسم؟',
+          subtitle: 'يمكنك اختيار عدد المواد حتى 17 مادة.',
+        ),
+        const SizedBox(height: 14),
+        Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: const Color(0xFFF8FAFF),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: epsilonLine),
+          ),
+          child: Row(
+            children: [
+              IconButton.filled(
+                onPressed: count <= 1 ? null : () => onChanged(count - 1),
+                icon: const Icon(Icons.remove_rounded),
+              ),
+              Expanded(
+                child: Column(
+                  children: [
+                    AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 180),
+                      child: Text(
+                        '$count',
+                        key: ValueKey(count),
+                        style: const TextStyle(
+                          color: epsilonBlue,
+                          fontSize: 34,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ),
+                    const Text(
+                      'مادة',
+                      style: TextStyle(
+                        color: epsilonMuted,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              IconButton.filled(
+                onPressed: count >= maxSubjects
+                    ? null
+                    : () => onChanged(count + 1),
+                icon: const Icon(Icons.add_rounded),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+        Slider(
+          value: count.toDouble(),
+          min: 1,
+          max: maxSubjects.toDouble(),
+          divisions: maxSubjects - 1,
+          label: '$count',
+          onChanged: (value) => onChanged(value.round()),
+        ),
+      ],
+    );
+  }
+}
+
+class SubjectNamesStep extends StatelessWidget {
+  const SubjectNamesStep({required this.controllers, super.key});
+
+  final List<TextEditingController> controllers;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const StepIntro(
+          icon: Icons.subject_rounded,
+          title: 'أسماء المواد',
+          subtitle: 'اكتب كل مادة في خانة مستقلة حتى تظهر للطلاب بشكل مرتب.',
+        ),
+        const SizedBox(height: 12),
+        for (var index = 0; index < controllers.length; index++) ...[
           TextField(
-            controller: priceController,
+            controller: controllers[index],
+            textInputAction: index == controllers.length - 1
+                ? TextInputAction.done
+                : TextInputAction.next,
+            decoration: InputDecoration(
+              labelText: 'اسم المادة ${index + 1}',
+              prefixIcon: const Icon(Icons.menu_book_rounded),
+            ),
+          ),
+          if (index != controllers.length - 1) const SizedBox(height: 10),
+        ],
+      ],
+    );
+  }
+}
+
+class SubjectPricesStep extends StatelessWidget {
+  const SubjectPricesStep({
+    required this.coursePriceController,
+    required this.subjectNameControllers,
+    required this.subjectPriceControllers,
+    super.key,
+  });
+
+  final TextEditingController coursePriceController;
+  final List<TextEditingController> subjectNameControllers;
+  final List<TextEditingController> subjectPriceControllers;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const StepIntro(
+          icon: Icons.sell_rounded,
+          title: 'الأسعار',
+          subtitle: 'أضف سعر الدورة كاملة، ثم سعر كل مادة وحدها.',
+        ),
+        const SizedBox(height: 12),
+        TextField(
+          controller: coursePriceController,
+          keyboardType: TextInputType.text,
+          decoration: const InputDecoration(
+            labelText: 'سعر الدورة أو القسم كاملا',
+            hintText: 'مثال: 5000',
+            prefixIcon: Icon(Icons.local_offer_rounded),
+          ),
+        ),
+        const SizedBox(height: 12),
+        for (
+          var index = 0;
+          index < subjectPriceControllers.length;
+          index++
+        ) ...[
+          TextField(
+            controller: subjectPriceControllers[index],
             keyboardType: TextInputType.text,
-            decoration: const InputDecoration(
-              labelText: 'سعر الانضمام لهذا القسم',
-              hintText: 'مثال: 500 أوقية',
-              prefixIcon: Icon(Icons.sell_rounded),
+            decoration: InputDecoration(
+              labelText:
+                  'سعر ${subjectNameControllers[index].text.trim().isEmpty ? 'المادة ${index + 1}' : subjectNameControllers[index].text.trim()}',
+              hintText: 'مثال: 1500',
+              prefixIcon: const Icon(Icons.payments_rounded),
             ),
           ),
-          const SizedBox(height: 10),
-          TextField(
-            controller: subjectsController,
-            minLines: 1,
-            maxLines: 2,
-            decoration: const InputDecoration(
-              labelText: 'مواد القسم',
-              hintText: 'مثال: رياضيات:1500، فيزياء:1500، كيمياء:1200',
+          if (index != subjectPriceControllers.length - 1)
+            const SizedBox(height: 10),
+        ],
+      ],
+    );
+  }
+}
+
+class StepIntro extends StatelessWidget {
+  const StepIntro({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    super.key,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(13),
+      decoration: BoxDecoration(
+        color: epsilonBlue.withValues(alpha: 0.07),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: epsilonBlue.withValues(alpha: 0.12)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 42,
+            height: 42,
+            decoration: BoxDecoration(
+              color: epsilonBlue.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(14),
             ),
+            child: Icon(icon, color: epsilonBlue),
           ),
-          const SizedBox(height: 12),
-          Align(
-            alignment: Alignment.centerLeft,
-            child: FilledButton.icon(
-              onPressed: () {
-                if (titleController.text.trim().isEmpty) {
-                  return;
-                }
-                store.createCourse(
-                  title: titleController.text,
-                  classId: store.defaultClassId,
-                  description: descriptionController.text.trim().isEmpty
-                      ? 'دروس وتمارين وملخصات منظمة للطلاب'
-                      : descriptionController.text,
-                  price: priceController.text,
-                  subjects: parseSubjectInputs(subjectsController.text),
-                );
-                titleController.clear();
-                descriptionController.clear();
-                priceController.clear();
-              },
-              icon: const Icon(Icons.add_rounded),
-              label: const Text('إضافة القسم'),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    color: epsilonInk,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  subtitle,
+                  style: const TextStyle(
+                    color: epsilonMuted,
+                    fontSize: 12,
+                    height: 1.35,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
             ),
           ),
         ],
