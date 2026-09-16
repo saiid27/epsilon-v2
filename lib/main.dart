@@ -1954,8 +1954,9 @@ class SchoolStore extends ChangeNotifier {
     required String url,
     required String classId,
     required String courseId,
+    AppUser? teacherOverride,
   }) {
-    final teacher = currentUser;
+    final teacher = teacherOverride ?? currentUser;
     if (teacher == null) {
       return;
     }
@@ -1969,6 +1970,7 @@ class SchoolStore extends ChangeNotifier {
               classId: classId,
               courseId: courseId,
               subject: teacher.subject ?? 'مادة عامة',
+              teacherId: teacher.id,
             )
             .then((_) => _loadSignedInApiData())
             .catchError(_rememberError),
@@ -7128,133 +7130,595 @@ class AdminDashboard extends StatelessWidget {
   Widget build(BuildContext context) {
     final store = StoreScope.of(context);
     final admin = store.currentUser;
+    final actions = [
+      AdminQuickActionData(
+        title: 'الحسابات',
+        metric: '${store.pendingStudents.length}',
+        icon: Icons.manage_accounts_rounded,
+        color: const Color(0xFFB63B65),
+        onTap: () => Navigator.of(
+          context,
+        ).push(MaterialPageRoute(builder: (_) => const AdminAccountsPage())),
+      ),
+      AdminQuickActionData(
+        title: 'كشف الطلاب',
+        metric: '${store.students.length}',
+        icon: Icons.table_chart_rounded,
+        color: const Color(0xFF3F8069),
+        onTap: () => Navigator.of(context).push(
+          MaterialPageRoute(builder: (_) => const AdminStudentsReportPage()),
+        ),
+      ),
+      AdminQuickActionData(
+        title: 'المصاريف',
+        metric: '0',
+        icon: Icons.receipt_long_rounded,
+        color: const Color(0xFFF2A51A),
+        onTap: () => Navigator.of(
+          context,
+        ).push(MaterialPageRoute(builder: (_) => const AdminExpensesPage())),
+      ),
+      AdminQuickActionData(
+        title: 'الأساتذة',
+        metric: '${store.teachers.length}',
+        icon: Icons.co_present_rounded,
+        color: const Color(0xFF1F2A44),
+        onTap: () => Navigator.of(
+          context,
+        ).push(MaterialPageRoute(builder: (_) => const AdminTeachersPage())),
+      ),
+      AdminQuickActionData(
+        title: 'الأقسام',
+        metric: '${store.courses.length}',
+        icon: Icons.menu_book_rounded,
+        color: const Color(0xFFD9472F),
+        onTap: () => Navigator.of(
+          context,
+        ).push(MaterialPageRoute(builder: (_) => const AdminCoursesPage())),
+      ),
+      AdminQuickActionData(
+        title: 'رفع درس',
+        metric: '${store.lessons.length}',
+        icon: Icons.cloud_upload_rounded,
+        color: const Color(0xFF6D38C9),
+        onTap: () => Navigator.of(context).push(
+          MaterialPageRoute(builder: (_) => const AdminUploadLessonPage()),
+        ),
+      ),
+      AdminQuickActionData(
+        title: 'إضافة أستاذ',
+        metric: 'جديد',
+        icon: Icons.person_add_alt_1_rounded,
+        color: const Color(0xFF0E8B8D),
+        onTap: () => Navigator.of(
+          context,
+        ).push(MaterialPageRoute(builder: (_) => const AdminAddTeacherPage())),
+      ),
+    ];
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF7F9FF),
+      backgroundColor: const Color(0xFFF2F8F6),
       appBar: const EpsilonAppBar(title: 'لوحة الإدارة'),
       body: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+        padding: const EdgeInsets.fromLTRB(18, 14, 18, 28),
         children: [
-          AdminHeroPanel(
-            title: 'مرحبا ${admin?.name ?? 'بالإدارة'}',
-            subtitle: store.pendingStudents.isEmpty
-                ? 'كل الطلبات مرتبة حاليا'
-                : '${store.pendingStudents.length} طلب يحتاج مراجعة',
-            value: store.pendingStudents.length.toString(),
+          AdminFinanceCard(
+            adminName: admin?.name ?? 'الإدارة',
+            totalAmount: '0 أوقية',
+            pendingCount: store.pendingStudents.length,
+          ),
+          const SizedBox(height: 22),
+          Row(
+            children: [
+              Text(
+                'الإدارة السريعة',
+                style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                  color: epsilonInk,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              const Spacer(),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 11,
+                  vertical: 7,
+                ),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(999),
+                  border: Border.all(color: const Color(0xFFDDEBE8)),
+                ),
+                child: Text(
+                  '${actions.length} أزرار',
+                  style: const TextStyle(
+                    color: Color(0xFF475569),
+                    fontWeight: FontWeight.w800,
+                    fontSize: 12,
+                  ),
+                ),
+              ),
+            ],
           ),
           const SizedBox(height: 16),
-          Text(
-            'الإدارة السريعة',
-            style: Theme.of(
-              context,
-            ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w900),
-          ),
-          const SizedBox(height: 10),
           LayoutBuilder(
             builder: (context, constraints) {
-              final isWide = constraints.maxWidth > 560;
-              final width = isWide
-                  ? (constraints.maxWidth - 12) / 2
-                  : constraints.maxWidth;
+              final columns = constraints.maxWidth > 560 ? 4 : 3;
+              final spacing = constraints.maxWidth > 560 ? 14.0 : 12.0;
+              final width =
+                  (constraints.maxWidth - spacing * (columns - 1)) / columns;
 
               return Wrap(
-                spacing: 12,
-                runSpacing: 12,
+                spacing: spacing,
+                runSpacing: 18,
+                children: actions
+                    .map(
+                      (action) => SizedBox(
+                        width: width,
+                        child: AdminQuickActionButton(action: action),
+                      ),
+                    )
+                    .toList(),
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class AdminQuickActionData {
+  const AdminQuickActionData({
+    required this.title,
+    required this.metric,
+    required this.icon,
+    required this.color,
+    required this.onTap,
+  });
+
+  final String title;
+  final String metric;
+  final IconData icon;
+  final Color color;
+  final VoidCallback onTap;
+}
+
+class AdminFinanceCard extends StatelessWidget {
+  const AdminFinanceCard({
+    required this.adminName,
+    required this.totalAmount,
+    required this.pendingCount,
+    super.key,
+  });
+
+  final String adminName;
+  final String totalAmount;
+  final int pendingCount;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: const Color(0xFF1F2937),
+        borderRadius: BorderRadius.circular(26),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF1F2937).withValues(alpha: 0.18),
+            blurRadius: 28,
+            offset: const Offset(0, 16),
+          ),
+        ],
+      ),
+      child: Stack(
+        children: [
+          PositionedDirectional(
+            top: -54,
+            start: 64,
+            child: Icon(
+              Icons.account_balance_wallet_rounded,
+              size: 178,
+              color: Colors.white.withValues(alpha: 0.035),
+            ),
+          ),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
                 children: [
-                  SizedBox(
-                    width: width,
-                    child: AdminNavButton(
-                      title: 'الحسابات',
-                      metric: '${store.pendingStudents.length} طلب دفع',
-                      subtitle: 'قبول، تجميد، أو رفض الطلاب',
-                      icon: Icons.manage_accounts_rounded,
-                      color: const Color(0xFF2F5BEA),
-                      onTap: () => Navigator.of(context).push(
-                        MaterialPageRoute(
-                          builder: (_) => const AdminAccountsPage(),
-                        ),
-                      ),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(13),
+                    child: Image.asset(
+                      'assets/onboarding/epsilon_logo.jpeg',
+                      width: 46,
+                      height: 46,
+                      fit: BoxFit.cover,
                     ),
                   ),
-                  SizedBox(
-                    width: width,
-                    child: AdminNavButton(
-                      title: 'كشف طلابنا',
-                      metric: '${store.students.length} طالب',
-                      subtitle: 'جدول الطلاب مرتبا حسب القسم',
-                      icon: Icons.table_chart_rounded,
-                      color: const Color(0xFF0891B2),
-                      onTap: () => Navigator.of(context).push(
-                        MaterialPageRoute(
-                          builder: (_) => const AdminStudentsReportPage(),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'أهلا بكم',
+                          style: TextStyle(
+                            color: Color(0xFFCBD5E1),
+                            fontWeight: FontWeight.w700,
+                          ),
                         ),
-                      ),
+                        Text(
+                          adminName,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 20,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                  SizedBox(
-                    width: width,
-                    child: AdminNavButton(
-                      title: 'الأساتذة',
-                      metric: '${store.teachers.length} حساب',
-                      subtitle: 'إنشاء ومتابعة حسابات الأساتذة',
-                      icon: Icons.co_present_rounded,
-                      color: const Color(0xFF0F766E),
-                      onTap: () => Navigator.of(context).push(
-                        MaterialPageRoute(
-                          builder: (_) => const AdminTeachersPage(),
-                        ),
-                      ),
+                  Container(
+                    width: 40,
+                    height: 40,
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.10),
+                      shape: BoxShape.circle,
                     ),
-                  ),
-                  SizedBox(
-                    width: width,
-                    child: AdminNavButton(
-                      title: 'الأقسام',
-                      metric: '${store.courses.length} قسم',
-                      subtitle: 'إنشاء الأقسام ومواد كل قسم',
-                      icon: Icons.menu_book_rounded,
-                      color: const Color(0xFF7C3AED),
-                      onTap: () => Navigator.of(context).push(
-                        MaterialPageRoute(
-                          builder: (_) => const AdminCoursesPage(),
-                        ),
-                      ),
-                    ),
-                  ),
-                  SizedBox(
-                    width: width,
-                    child: AdminNavButton(
-                      title: 'محتوى الزائر',
-                      metric:
-                          '${store.guestVideos.length + store.archiveFiles.length} عنصر',
-                      subtitle: 'الفيديوهات المجانية وملفات الأرشيف',
-                      icon: Icons.public_rounded,
-                      color: const Color(0xFFF97316),
-                      onTap: () => Navigator.of(context).push(
-                        MaterialPageRoute(
-                          builder: (_) => const AdminGuestContentPage(),
-                        ),
-                      ),
-                    ),
-                  ),
-                  SizedBox(
-                    width: width,
-                    child: AdminNavButton(
-                      title: 'نتائج المسابقات',
-                      metric: 'Excel',
-                      subtitle: 'رفع ملفات النتائج والبحث عنها',
-                      icon: Icons.fact_check_rounded,
-                      color: const Color(0xFF2457D6),
-                      onTap: () => Navigator.of(context).push(
-                        MaterialPageRoute(
-                          builder: (_) => const NationalResultsPage(),
-                        ),
-                      ),
+                    child: const Icon(
+                      Icons.notifications_rounded,
+                      color: Colors.white,
                     ),
                   ),
                 ],
-              );
-            },
+              ),
+              const SizedBox(height: 26),
+              Container(
+                padding: const EdgeInsets.all(18),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(22),
+                  border: Border.all(color: Colors.white12),
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 48,
+                      height: 48,
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: 0.18),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(
+                        Icons.visibility_off_rounded,
+                        color: Colors.white,
+                      ),
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'إجمالي الموجود في الصندوق',
+                            style: TextStyle(
+                              color: Color(0xFFE2E8F0),
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            totalAmount,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 26,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 11,
+                        vertical: 8,
+                      ),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF2B544),
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                      child: Text(
+                        '$pendingCount طلب',
+                        style: const TextStyle(
+                          color: Color(0xFF1F2937),
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class AdminQuickActionButton extends StatelessWidget {
+  const AdminQuickActionButton({required this.action, super.key});
+
+  final AdminQuickActionData action;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: action.onTap,
+        borderRadius: BorderRadius.circular(22),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 4),
+          child: Column(
+            children: [
+              Container(
+                width: 74,
+                height: 74,
+                decoration: BoxDecoration(
+                  color: action.color,
+                  borderRadius: BorderRadius.circular(24),
+                  boxShadow: [
+                    BoxShadow(
+                      color: action.color.withValues(alpha: 0.25),
+                      blurRadius: 16,
+                      offset: const Offset(0, 9),
+                    ),
+                  ],
+                ),
+                child: Icon(action.icon, color: Colors.white, size: 34),
+              ),
+              const SizedBox(height: 9),
+              Text(
+                action.title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  color: Color(0xFF2D3748),
+                  fontSize: 15,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              const SizedBox(height: 3),
+              Text(
+                action.metric,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: action.color,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class AdminExpensesPage extends StatelessWidget {
+  const AdminExpensesPage({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return const Scaffold(
+      backgroundColor: Color(0xFFF7F9FF),
+      appBar: EpsilonAppBar(title: 'المصاريف', showLogout: false),
+      body: Padding(
+        padding: EdgeInsets.fromLTRB(16, 12, 16, 24),
+        child: SectionCard(
+          title: 'المصاريف',
+          icon: Icons.receipt_long_rounded,
+          child: EmptyState(text: 'سيتم تحديد طريقة حساب المصاريف لاحقا.'),
+        ),
+      ),
+    );
+  }
+}
+
+class AdminAddTeacherPage extends StatelessWidget {
+  const AdminAddTeacherPage({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFFF7F9FF),
+      appBar: const EpsilonAppBar(title: 'إضافة أستاذ', showLogout: false),
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+        children: const [CreateTeacherForm()],
+      ),
+    );
+  }
+}
+
+class AdminUploadLessonPage extends StatefulWidget {
+  const AdminUploadLessonPage({super.key});
+
+  @override
+  State<AdminUploadLessonPage> createState() => _AdminUploadLessonPageState();
+}
+
+class _AdminUploadLessonPageState extends State<AdminUploadLessonPage> {
+  final titleController = TextEditingController();
+  final urlController = TextEditingController();
+  String? teacherId;
+  String? courseId;
+  String? error;
+
+  @override
+  void dispose() {
+    titleController.dispose();
+    urlController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final store = StoreScope.of(context);
+    final teachers = store.teachers
+        .where((teacher) => teacher.courseId != null)
+        .toList();
+    if (teacherId == null && teachers.isNotEmpty) {
+      teacherId = teachers.first.id;
+    }
+    final selectedTeacher = teachers.where((item) => item.id == teacherId);
+    final teacher = selectedTeacher.isEmpty ? null : selectedTeacher.first;
+    final availableCourses = teacher == null
+        ? <Course>[]
+        : store.courses
+              .where(
+                (course) =>
+                    course.id == teacher.courseId &&
+                    course.subjects.contains(teacher.subject),
+              )
+              .toList();
+    if (courseId == null && availableCourses.isNotEmpty) {
+      courseId = availableCourses.first.id;
+    }
+    if (!availableCourses.any((course) => course.id == courseId)) {
+      courseId = availableCourses.isEmpty ? null : availableCourses.first.id;
+    }
+
+    return Scaffold(
+      backgroundColor: const Color(0xFFF7F9FF),
+      appBar: const EpsilonAppBar(title: 'رفع درس', showLogout: false),
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+        children: [
+          AdminPageHeader(
+            title: 'رفع درس للأستاذ',
+            subtitle: 'اختر الأستاذ المرتبط بالقسم ثم أضف رابط الدرس',
+            icon: Icons.cloud_upload_rounded,
+            color: const Color(0xFF6D38C9),
+          ),
+          const SizedBox(height: 16),
+          SectionCard(
+            title: 'بيانات الدرس',
+            icon: Icons.add_link_rounded,
+            child: teachers.isEmpty
+                ? const EmptyState(text: 'أضف أستاذا مرتبطا بقسم أولا.')
+                : Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      DropdownButtonFormField<String>(
+                        initialValue: teacherId,
+                        decoration: const InputDecoration(
+                          labelText: 'الأستاذ',
+                          prefixIcon: Icon(Icons.co_present_rounded),
+                        ),
+                        items: teachers
+                            .map(
+                              (teacher) => DropdownMenuItem(
+                                value: teacher.id,
+                                child: Text(
+                                  '${teacher.name} - ${teacher.subject ?? 'مادة عامة'}',
+                                ),
+                              ),
+                            )
+                            .toList(),
+                        onChanged: (value) {
+                          setState(() {
+                            teacherId = value;
+                            courseId = null;
+                            error = null;
+                          });
+                        },
+                      ),
+                      const SizedBox(height: 10),
+                      DropdownButtonFormField<String>(
+                        initialValue: courseId,
+                        decoration: const InputDecoration(
+                          labelText: 'القسم',
+                          prefixIcon: Icon(Icons.menu_book_rounded),
+                        ),
+                        items: availableCourses
+                            .map(
+                              (course) => DropdownMenuItem(
+                                value: course.id,
+                                child: Text(course.title),
+                              ),
+                            )
+                            .toList(),
+                        onChanged: (value) => setState(() => courseId = value),
+                      ),
+                      const SizedBox(height: 10),
+                      TextField(
+                        controller: titleController,
+                        decoration: const InputDecoration(
+                          labelText: 'عنوان الدرس',
+                          prefixIcon: Icon(Icons.title_rounded),
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      TextField(
+                        controller: urlController,
+                        keyboardType: TextInputType.url,
+                        decoration: const InputDecoration(
+                          labelText: 'رابط فيديو Google Drive',
+                          prefixIcon: Icon(Icons.link_rounded),
+                        ),
+                      ),
+                      if (error != null) ...[
+                        const SizedBox(height: 10),
+                        Text(
+                          error!,
+                          style: TextStyle(color: Colors.red.shade700),
+                        ),
+                      ],
+                      const SizedBox(height: 12),
+                      FilledButton.icon(
+                        onPressed: () {
+                          final pickedTeacher = teacher;
+                          final pickedCourse = courseId == null
+                              ? null
+                              : store.courseById(courseId);
+                          if (pickedTeacher == null ||
+                              pickedCourse == null ||
+                              titleController.text.trim().isEmpty ||
+                              urlController.text.trim().isEmpty) {
+                            setState(
+                              () => error =
+                                  'أكمل الأستاذ والقسم والعنوان والرابط.',
+                            );
+                            return;
+                          }
+                          store.createLesson(
+                            title: titleController.text,
+                            url: urlController.text,
+                            classId:
+                                pickedTeacher.classId ?? pickedCourse.classId,
+                            courseId: pickedCourse.id,
+                            teacherOverride: pickedTeacher,
+                          );
+                          titleController.clear();
+                          urlController.clear();
+                          setState(() => error = null);
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('تم نشر الدرس')),
+                          );
+                        },
+                        icon: const Icon(Icons.publish_rounded),
+                        label: const Text('نشر الدرس'),
+                      ),
+                    ],
+                  ),
           ),
         ],
       ),
