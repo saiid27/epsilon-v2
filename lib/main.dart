@@ -449,6 +449,35 @@ class PaymentMethod {
   final String imageUrl;
 }
 
+class ExpenseItem {
+  const ExpenseItem({
+    required this.id,
+    required this.title,
+    required this.amount,
+    required this.category,
+    required this.createdAt,
+    this.note = '',
+  });
+
+  final String id;
+  final String title;
+  final String amount;
+  final String category;
+  final String note;
+  final DateTime createdAt;
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'title': title,
+      'amount': amount,
+      'category': category,
+      'note': note,
+      'createdAt': createdAt.toIso8601String(),
+    };
+  }
+}
+
 class SchoolStore extends ChangeNotifier {
   SchoolStore({required this.backendEnabled}) {
     unawaited(_loadReadNotifications());
@@ -476,6 +505,7 @@ class SchoolStore extends ChangeNotifier {
   final List<GuestContentItem> guestVideos = [];
   final List<GuestContentItem> archiveFiles = [];
   final List<PaymentMethod> paymentMethods = [];
+  final List<ExpenseItem> expenses = [];
   final List<AppUser> users = [];
   final List<AppNotification> notifications = [];
   final Set<String> readNotificationIds = {};
@@ -739,8 +769,36 @@ class SchoolStore extends ChangeNotifier {
           ),
         );
       }
+      final expenseItems = settings['expenses'];
+      expenses
+        ..clear()
+        ..addAll(_expensesFromApi(expenseItems));
       notifyListeners();
     }
+  }
+
+  List<ExpenseItem> _expensesFromApi(Object? data) {
+    if (data is! List) {
+      return const [];
+    }
+    return data
+        .whereType<Map>()
+        .map((item) {
+          final map = Map<String, dynamic>.from(item);
+          return ExpenseItem(
+            id: '${map['id'] ?? 'expense-${DateTime.now().microsecondsSinceEpoch}'}',
+            title: '${map['title'] ?? ''}'.trim(),
+            amount: '${map['amount'] ?? ''}'.trim(),
+            category: '${map['category'] ?? 'عام'}'.trim(),
+            note: '${map['note'] ?? ''}'.trim(),
+            createdAt:
+                DateTime.tryParse('${map['createdAt'] ?? ''}')?.toLocal() ??
+                DateTime.now(),
+          );
+        })
+        .where((item) => item.title.isNotEmpty)
+        .toList()
+      ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
   }
 
   List<PaymentMethod> _paymentMethodsFromApi(Object? data) {
@@ -1876,6 +1934,52 @@ class SchoolStore extends ChangeNotifier {
     }
     paymentMethods.removeWhere((item) => item.id == method.id);
     notifyListeners();
+  }
+
+  void createExpense({
+    required String title,
+    required String amount,
+    required String category,
+    String note = '',
+  }) {
+    final cleanTitle = title.trim();
+    final cleanAmount = amount.trim();
+    if (cleanTitle.isEmpty || cleanAmount.isEmpty) {
+      return;
+    }
+    expenses.insert(
+      0,
+      ExpenseItem(
+        id: 'expense-${DateTime.now().microsecondsSinceEpoch}',
+        title: cleanTitle,
+        amount: cleanAmount,
+        category: category.trim().isEmpty ? 'عام' : category.trim(),
+        note: note.trim(),
+        createdAt: DateTime.now(),
+      ),
+    );
+    notifyListeners();
+    _syncExpenses();
+  }
+
+  void deleteExpense(ExpenseItem expense) {
+    expenses.removeWhere((item) => item.id == expense.id);
+    notifyListeners();
+    _syncExpenses();
+  }
+
+  void _syncExpenses() {
+    if (!backendEnabled) {
+      return;
+    }
+    unawaited(
+      (_repository as SupabaseRepository)
+          .updateSettings(
+            expenses: expenses.map((expense) => expense.toJson()).toList(),
+          )
+          .then((data) => _applySettingsFromApi(data['settings']))
+          .catchError(_rememberError),
+    );
   }
 
   void createClass({required String name, required String level}) {
@@ -7546,21 +7650,323 @@ class AdminQuickActionButton extends StatelessWidget {
   }
 }
 
-class AdminExpensesPage extends StatelessWidget {
+class AdminExpensesPage extends StatefulWidget {
   const AdminExpensesPage({super.key});
 
   @override
+  State<AdminExpensesPage> createState() => _AdminExpensesPageState();
+}
+
+class _AdminExpensesPageState extends State<AdminExpensesPage> {
+  final titleController = TextEditingController();
+  final amountController = TextEditingController();
+  final noteController = TextEditingController();
+  String category = 'رواتب';
+  String? error;
+
+  static const categories = [
+    'رواتب',
+    'إيجار',
+    'إنترنت',
+    'إعلانات',
+    'معدات',
+    'صيانة',
+    'أخرى',
+  ];
+
+  @override
+  void dispose() {
+    titleController.dispose();
+    amountController.dispose();
+    noteController.dispose();
+    super.dispose();
+  }
+
+  void submit(SchoolStore store) {
+    if (titleController.text.trim().isEmpty ||
+        amountController.text.trim().isEmpty) {
+      setState(() => error = 'اكتب اسم المصروف والمبلغ أولا.');
+      return;
+    }
+    store.createExpense(
+      title: titleController.text,
+      amount: amountController.text,
+      category: category,
+      note: noteController.text,
+    );
+    titleController.clear();
+    amountController.clear();
+    noteController.clear();
+    setState(() => error = null);
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('تمت إضافة المصروف')));
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return const Scaffold(
-      backgroundColor: Color(0xFFF7F9FF),
-      appBar: EpsilonAppBar(title: 'المصاريف', showLogout: false),
-      body: Padding(
-        padding: EdgeInsets.fromLTRB(16, 12, 16, 24),
-        child: SectionCard(
-          title: 'المصاريف',
-          icon: Icons.receipt_long_rounded,
-          child: EmptyState(text: 'سيتم تحديد طريقة حساب المصاريف لاحقا.'),
-        ),
+    final store = StoreScope.of(context);
+    final total = store.expenses
+        .map((expense) => priceNumberFromText(expense.amount) ?? 0)
+        .fold<double>(0, (runningTotal, amount) => runningTotal + amount);
+    final totalText = total == total.roundToDouble()
+        ? total.round().toString()
+        : total.toStringAsFixed(2);
+
+    return Scaffold(
+      backgroundColor: const Color(0xFFF7F9FF),
+      appBar: const EpsilonAppBar(title: 'المصاريف', showLogout: false),
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+        children: [
+          AdminPageHeader(
+            title: 'المصاريف',
+            subtitle: 'سجل مصاريف المدرسة وتابع الإجمالي',
+            icon: Icons.receipt_long_rounded,
+            color: const Color(0xFFF2A51A),
+          ),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              Expanded(
+                child: ExpenseSummaryCard(
+                  title: 'إجمالي المصاريف',
+                  value: '$totalText أوقية',
+                  icon: Icons.payments_rounded,
+                  color: const Color(0xFFF2A51A),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: ExpenseSummaryCard(
+                  title: 'عدد العمليات',
+                  value: store.expenses.length.toString(),
+                  icon: Icons.list_alt_rounded,
+                  color: epsilonBlue,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          SectionCard(
+            title: 'إضافة مصروف',
+            icon: Icons.add_card_rounded,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                TextField(
+                  controller: titleController,
+                  decoration: const InputDecoration(
+                    labelText: 'اسم المصروف',
+                    hintText: 'مثال: راتب أستاذ، إعلان، إنترنت',
+                    prefixIcon: Icon(Icons.edit_note_rounded),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: amountController,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(
+                    labelText: 'المبلغ',
+                    hintText: 'مثال: 5000',
+                    prefixIcon: Icon(Icons.payments_rounded),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                DropdownButtonFormField<String>(
+                  initialValue: category,
+                  decoration: const InputDecoration(
+                    labelText: 'التصنيف',
+                    prefixIcon: Icon(Icons.category_rounded),
+                  ),
+                  items: categories
+                      .map(
+                        (item) =>
+                            DropdownMenuItem(value: item, child: Text(item)),
+                      )
+                      .toList(),
+                  onChanged: (value) {
+                    if (value != null) {
+                      setState(() => category = value);
+                    }
+                  },
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: noteController,
+                  minLines: 2,
+                  maxLines: 3,
+                  decoration: const InputDecoration(
+                    labelText: 'ملاحظة اختيارية',
+                    prefixIcon: Icon(Icons.notes_rounded),
+                  ),
+                ),
+                if (error != null) ...[
+                  const SizedBox(height: 10),
+                  Text(error!, style: TextStyle(color: Colors.red.shade700)),
+                ],
+                const SizedBox(height: 12),
+                FilledButton.icon(
+                  onPressed: () => submit(store),
+                  icon: const Icon(Icons.add_rounded),
+                  label: const Text('إضافة المصروف'),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+          SectionCard(
+            title: 'سجل المصاريف',
+            icon: Icons.history_rounded,
+            child: store.expenses.isEmpty
+                ? const EmptyState(text: 'لا توجد مصاريف مسجلة بعد.')
+                : Column(
+                    children: [
+                      for (final expense in store.expenses)
+                        ExpenseTile(expense: expense),
+                    ],
+                  ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class ExpenseSummaryCard extends StatelessWidget {
+  const ExpenseSummaryCard({
+    required this.title,
+    required this.value,
+    required this.icon,
+    required this.color,
+    super.key,
+  });
+
+  final String title;
+  final String value;
+  final IconData icon;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: color.withValues(alpha: 0.16)),
+      ),
+      child: Column(
+        children: [
+          Icon(icon, color: color),
+          const SizedBox(height: 8),
+          Text(
+            value,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: color,
+              fontSize: 18,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            title,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: epsilonMuted,
+              fontSize: 12,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class ExpenseTile extends StatelessWidget {
+  const ExpenseTile({required this.expense, super.key});
+
+  final ExpenseItem expense;
+
+  @override
+  Widget build(BuildContext context) {
+    final store = StoreScope.of(context);
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8FAFF),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: epsilonLine),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 44,
+            height: 44,
+            decoration: BoxDecoration(
+              color: const Color(0xFFF2A51A).withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: const Icon(
+              Icons.receipt_long_rounded,
+              color: Color(0xFFF2A51A),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  expense.title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: epsilonInk,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '${expense.category} - ${formatArabicDate(expense.createdAt)}',
+                  style: const TextStyle(
+                    color: epsilonMuted,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                if (expense.note.trim().isNotEmpty) ...[
+                  const SizedBox(height: 3),
+                  Text(
+                    expense.note,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(color: epsilonMuted, fontSize: 12),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          Text(
+            expense.amount,
+            style: const TextStyle(
+              color: Color(0xFFF2A51A),
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          IconButton(
+            tooltip: 'حذف',
+            onPressed: () => store.deleteExpense(expense),
+            icon: const Icon(Icons.delete_outline_rounded),
+          ),
+        ],
       ),
     );
   }

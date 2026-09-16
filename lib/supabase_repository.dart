@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -135,6 +137,7 @@ class SupabaseRepository {
         'offerTextTitle': values['offerTextTitle'] ?? '',
         'offerTextBody': values['offerTextBody'] ?? '',
         'offerTextActive': values['offerTextActive'] ?? 'true',
+        'expenses': _decodeJsonList(values['expenses']),
         'paymentMethods': await paymentMethods(),
       },
     };
@@ -143,12 +146,16 @@ class SupabaseRepository {
   Future<Map<String, dynamic>> updateSettings({
     String? paymentNumber,
     String? paymentAmount,
+    List<Map<String, dynamic>>? expenses,
   }) async {
     if (paymentNumber != null) {
       await _upsertSetting('paymentNumber', paymentNumber);
     }
     if (paymentAmount != null) {
       await _upsertSetting('paymentAmount', paymentAmount);
+    }
+    if (expenses != null) {
+      await _upsertSetting('expenses', jsonEncode(expenses));
     }
     return settings();
   }
@@ -159,6 +166,24 @@ class SupabaseRepository {
       'value': value.trim(),
       'updated_at': DateTime.now().toUtc().toIso8601String(),
     });
+  }
+
+  List<Map<String, dynamic>> _decodeJsonList(String? raw) {
+    if (raw == null || raw.trim().isEmpty) {
+      return const [];
+    }
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is List) {
+        return decoded
+            .whereType<Map>()
+            .map((item) => Map<String, dynamic>.from(item))
+            .toList();
+      }
+    } on Object {
+      return const [];
+    }
+    return const [];
   }
 
   Future<Map<String, dynamic>> createPaymentMethod({
