@@ -304,6 +304,7 @@ class SupabaseRepository {
     required String courseId,
     String? subject,
     String? paymentAmount,
+    DateTime? subscriptionExpiresAt,
   }) async {
     final course = await _courseById(courseId);
     final row = await client
@@ -318,14 +319,48 @@ class SupabaseRepository {
           'course_id': courseId,
           'subject': subject?.trim(),
           'payment_amount': paymentAmount?.trim(),
+          if (subscriptionExpiresAt != null)
+            'subscription_expires_at': subscriptionExpiresAt
+                .toUtc()
+                .toIso8601String(),
         })
         .select()
         .single();
     return {'user': _userPayload(_map(row))};
   }
 
-  Future<void> updateAccountStatus(String uid, String status) {
-    return client.from('users').update({'status': status}).eq('id', uid);
+  Future<void> updateAccountStatus(
+    String uid,
+    String status, {
+    DateTime? subscriptionExpiresAt,
+  }) {
+    return client
+        .from('users')
+        .update({
+          'status': status,
+          if (subscriptionExpiresAt != null)
+            'subscription_expires_at': subscriptionExpiresAt
+                .toUtc()
+                .toIso8601String(),
+        })
+        .eq('id', uid);
+  }
+
+  Future<void> updateStudentSubscription(
+    String uid, {
+    required DateTime subscriptionExpiresAt,
+    required String paymentAmount,
+  }) {
+    return client
+        .from('users')
+        .update({
+          'status': 'active',
+          'payment_amount': paymentAmount.trim(),
+          'subscription_expires_at': subscriptionExpiresAt
+              .toUtc()
+              .toIso8601String(),
+        })
+        .eq('id', uid);
   }
 
   Future<void> deleteUserAccount(String uid) {
@@ -337,6 +372,7 @@ class SupabaseRepository {
     required String classId,
     required String description,
     required String price,
+    required int renewalMonths,
     required List<Map<String, String>> subjects,
   }) {
     return client.from('courses').insert({
@@ -344,9 +380,20 @@ class SupabaseRepository {
       'class_id': classId,
       'description': description.trim(),
       'price': price.trim(),
+      'renewal_months': renewalMonths.clamp(1, 120),
       'subjects': subjects.map((item) => item['name'] ?? '').toList(),
       'subject_details': subjects,
     });
+  }
+
+  Future<void> updateCourseRenewalMonths({
+    required String courseId,
+    required int renewalMonths,
+  }) {
+    return client
+        .from('courses')
+        .update({'renewal_months': renewalMonths.clamp(1, 120)})
+        .eq('id', courseId);
   }
 
   Future<void> deleteCourse(String courseId) {
@@ -606,6 +653,7 @@ class SupabaseRepository {
       'paymentSenderPhone': row['payment_sender_phone'],
       'activeDeviceId': row['active_device_id'],
       'paymentAmount': row['payment_amount'],
+      'subscriptionExpiresAt': row['subscription_expires_at'],
     };
   }
 
@@ -624,6 +672,7 @@ class SupabaseRepository {
       'classId': row['class_id'],
       'description': row['description'],
       'price': row['price'],
+      'renewalMonths': row['renewal_months'],
       'subjects': row['subjects'],
       'subjectDetails': row['subject_details'],
       'isActive': row['is_active'],

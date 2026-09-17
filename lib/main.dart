@@ -241,6 +241,7 @@ class AppUser {
     this.paymentSenderPhone,
     this.activeDeviceId,
     this.paymentAmount = '',
+    this.subscriptionExpiresAt,
   }) : selectedSubjects = selectedSubjects ?? const [];
 
   final String id;
@@ -257,6 +258,13 @@ class AppUser {
   String? paymentSenderPhone;
   String? activeDeviceId;
   String paymentAmount;
+  DateTime? subscriptionExpiresAt;
+
+  bool get isSubscriptionExpired =>
+      role == UserRole.student &&
+      status == AccountStatus.active &&
+      subscriptionExpiresAt != null &&
+      subscriptionExpiresAt!.isBefore(DateTime.now());
 }
 
 class SchoolClass {
@@ -281,6 +289,7 @@ class Course {
     List<String>? subjects,
     Map<String, String>? subjectTeachers,
     Map<String, String>? subjectPrices,
+    this.renewalMonths = 1,
     this.isActive = true,
   }) : subjects = subjects ?? const ['الرياضيات', 'الفيزياء', 'الكيمياء'],
        subjectTeachers = subjectTeachers ?? const {},
@@ -294,6 +303,7 @@ class Course {
   List<String> subjects;
   Map<String, String> subjectTeachers;
   Map<String, String> subjectPrices;
+  int renewalMonths;
   bool isActive;
 }
 
@@ -1224,6 +1234,7 @@ class SchoolStore extends ChangeNotifier {
       paymentProofPath: data[UserFields.paymentProofUrl] as String?,
       paymentSenderPhone: data[UserFields.paymentSenderPhone] as String?,
       activeDeviceId: data[UserFields.activeDeviceId] as String?,
+      subscriptionExpiresAt: _dateFromApiOrNull(data['subscriptionExpiresAt']),
     );
   }
 
@@ -1250,6 +1261,10 @@ class SchoolStore extends ChangeNotifier {
       subjects: subjects is List
           ? subjects.whereType<String>().toList()
           : const ['الرياضيات', 'الفيزياء', 'الكيمياء'],
+      renewalMonths: ((data['renewalMonths'] as num?)?.toInt() ?? 1).clamp(
+        1,
+        120,
+      ),
       isActive: (data[CourseFields.isActive] as bool?) ?? true,
     );
   }
@@ -1319,6 +1334,7 @@ class SchoolStore extends ChangeNotifier {
       paymentAmount: data['paymentAmount'] == null
           ? ''
           : '${data['paymentAmount']}',
+      subscriptionExpiresAt: _dateFromApiOrNull(data['subscriptionExpiresAt']),
     );
   }
 
@@ -1364,6 +1380,10 @@ class SchoolStore extends ChangeNotifier {
           : const ['Math', 'Physique', 'Chimie'],
       subjectTeachers: subjectTeachers,
       subjectPrices: subjectPrices,
+      renewalMonths: ((data['renewalMonths'] as num?)?.toInt() ?? 1).clamp(
+        1,
+        120,
+      ),
       isActive: (data['isActive'] as bool?) ?? true,
     );
   }
@@ -1449,6 +1469,16 @@ class SchoolStore extends ChangeNotifier {
       return DateTime.tryParse(value)?.toLocal() ?? DateTime.now();
     }
     return DateTime.now();
+  }
+
+  DateTime? _dateFromApiOrNull(Object? value) {
+    if (value is Timestamp) {
+      return value.toDate();
+    }
+    if (value is String && value.trim().isNotEmpty) {
+      return DateTime.tryParse(value)?.toLocal();
+    }
+    return null;
   }
 
   UserRole _roleFromString(String? value) {
@@ -1683,6 +1713,7 @@ class SchoolStore extends ChangeNotifier {
       paymentProofPath: user.paymentProofPath,
       paymentSenderPhone: user.paymentSenderPhone,
       paymentAmount: user.paymentAmount,
+      subscriptionExpiresAt: user.subscriptionExpiresAt,
       activeDeviceId: user.activeDeviceId,
     );
     currentUser = users[index];
@@ -1743,6 +1774,7 @@ class SchoolStore extends ChangeNotifier {
       paymentProofPath: user.paymentProofPath,
       paymentSenderPhone: user.paymentSenderPhone,
       paymentAmount: user.paymentAmount,
+      subscriptionExpiresAt: user.subscriptionExpiresAt,
       activeDeviceId: user.activeDeviceId,
     );
     notifyListeners();
@@ -1809,6 +1841,10 @@ class SchoolStore extends ChangeNotifier {
         return;
       }
       try {
+        final expiresAt = addMonths(
+          DateTime.now(),
+          course.renewalMonths.clamp(1, 120),
+        );
         await (_repository as SupabaseRepository).createUser(
           name: name,
           phone: phone,
@@ -1818,6 +1854,7 @@ class SchoolStore extends ChangeNotifier {
           paymentAmount: paymentAmount.trim().isEmpty
               ? null
               : paymentAmount.trim(),
+          subscriptionExpiresAt: expiresAt,
         );
         await _loadSignedInApiData();
         _recordPayment(studentName: name, amount: paymentAmount, type: 'تسجيل');
@@ -1838,6 +1875,9 @@ class SchoolStore extends ChangeNotifier {
         classId: course?.classId,
         courseId: courseId,
         paymentAmount: paymentAmount.trim(),
+        subscriptionExpiresAt: course == null
+            ? null
+            : addMonths(DateTime.now(), course.renewalMonths.clamp(1, 120)),
       ),
     );
     notifyListeners();
@@ -1882,10 +1922,15 @@ class SchoolStore extends ChangeNotifier {
   }
 
   void approveUser(AppUser user) {
+    final expiresAt = subscriptionExpiryFor(user);
     if (backendEnabled) {
       unawaited(
         (_repository as SupabaseRepository)
-            .updateAccountStatus(user.id, _statusValue(AccountStatus.active))
+            .updateAccountStatus(
+              user.id,
+              _statusValue(AccountStatus.active),
+              subscriptionExpiresAt: expiresAt,
+            )
             .then((_) => _loadSignedInApiData())
             .then(
               (_) => _recordPayment(
@@ -1899,6 +1944,7 @@ class SchoolStore extends ChangeNotifier {
       return;
     }
     user.status = AccountStatus.active;
+    user.subscriptionExpiresAt = expiresAt;
     notifyListeners();
     _recordPayment(
       studentName: user.name,
@@ -1965,6 +2011,7 @@ class SchoolStore extends ChangeNotifier {
     required String classId,
     required String description,
     required String price,
+    required int renewalMonths,
     required List<Map<String, String>> subjects,
   }) {
     if (backendEnabled) {
@@ -1975,6 +2022,7 @@ class SchoolStore extends ChangeNotifier {
               classId: classId,
               description: description,
               price: price,
+              renewalMonths: renewalMonths,
               subjects: subjects,
             )
             .then((_) => _loadPublicApiData())
@@ -1990,6 +2038,7 @@ class SchoolStore extends ChangeNotifier {
         classId: classId,
         description: description.trim(),
         price: price.trim(),
+        renewalMonths: renewalMonths.clamp(1, 120),
         subjects: subjects.map((subject) => subject['name'] ?? '').toList(),
         subjectPrices: {
           for (final subject in subjects)
@@ -2169,7 +2218,27 @@ class SchoolStore extends ChangeNotifier {
     required AppUser user,
     required String amount,
   }) async {
+    final expiresAt = subscriptionExpiryFor(user);
+    if (backendEnabled) {
+      await (_repository as SupabaseRepository).updateStudentSubscription(
+        user.id,
+        subscriptionExpiresAt: expiresAt,
+        paymentAmount: amount,
+      );
+      await _loadSignedInApiData();
+    } else {
+      user.status = AccountStatus.active;
+      user.paymentAmount = amount.trim();
+      user.subscriptionExpiresAt = expiresAt;
+      notifyListeners();
+    }
     _recordPayment(studentName: user.name, amount: amount, type: 'تجديد');
+  }
+
+  DateTime subscriptionExpiryFor(AppUser user) {
+    final course = courseById(user.courseId);
+    final months = (course?.renewalMonths ?? 1).clamp(1, 120);
+    return addMonths(DateTime.now(), months);
   }
 
   void createClass({required String name, required String level}) {
@@ -2216,6 +2285,24 @@ class SchoolStore extends ChangeNotifier {
         user.courseId = null;
       }
     }
+    notifyListeners();
+  }
+
+  Future<void> updateCourseRenewalMonths({
+    required Course course,
+    required int renewalMonths,
+  }) async {
+    final cleanMonths = renewalMonths.clamp(1, 120);
+    if (backendEnabled) {
+      await (_repository as SupabaseRepository).updateCourseRenewalMonths(
+        courseId: course.id,
+        renewalMonths: cleanMonths,
+      );
+      await _loadPublicApiData();
+      return;
+    }
+
+    course.renewalMonths = cleanMonths;
     notifyListeners();
   }
 
@@ -3136,6 +3223,15 @@ class AppShell extends StatelessWidget {
         title: 'تم رفض الحساب',
         message: 'لم يتم قبول إثبات الدفع أو بيانات التسجيل لهذا الحساب.',
         icon: Icons.cancel_rounded,
+        color: Colors.red.shade700,
+      );
+    }
+
+    if (user.isSubscriptionExpired) {
+      return StatusScreen(
+        title: 'انتهى الاشتراك',
+        message: 'انتهت مدة اشتراكك. يرجى التواصل مع الإدارة لتجديد الحساب.',
+        icon: Icons.event_busy_rounded,
         color: Colors.red.shade700,
       );
     }
@@ -9428,27 +9524,178 @@ class AdminCoursesPage extends StatelessWidget {
                 ? const EmptyState(text: 'لا توجد أقسام بعد.')
                 : Column(
                     children: store.courses
-                        .map(
-                          (course) => ListTile(
-                            contentPadding: EdgeInsets.zero,
-                            leading: const Icon(Icons.menu_book_rounded),
-                            title: Text(course.title),
-                            isThreeLine: true,
-                            subtitle: Text(
-                              'السعر: ${course.price.trim().isEmpty ? 'غير محدد' : course.price}\nالمواد: ${course.subjects.join('، ')}',
-                            ),
-                            trailing: IconButton(
-                              tooltip: 'حذف',
-                              onPressed: () => store.deleteCourse(course),
-                              icon: const Icon(Icons.delete_outline_rounded),
-                            ),
-                          ),
-                        )
+                        .map((course) => CourseAdminTile(course: course))
                         .toList(),
                   ),
           ),
         ],
       ),
+    );
+  }
+}
+
+class CourseAdminTile extends StatelessWidget {
+  const CourseAdminTile({required this.course, super.key});
+
+  final Course course;
+
+  @override
+  Widget build(BuildContext context) {
+    final store = StoreScope.of(context);
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8FAFF),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: epsilonLine),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.menu_book_rounded, color: Color(0xFF7C3AED)),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  course.title,
+                  style: const TextStyle(
+                    color: epsilonInk,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+              IconButton(
+                tooltip: 'تعديل مدة التجديد',
+                onPressed: () => showDialog<void>(
+                  context: context,
+                  builder: (_) => EditCourseRenewalDialog(course: course),
+                ),
+                icon: const Icon(Icons.edit_calendar_rounded),
+              ),
+              IconButton(
+                tooltip: 'حذف',
+                onPressed: () => store.deleteCourse(course),
+                icon: const Icon(Icons.delete_outline_rounded),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'السعر: ${course.price.trim().isEmpty ? 'غير محدد' : course.price}',
+            style: const TextStyle(
+              color: epsilonMuted,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'مدة التجديد: كل ${course.renewalMonths} شهر',
+            style: const TextStyle(
+              color: Color(0xFF7C3AED),
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'المواد: ${course.subjects.join('، ')}',
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(color: epsilonMuted),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class EditCourseRenewalDialog extends StatefulWidget {
+  const EditCourseRenewalDialog({required this.course, super.key});
+
+  final Course course;
+
+  @override
+  State<EditCourseRenewalDialog> createState() =>
+      _EditCourseRenewalDialogState();
+}
+
+class _EditCourseRenewalDialogState extends State<EditCourseRenewalDialog> {
+  late final TextEditingController controller;
+  bool isSaving = false;
+  String? error;
+
+  @override
+  void initState() {
+    super.initState();
+    controller = TextEditingController(
+      text: widget.course.renewalMonths.toString(),
+    );
+  }
+
+  @override
+  void dispose() {
+    controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final store = StoreScope.of(context);
+
+    return AlertDialog(
+      title: const Text('تعديل مدة التجديد'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(widget.course.title),
+          const SizedBox(height: 12),
+          TextField(
+            controller: controller,
+            keyboardType: TextInputType.number,
+            autofocus: true,
+            decoration: const InputDecoration(
+              labelText: 'مدة التجديد بالأشهر',
+              prefixIcon: Icon(Icons.event_repeat_rounded),
+            ),
+          ),
+          if (error != null) ...[
+            const SizedBox(height: 10),
+            Text(error!, style: TextStyle(color: Colors.red.shade700)),
+          ],
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: isSaving ? null : () => Navigator.of(context).pop(),
+          child: const Text('إلغاء'),
+        ),
+        FilledButton(
+          onPressed: isSaving
+              ? null
+              : () async {
+                  final months = int.tryParse(controller.text.trim());
+                  if (months == null || months < 1) {
+                    setState(() => error = 'اكتب عددا صحيحا من الأشهر.');
+                    return;
+                  }
+                  setState(() {
+                    isSaving = true;
+                    error = null;
+                  });
+                  await store.updateCourseRenewalMonths(
+                    course: widget.course,
+                    renewalMonths: months,
+                  );
+                  if (context.mounted) {
+                    Navigator.of(context).pop();
+                  }
+                },
+          child: Text(isSaving ? 'جار الحفظ...' : 'حفظ'),
+        ),
+      ],
     );
   }
 }
@@ -10424,6 +10671,7 @@ class CreateCourseForm extends StatefulWidget {
 class _CreateCourseFormState extends State<CreateCourseForm> {
   final titleController = TextEditingController();
   final priceController = TextEditingController();
+  final renewalMonthsController = TextEditingController(text: '1');
   final subjectNameControllers = <TextEditingController>[];
   final subjectPriceControllers = <TextEditingController>[];
   int step = 0;
@@ -10442,6 +10690,7 @@ class _CreateCourseFormState extends State<CreateCourseForm> {
   void dispose() {
     titleController.dispose();
     priceController.dispose();
+    renewalMonthsController.dispose();
     for (final controller in subjectNameControllers) {
       controller.dispose();
     }
@@ -10517,16 +10766,23 @@ class _CreateCourseFormState extends State<CreateCourseForm> {
       setState(() => error = 'تأكد من كتابة كل أسماء المواد.');
       return;
     }
+    final renewalMonths = int.tryParse(renewalMonthsController.text.trim());
+    if (renewalMonths == null || renewalMonths < 1) {
+      setState(() => error = 'اكتب مدة تجديد صحيحة بالأشهر.');
+      return;
+    }
 
     store.createCourse(
       title: titleController.text,
       classId: store.defaultClassId,
       description: 'دروس وتمارين وملخصات منظمة للطلاب',
       price: priceController.text,
+      renewalMonths: renewalMonths,
       subjects: subjects,
     );
     titleController.clear();
     priceController.clear();
+    renewalMonthsController.text = '1';
     for (final controller in subjectNameControllers) {
       controller.clear();
     }
@@ -10590,6 +10846,7 @@ class _CreateCourseFormState extends State<CreateCourseForm> {
               _ => SubjectPricesStep(
                 key: const ValueKey('subject-prices'),
                 coursePriceController: priceController,
+                renewalMonthsController: renewalMonthsController,
                 subjectNameControllers: subjectNameControllers,
                 subjectPriceControllers: subjectPriceControllers,
               ),
@@ -10821,12 +11078,14 @@ class SubjectNamesStep extends StatelessWidget {
 class SubjectPricesStep extends StatelessWidget {
   const SubjectPricesStep({
     required this.coursePriceController,
+    required this.renewalMonthsController,
     required this.subjectNameControllers,
     required this.subjectPriceControllers,
     super.key,
   });
 
   final TextEditingController coursePriceController;
+  final TextEditingController renewalMonthsController;
   final List<TextEditingController> subjectNameControllers;
   final List<TextEditingController> subjectPriceControllers;
 
@@ -10838,7 +11097,7 @@ class SubjectPricesStep extends StatelessWidget {
         const StepIntro(
           icon: Icons.sell_rounded,
           title: 'الأسعار',
-          subtitle: 'أضف سعر الدورة كاملة، ثم سعر كل مادة وحدها.',
+          subtitle: 'أضف السعر ومدة التجديد، ثم سعر كل مادة وحدها.',
         ),
         const SizedBox(height: 12),
         TextField(
@@ -10848,6 +11107,16 @@ class SubjectPricesStep extends StatelessWidget {
             labelText: 'سعر الدورة أو القسم كاملا',
             hintText: 'مثال: 5000',
             prefixIcon: Icon(Icons.local_offer_rounded),
+          ),
+        ),
+        const SizedBox(height: 12),
+        TextField(
+          controller: renewalMonthsController,
+          keyboardType: TextInputType.number,
+          decoration: const InputDecoration(
+            labelText: 'مدة التجديد بالأشهر',
+            hintText: 'مثال: 1 للاشتراك الشهري، 12 للسنوي',
+            prefixIcon: Icon(Icons.event_repeat_rounded),
           ),
         ),
         const SizedBox(height: 12),
@@ -12152,6 +12421,20 @@ class UserTile extends StatelessWidget {
                     ),
                     const SizedBox(height: 8),
                     StatusBadge(status: user.status),
+                    if (user.role == UserRole.student &&
+                        user.subscriptionExpiresAt != null) ...[
+                      const SizedBox(height: 5),
+                      Text(
+                        'ينتهي: ${formatArabicDate(user.subscriptionExpiresAt!)}',
+                        style: TextStyle(
+                          color: user.isSubscriptionExpired
+                              ? Colors.red.shade700
+                              : epsilonMuted,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ),
@@ -13555,6 +13838,23 @@ String formatArabicDate(DateTime date) {
 
 String formatTime(DateTime date) {
   return '${twoDigits(date.hour)}:${twoDigits(date.minute)}';
+}
+
+DateTime addMonths(DateTime date, int months) {
+  final targetMonth = date.month + months;
+  final year = date.year + ((targetMonth - 1) ~/ 12);
+  final month = ((targetMonth - 1) % 12) + 1;
+  final day = min(date.day, DateTime(year, month + 1, 0).day);
+  return DateTime(
+    year,
+    month,
+    day,
+    date.hour,
+    date.minute,
+    date.second,
+    date.millisecond,
+    date.microsecond,
+  );
 }
 
 String twoDigits(int value) => value.toString().padLeft(2, '0');

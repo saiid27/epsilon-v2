@@ -16,6 +16,7 @@ create table if not exists public.courses (
   class_id uuid references public.classes(id) on delete set null,
   description text not null default '',
   price text not null default '',
+  renewal_months int not null default 1,
   subjects jsonb not null default '[]'::jsonb,
   subject_details jsonb not null default '[]'::jsonb,
   is_active boolean not null default true,
@@ -39,12 +40,15 @@ create table if not exists public.users (
   payment_amount text,
   password_reset_code text,
   password_reset_expires_at timestamptz,
+  subscription_expires_at timestamptz,
   created_at timestamptz not null default now()
 );
 
 alter table public.users add column if not exists payment_amount text;
 alter table public.users add column if not exists password_reset_code text;
 alter table public.users add column if not exists password_reset_expires_at timestamptz;
+alter table public.users add column if not exists subscription_expires_at timestamptz;
+alter table public.courses add column if not exists renewal_months int not null default 1;
 
 create table if not exists public.lessons (
   id uuid primary key default gen_random_uuid(),
