@@ -36,8 +36,11 @@ create table if not exists public.users (
   payment_proof_url text,
   payment_sender_phone text,
   active_device_id text,
+  payment_amount text,
   created_at timestamptz not null default now()
 );
+
+alter table public.users add column if not exists payment_amount text;
 
 create table if not exists public.lessons (
   id uuid primary key default gen_random_uuid(),

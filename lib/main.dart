@@ -237,6 +237,7 @@ class AppUser {
     this.paymentProofPath,
     this.paymentSenderPhone,
     this.activeDeviceId,
+    this.paymentAmount = '',
   }) : selectedSubjects = selectedSubjects ?? const [];
 
   final String id;
@@ -252,6 +253,7 @@ class AppUser {
   String? paymentProofPath;
   String? paymentSenderPhone;
   String? activeDeviceId;
+  String paymentAmount;
 }
 
 class SchoolClass {
@@ -478,6 +480,32 @@ class ExpenseItem {
   }
 }
 
+class PaymentRecord {
+  const PaymentRecord({
+    required this.id,
+    required this.studentName,
+    required this.amount,
+    required this.type,
+    required this.createdAt,
+  });
+
+  final String id;
+  final String studentName;
+  final String amount;
+  final String type;
+  final DateTime createdAt;
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'studentName': studentName,
+      'amount': amount,
+      'type': type,
+      'createdAt': createdAt.toIso8601String(),
+    };
+  }
+}
+
 class SchoolStore extends ChangeNotifier {
   SchoolStore({required this.backendEnabled}) {
     unawaited(_loadReadNotifications());
@@ -506,6 +534,7 @@ class SchoolStore extends ChangeNotifier {
   final List<GuestContentItem> archiveFiles = [];
   final List<PaymentMethod> paymentMethods = [];
   final List<ExpenseItem> expenses = [];
+  final List<PaymentRecord> payments = [];
   final List<AppUser> users = [];
   final List<AppNotification> notifications = [];
   final Set<String> readNotificationIds = {};
@@ -773,6 +802,10 @@ class SchoolStore extends ChangeNotifier {
       expenses
         ..clear()
         ..addAll(_expensesFromApi(expenseItems));
+      final paymentItems = settings['payments'];
+      payments
+        ..clear()
+        ..addAll(_paymentsFromApi(paymentItems));
       notifyListeners();
     }
   }
@@ -800,6 +833,39 @@ class SchoolStore extends ChangeNotifier {
         .toList()
       ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
   }
+
+  List<PaymentRecord> _paymentsFromApi(Object? data) {
+    if (data is! List) {
+      return const [];
+    }
+    return data
+        .whereType<Map>()
+        .map((item) {
+          final map = Map<String, dynamic>.from(item);
+          return PaymentRecord(
+            id: '${map['id'] ?? 'payment-${DateTime.now().microsecondsSinceEpoch}'}',
+            studentName: '${map['studentName'] ?? ''}'.trim(),
+            amount: '${map['amount'] ?? ''}'.trim(),
+            type: '${map['type'] ?? 'تسجيل'}'.trim(),
+            createdAt:
+                DateTime.tryParse('${map['createdAt'] ?? ''}')?.toLocal() ??
+                DateTime.now(),
+          );
+        })
+        .where((item) => item.amount.isNotEmpty)
+        .toList()
+      ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+  }
+
+  double get totalPaymentsAmount => payments
+      .map((payment) => priceNumberFromText(payment.amount) ?? 0)
+      .fold<double>(0, (runningTotal, amount) => runningTotal + amount);
+
+  double get totalExpensesAmount => expenses
+      .map((expense) => priceNumberFromText(expense.amount) ?? 0)
+      .fold<double>(0, (runningTotal, amount) => runningTotal + amount);
+
+  double get totalBoxAmount => totalPaymentsAmount - totalExpensesAmount;
 
   List<PaymentMethod> _paymentMethodsFromApi(Object? data) {
     if (data is! List) {
@@ -1247,6 +1313,9 @@ class SchoolStore extends ChangeNotifier {
       paymentProofPath: data['paymentProofUrl'] as String?,
       paymentSenderPhone: data['paymentSenderPhone'] as String?,
       activeDeviceId: data['activeDeviceId'] as String?,
+      paymentAmount: data['paymentAmount'] == null
+          ? ''
+          : '${data['paymentAmount']}',
     );
   }
 
@@ -1610,6 +1679,7 @@ class SchoolStore extends ChangeNotifier {
       selectedSubjects: user.selectedSubjects,
       paymentProofPath: user.paymentProofPath,
       paymentSenderPhone: user.paymentSenderPhone,
+      paymentAmount: user.paymentAmount,
       activeDeviceId: user.activeDeviceId,
     );
     currentUser = users[index];
@@ -1633,6 +1703,7 @@ class SchoolStore extends ChangeNotifier {
     required String paymentProofPath,
     required List<String> selectedSubjects,
     required String paymentSenderPhone,
+    required String paymentAmount,
   }) async {
     final course = courseById(courseId);
     if (backendEnabled) {
@@ -1645,7 +1716,9 @@ class SchoolStore extends ChangeNotifier {
         password: password,
         courseId: courseId,
         selectedSubjects: selectedSubjects,
+        paymentProofPath: paymentProofPath,
         paymentSenderPhone: paymentSenderPhone,
+        paymentAmount: paymentAmount,
       );
       await _loadPublicApiData();
       return;
@@ -1664,34 +1737,40 @@ class SchoolStore extends ChangeNotifier {
         selectedSubjects: selectedSubjects,
         paymentProofPath: paymentProofPath,
         paymentSenderPhone: paymentSenderPhone.trim(),
+        paymentAmount: paymentAmount.trim(),
       ),
     );
     notifyListeners();
   }
 
-  void createStudentByAdmin({
+  Future<void> createStudentByAdmin({
     required String name,
     required String phone,
     required String password,
     required String courseId,
-  }) {
+    String paymentAmount = '',
+  }) async {
     final course = courseById(courseId);
     if (backendEnabled) {
       if (course == null) {
         return;
       }
-      unawaited(
-        (_repository as SupabaseRepository)
-            .createUser(
-              name: name,
-              phone: phone,
-              password: password,
-              role: 'student',
-              courseId: courseId,
-            )
-            .then((_) => _loadSignedInApiData())
-            .catchError(_rememberError),
-      );
+      try {
+        await (_repository as SupabaseRepository).createUser(
+          name: name,
+          phone: phone,
+          password: password,
+          role: 'student',
+          courseId: courseId,
+          paymentAmount: paymentAmount.trim().isEmpty
+              ? null
+              : paymentAmount.trim(),
+        );
+        await _loadSignedInApiData();
+        _recordPayment(studentName: name, amount: paymentAmount, type: 'تسجيل');
+      } on Object catch (error) {
+        _rememberError(error);
+      }
       return;
     }
 
@@ -1705,9 +1784,11 @@ class SchoolStore extends ChangeNotifier {
         status: AccountStatus.active,
         classId: course?.classId,
         courseId: courseId,
+        paymentAmount: paymentAmount.trim(),
       ),
     );
     notifyListeners();
+    _recordPayment(studentName: name, amount: paymentAmount, type: 'تسجيل');
   }
 
   Future<void> createTeacher({
@@ -1753,12 +1834,24 @@ class SchoolStore extends ChangeNotifier {
         (_repository as SupabaseRepository)
             .updateAccountStatus(user.id, _statusValue(AccountStatus.active))
             .then((_) => _loadSignedInApiData())
+            .then(
+              (_) => _recordPayment(
+                studentName: user.name,
+                amount: user.paymentAmount,
+                type: 'تسجيل',
+              ),
+            )
             .catchError(_rememberError),
       );
       return;
     }
     user.status = AccountStatus.active;
     notifyListeners();
+    _recordPayment(
+      studentName: user.name,
+      amount: user.paymentAmount,
+      type: 'تسجيل',
+    );
   }
 
   void blockUser(AppUser user) {
@@ -1980,6 +2073,50 @@ class SchoolStore extends ChangeNotifier {
           .then((data) => _applySettingsFromApi(data['settings']))
           .catchError(_rememberError),
     );
+  }
+
+  void _recordPayment({
+    required String studentName,
+    required String amount,
+    required String type,
+  }) {
+    final cleanAmount = amount.trim();
+    if (cleanAmount.isEmpty || priceNumberFromText(cleanAmount) == null) {
+      return;
+    }
+    payments.insert(
+      0,
+      PaymentRecord(
+        id: 'payment-${DateTime.now().microsecondsSinceEpoch}',
+        studentName: studentName.trim(),
+        amount: cleanAmount,
+        type: type,
+        createdAt: DateTime.now(),
+      ),
+    );
+    notifyListeners();
+    _syncPayments();
+  }
+
+  void _syncPayments() {
+    if (!backendEnabled) {
+      return;
+    }
+    unawaited(
+      (_repository as SupabaseRepository)
+          .updateSettings(
+            payments: payments.map((payment) => payment.toJson()).toList(),
+          )
+          .then((data) => _applySettingsFromApi(data['settings']))
+          .catchError(_rememberError),
+    );
+  }
+
+  Future<void> renewSubscription({
+    required AppUser user,
+    required String amount,
+  }) async {
+    _recordPayment(studentName: user.name, amount: amount, type: 'تجديد');
   }
 
   void createClass({required String name, required String level}) {
@@ -6545,15 +6682,22 @@ class _StudentPaymentPageState extends State<StudentPaymentPage>
       return;
     }
 
+    final store = StoreScope.of(context);
+    final paymentAmount = widget.paymentAmount.trim().isNotEmpty
+        ? widget.paymentAmount.trim()
+        : store.paymentAmount;
+
     try {
-      await StoreScope.of(context).registerStudent(
+      final proofDataUri = await paymentProofDataUri(image);
+      await store.registerStudent(
         name: widget.name,
         phone: widget.phone,
         password: widget.password,
         courseId: widget.courseId,
-        paymentProofPath: image.path,
+        paymentProofPath: proofDataUri,
         selectedSubjects: widget.selectedSubjects,
         paymentSenderPhone: paymentSenderPhoneController.text,
+        paymentAmount: paymentAmount,
       );
       if (!mounted) {
         return;
@@ -6562,6 +6706,7 @@ class _StudentPaymentPageState extends State<StudentPaymentPage>
         submitted = true;
         error = null;
       });
+      await showPendingAccountMessage();
     } on Object catch (exception) {
       if (!mounted) {
         return;
@@ -6570,13 +6715,31 @@ class _StudentPaymentPageState extends State<StudentPaymentPage>
     }
   }
 
+  Future<void> showPendingAccountMessage() async {
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const AlertDialog(
+        icon: Icon(Icons.hourglass_top_rounded, color: epsilonBlue, size: 42),
+        title: Text('تم إنشاء الحساب'),
+        content: Text(
+          'حسابك الآن بانتظار الإدارة. قد يستغرق الأمر بضع دقائق، لا تقلق. تواصل مع المرشد 34605765.',
+          textAlign: TextAlign.center,
+        ),
+      ),
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 3200));
+    if (!mounted) {
+      return;
+    }
+    Navigator.of(context, rootNavigator: true).pop();
+    Navigator.of(context).popUntil((route) => route.isFirst);
+  }
+
   @override
   Widget build(BuildContext context) {
     final store = StoreScope.of(context);
     final course = store.courseById(widget.courseId);
-    final paymentAmount = widget.paymentAmount.trim().isNotEmpty
-        ? widget.paymentAmount.trim()
-        : store.paymentAmount;
     final availablePaymentMethods = store.paymentMethods.isEmpty
         ? [
             PaymentMethod(
@@ -6609,7 +6772,6 @@ class _StudentPaymentPageState extends State<StudentPaymentPage>
           const SizedBox(height: 16),
           PaymentAttentionCard(
             paymentMethod: selectedPaymentMethod,
-            paymentAmount: paymentAmount,
             pulseAnimation: pulseAnimation,
           ),
           const SizedBox(height: 16),
@@ -6694,26 +6856,6 @@ class _StudentPaymentPageState extends State<StudentPaymentPage>
               ],
             ),
           ),
-          if (submitted) ...[
-            const SizedBox(height: 16),
-            SectionCard(
-              title: 'تم إرسال الطلب',
-              icon: Icons.verified_user_rounded,
-              child: Column(
-                children: [
-                  const Text(
-                    'تم إنشاء الحساب وإرسال إثبات الدفع إلى الإدارة. سيبقى الحساب بانتظار القبول.',
-                    textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: 12),
-                  FilledButton(
-                    onPressed: () => Navigator.of(context).pop(),
-                    child: const Text('العودة لتسجيل الدخول'),
-                  ),
-                ],
-              ),
-            ),
-          ],
         ],
       ),
     );
@@ -6723,13 +6865,11 @@ class _StudentPaymentPageState extends State<StudentPaymentPage>
 class PaymentAttentionCard extends StatelessWidget {
   const PaymentAttentionCard({
     required this.paymentMethod,
-    required this.paymentAmount,
     required this.pulseAnimation,
     super.key,
   });
 
   final PaymentMethod paymentMethod;
-  final String paymentAmount;
   final Animation<double> pulseAnimation;
 
   @override
@@ -6782,62 +6922,49 @@ class PaymentAttentionCard extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
-                  'سعر الانضمام',
-                  style: TextStyle(
-                    color: Color(0xFFE8EEFF),
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                const SizedBox(height: 6),
-                SelectableText(
-                  paymentAmount.trim().isEmpty
-                      ? 'لم تحدده الإدارة بعد'
-                      : paymentAmount,
+                Text(
+                  paymentMethod.name.trim().isEmpty
+                      ? 'رقم الدفع'
+                      : paymentMethod.name,
                   style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 24,
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: 0,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                const Text(
-                  'طريقة الدفع',
-                  style: TextStyle(
                     color: Color(0xFFE8EEFF),
-                    fontWeight: FontWeight.w700,
+                    fontWeight: FontWeight.w800,
                   ),
                 ),
-                const SizedBox(height: 6),
-                SelectableText(
-                  paymentMethod.name,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 18,
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: 0,
-                  ),
-                ),
-                const SizedBox(height: 6),
+                const SizedBox(height: 8),
                 SelectableText(
                   paymentMethod.accountNumber.isEmpty
                       ? 'لم تضفه الإدارة بعد'
                       : paymentMethod.accountNumber,
                   style: TextStyle(
                     color: Colors.white.withValues(alpha: 0.94),
-                    fontSize: 18,
+                    fontSize: 26,
                     fontWeight: FontWeight.w900,
                     letterSpacing: 0,
                   ),
                 ),
-                const SizedBox(height: 6),
+                const SizedBox(height: 8),
                 const Text(
-                  'بعد الدفع ارفع صورة الإيصال ليتم تفعيل حسابك.',
+                  'انسخ الرقم، ادفع عليه، ثم ارفع صورة الإيصال.',
                   style: TextStyle(color: Color(0xFFE8EEFF), height: 1.35),
                 ),
               ],
             ),
+          ),
+          const SizedBox(width: 10),
+          IconButton.filled(
+            tooltip: 'نسخ الرقم',
+            onPressed: paymentMethod.accountNumber.trim().isEmpty
+                ? null
+                : () {
+                    Clipboard.setData(
+                      ClipboardData(text: paymentMethod.accountNumber.trim()),
+                    );
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('تم نسخ رقم الدفع')),
+                    );
+                  },
+            icon: const Icon(Icons.copy_rounded),
           ),
         ],
       ),
@@ -6985,6 +7112,29 @@ class InfoRow extends StatelessWidget {
   }
 }
 
+Future<String> paymentProofDataUri(XFile image) async {
+  final bytes = await image.readAsBytes();
+  final extension = image.path.split('.').last.toLowerCase();
+  final mimeType = switch (extension) {
+    'png' => 'image/png',
+    'webp' => 'image/webp',
+    _ => 'image/jpeg',
+  };
+  return 'data:$mimeType;base64,${base64Encode(bytes)}';
+}
+
+Uint8List? imageBytesFromDataUri(String value) {
+  final marker = RegExp(r'^data:image/[^;]+;base64,');
+  if (!marker.hasMatch(value)) {
+    return null;
+  }
+  try {
+    return base64Decode(value.replaceFirst(marker, ''));
+  } on Object {
+    return null;
+  }
+}
+
 class PaymentProofPreview extends StatelessWidget {
   const PaymentProofPreview({
     required this.imagePath,
@@ -7053,7 +7203,16 @@ class _PaymentProofImage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final image = path.startsWith('http')
+    final dataUriBytes = imageBytesFromDataUri(path);
+    final image = dataUriBytes != null
+        ? Image.memory(
+            dataUriBytes,
+            fit: BoxFit.contain,
+            width: double.infinity,
+            height: double.infinity,
+            errorBuilder: (_, _, _) => const PaymentProofLoadError(),
+          )
+        : path.startsWith('http')
         ? Image.network(
             path,
             fit: BoxFit.contain,
@@ -7105,6 +7264,17 @@ class PaymentProofDetailsImage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final dataUriBytes = imageBytesFromDataUri(imagePath);
+    if (dataUriBytes != null) {
+      return Image.memory(
+        dataUriBytes,
+        fit: BoxFit.contain,
+        width: double.infinity,
+        height: double.infinity,
+        errorBuilder: (_, _, _) => const PaymentProofLoadError(),
+      );
+    }
+
     if (imagePath.startsWith('http')) {
       return Image.network(
         imagePath,
@@ -7326,7 +7496,7 @@ class AdminDashboard extends StatelessWidget {
         children: [
           AdminFinanceCard(
             adminName: admin?.name ?? 'الإدارة',
-            totalAmount: '0 أوقية',
+            totalAmount: '${formatBoxAmount(store.totalBoxAmount)} أوقية',
             pendingCount: store.pendingStudents.length,
           ),
           const SizedBox(height: 22),
@@ -8813,6 +8983,12 @@ class PaymentReviewTile extends StatelessWidget {
                 ? user.paymentSenderPhone!
                 : 'غير مضاف',
           ),
+          InfoRow(
+            label: 'المبلغ',
+            value: user.paymentAmount.trim().isNotEmpty
+                ? user.paymentAmount
+                : 'غير محدد',
+          ),
           Padding(
             padding: const EdgeInsets.symmetric(vertical: 10),
             child: PaymentProofPreview(
@@ -8865,6 +9041,7 @@ class _CreateStudentFormState extends State<CreateStudentForm> {
   final nameController = TextEditingController();
   final phoneController = TextEditingController();
   final passwordController = TextEditingController(text: '123456');
+  final amountController = TextEditingController();
   String? courseId;
 
   @override
@@ -8872,6 +9049,7 @@ class _CreateStudentFormState extends State<CreateStudentForm> {
     nameController.dispose();
     phoneController.dispose();
     passwordController.dispose();
+    amountController.dispose();
     super.dispose();
   }
 
@@ -8922,6 +9100,16 @@ class _CreateStudentFormState extends State<CreateStudentForm> {
                       .toList(),
                   onChanged: (value) => setState(() => courseId = value),
                 ),
+          const SizedBox(height: 10),
+          TextField(
+            controller: amountController,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            decoration: const InputDecoration(
+              labelText: 'المبلغ المدفوع (اختياري)',
+              hintText: 'مثال: 3000',
+              prefixIcon: Icon(Icons.payments_rounded),
+            ),
+          ),
           const SizedBox(height: 12),
           Align(
             alignment: Alignment.centerLeft,
@@ -8939,9 +9127,11 @@ class _CreateStudentFormState extends State<CreateStudentForm> {
                   phone: phoneController.text,
                   password: passwordController.text,
                   courseId: courseId!,
+                  paymentAmount: amountController.text,
                 );
                 nameController.clear();
                 phoneController.clear();
+                amountController.clear();
               },
               icon: const Icon(Icons.add_rounded),
               label: const Text('إضافة الطالب'),
@@ -11820,6 +12010,16 @@ class AccountActionButton extends StatelessWidget {
       runSpacing: 8,
       alignment: WrapAlignment.start,
       children: [
+        if (user.role == UserRole.student &&
+            user.status == AccountStatus.active)
+          OutlinedButton.icon(
+            onPressed: () => showDialog<void>(
+              context: context,
+              builder: (_) => RenewSubscriptionDialog(user: user),
+            ),
+            icon: const Icon(Icons.autorenew_rounded),
+            label: const Text('تجديد الاشتراك'),
+          ),
         OutlinedButton.icon(
           onPressed: () =>
               blocked ? store.activateUser(user) : store.blockUser(user),
@@ -11837,6 +12037,88 @@ class AccountActionButton extends StatelessWidget {
           ),
           icon: const Icon(Icons.delete_outline_rounded),
           label: const Text('حذف'),
+        ),
+      ],
+    );
+  }
+}
+
+class RenewSubscriptionDialog extends StatefulWidget {
+  const RenewSubscriptionDialog({required this.user, super.key});
+
+  final AppUser user;
+
+  @override
+  State<RenewSubscriptionDialog> createState() =>
+      _RenewSubscriptionDialogState();
+}
+
+class _RenewSubscriptionDialogState extends State<RenewSubscriptionDialog> {
+  final amountController = TextEditingController();
+  bool isSaving = false;
+  String? error;
+
+  @override
+  void dispose() {
+    amountController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final store = StoreScope.of(context);
+
+    return AlertDialog(
+      title: const Text('تجديد الاشتراك'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text('أدخل المبلغ الذي دفعه "${widget.user.name}" لتجديد اشتراكه.'),
+          const SizedBox(height: 12),
+          TextField(
+            controller: amountController,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            autofocus: true,
+            decoration: const InputDecoration(
+              labelText: 'المبلغ',
+              hintText: 'مثال: 3000',
+              prefixIcon: Icon(Icons.payments_rounded),
+            ),
+          ),
+          if (error != null) ...[
+            const SizedBox(height: 10),
+            Text(error!, style: TextStyle(color: Colors.red.shade700)),
+          ],
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: isSaving ? null : () => Navigator.of(context).pop(),
+          child: const Text('إلغاء'),
+        ),
+        FilledButton(
+          onPressed: isSaving
+              ? null
+              : () async {
+                  final amount = amountController.text.trim();
+                  if (amount.isEmpty || priceNumberFromText(amount) == null) {
+                    setState(() => error = 'اكتب مبلغا صحيحا.');
+                    return;
+                  }
+                  setState(() {
+                    isSaving = true;
+                    error = null;
+                  });
+                  await store.renewSubscription(
+                    user: widget.user,
+                    amount: amount,
+                  );
+                  if (context.mounted) {
+                    Navigator.of(context).pop();
+                  }
+                },
+          child: Text(isSaving ? 'جار الحفظ...' : 'تأكيد'),
         ),
       ],
     );
@@ -13102,6 +13384,12 @@ String selectedSubjectsAmount(
     return prices.first;
   }
   return 'حسب أسعار المواد المختارة';
+}
+
+String formatBoxAmount(double amount) {
+  return amount == amount.roundToDouble()
+      ? amount.round().toString()
+      : amount.toStringAsFixed(2);
 }
 
 double? priceNumberFromText(String value) {

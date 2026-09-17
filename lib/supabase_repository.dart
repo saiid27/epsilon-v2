@@ -103,7 +103,9 @@ class SupabaseRepository {
     required String password,
     required String courseId,
     required List<String> selectedSubjects,
+    required String paymentProofPath,
     required String paymentSenderPhone,
+    String? paymentAmount,
   }) async {
     final course = await _courseById(courseId);
     final row = await client
@@ -117,7 +119,9 @@ class SupabaseRepository {
           'class_id': course?['class_id'],
           'course_id': courseId,
           'selected_subjects': selectedSubjects,
+          'payment_proof_url': paymentProofPath.trim(),
           'payment_sender_phone': paymentSenderPhone.trim(),
+          'payment_amount': paymentAmount?.trim(),
         })
         .select()
         .single();
@@ -138,6 +142,7 @@ class SupabaseRepository {
         'offerTextBody': values['offerTextBody'] ?? '',
         'offerTextActive': values['offerTextActive'] ?? 'true',
         'expenses': _decodeJsonList(values['expenses']),
+        'payments': _decodeJsonList(values['payments']),
         'paymentMethods': await paymentMethods(),
       },
     };
@@ -147,6 +152,7 @@ class SupabaseRepository {
     String? paymentNumber,
     String? paymentAmount,
     List<Map<String, dynamic>>? expenses,
+    List<Map<String, dynamic>>? payments,
   }) async {
     if (paymentNumber != null) {
       await _upsertSetting('paymentNumber', paymentNumber);
@@ -156,6 +162,9 @@ class SupabaseRepository {
     }
     if (expenses != null) {
       await _upsertSetting('expenses', jsonEncode(expenses));
+    }
+    if (payments != null) {
+      await _upsertSetting('payments', jsonEncode(payments));
     }
     return settings();
   }
@@ -211,6 +220,7 @@ class SupabaseRepository {
     required String role,
     required String courseId,
     String? subject,
+    String? paymentAmount,
   }) async {
     final course = await _courseById(courseId);
     final row = await client
@@ -224,6 +234,7 @@ class SupabaseRepository {
           'class_id': course?['class_id'],
           'course_id': courseId,
           'subject': subject?.trim(),
+          'payment_amount': paymentAmount?.trim(),
         })
         .select()
         .single();
@@ -511,6 +522,7 @@ class SupabaseRepository {
       'paymentProofUrl': row['payment_proof_url'],
       'paymentSenderPhone': row['payment_sender_phone'],
       'activeDeviceId': row['active_device_id'],
+      'paymentAmount': row['payment_amount'],
     };
   }
 
