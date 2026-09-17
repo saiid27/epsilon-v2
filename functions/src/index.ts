@@ -51,6 +51,15 @@ const callableOptions = {
   invoker: "public" as const,
 };
 
+function smsEnv(name: string): string {
+  const value = process.env[name];
+  if (typeof value !== "string" || value.trim().length === 0) {
+    throw new HttpsError("failed-precondition", `${name} is not configured.`);
+  }
+
+  return value.trim();
+}
+
 async function requireAdmin(authContext?: CallableAuth): Promise<void> {
   const uid = authContext?.uid;
   if (!uid) {
@@ -94,6 +103,49 @@ function requireString(value: unknown, fieldName: string): string {
 
   return value.trim();
 }
+
+export const sendPasswordResetCode = onCall(
+  callableOptions,
+  async (request) => {
+    const phone = requireString(request.data.phone, "phone");
+    const code = requireString(request.data.code, "code");
+
+    if (!/^\+?[0-9]{8,15}$/.test(phone)) {
+      throw new HttpsError("invalid-argument", "Invalid phone number.");
+    }
+    if (!/^[0-9]{6}$/.test(code)) {
+      throw new HttpsError("invalid-argument", "Invalid reset code.");
+    }
+
+    const apiKey = smsEnv("SMS_TO_API_KEY");
+    const senderId = process.env.SMS_TO_SENDER_ID?.trim() || "Epsilon";
+    const message = `رمز استعادة كلمة المرور في Epsilon هو: ${code}. صالح لمدة 10 دقائق.`;
+
+    const response = await fetch("https://api.sms.to/sms/send", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        message,
+        to: phone,
+        sender_id: senderId,
+        bypass_optout: true,
+      }),
+    });
+
+    if (!response.ok) {
+      const body = await response.text();
+      throw new HttpsError(
+        "internal",
+        `SMS provider rejected the message: ${body}`,
+      );
+    }
+
+    return {sent: true};
+  },
+);
 
 export const createTeacher = onCall(callableOptions, async (request) => {
   await requireAdmin(request.auth);

@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math';
 
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -67,6 +68,73 @@ class SupabaseRepository {
   Future<void> signOut() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_userIdKey);
+  }
+
+  Future<Map<String, String>> createPasswordResetCode({
+    required String phone,
+  }) async {
+    final cleanPhone = phone.trim();
+    final rows = await client
+        .from('users')
+        .select('id, phone')
+        .eq('phone', cleanPhone)
+        .limit(1);
+    final users = _list(rows);
+    if (users.isEmpty) {
+      throw const SupabaseAppException('رقم الهاتف غير مسجل.');
+    }
+
+    final code = (Random.secure().nextInt(900000) + 100000).toString();
+    final expiresAt = DateTime.now()
+        .toUtc()
+        .add(const Duration(minutes: 10))
+        .toIso8601String();
+    await client
+        .from('users')
+        .update({
+          'password_reset_code': code,
+          'password_reset_expires_at': expiresAt,
+        })
+        .eq('id', '${users.first['id']}');
+
+    return {'phone': _smsPhone(cleanPhone), 'code': code};
+  }
+
+  Future<void> resetPasswordWithCode({
+    required String phone,
+    required String code,
+    required String newPassword,
+  }) async {
+    final rows = await client
+        .from('users')
+        .select('id, password_reset_code, password_reset_expires_at')
+        .eq('phone', phone.trim())
+        .limit(1);
+    final users = _list(rows);
+    if (users.isEmpty) {
+      throw const SupabaseAppException('رقم الهاتف غير مسجل.');
+    }
+
+    final user = users.first;
+    final savedCode = '${user['password_reset_code'] ?? ''}'.trim();
+    final expiresAt = DateTime.tryParse(
+      '${user['password_reset_expires_at'] ?? ''}',
+    );
+    if (savedCode.isEmpty ||
+        savedCode != code.trim() ||
+        expiresAt == null ||
+        expiresAt.isBefore(DateTime.now().toUtc())) {
+      throw const SupabaseAppException('رمز التحقق غير صحيح أو منتهي.');
+    }
+
+    await client
+        .from('users')
+        .update({
+          'password': newPassword,
+          'password_reset_code': null,
+          'password_reset_expires_at': null,
+        })
+        .eq('id', '${user['id']}');
   }
 
   Future<Map<String, dynamic>> get(String path) async {
@@ -193,6 +261,21 @@ class SupabaseRepository {
       return const [];
     }
     return const [];
+  }
+
+  String _smsPhone(String phone) {
+    final trimmed = phone.trim();
+    if (trimmed.startsWith('+')) {
+      return trimmed;
+    }
+    if (trimmed.startsWith('00')) {
+      return '+${trimmed.substring(2)}';
+    }
+    final digits = trimmed.replaceAll(RegExp(r'[^0-9]'), '');
+    if (digits.length == 8) {
+      return '+222$digits';
+    }
+    return '+$digits';
   }
 
   Future<Map<String, dynamic>> createPaymentMethod({

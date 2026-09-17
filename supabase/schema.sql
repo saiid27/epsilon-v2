@@ -37,10 +37,14 @@ create table if not exists public.users (
   payment_sender_phone text,
   active_device_id text,
   payment_amount text,
+  password_reset_code text,
+  password_reset_expires_at timestamptz,
   created_at timestamptz not null default now()
 );
 
 alter table public.users add column if not exists payment_amount text;
+alter table public.users add column if not exists password_reset_code text;
+alter table public.users add column if not exists password_reset_expires_at timestamptz;
 
 create table if not exists public.lessons (
   id uuid primary key default gen_random_uuid(),

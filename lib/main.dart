@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:math';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -11,6 +12,7 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:pdf/pdf.dart';
@@ -28,6 +30,7 @@ import 'supabase_repository.dart';
 import 'firebase_options.dart';
 import 'firebase_schema.dart';
 import 'supabase_config.dart';
+import 'sms_config.dart';
 
 const epsilonBlue = Color(0xFF2457E6);
 const epsilonTeal = Color(0xFF0F9F7A);
@@ -1689,10 +1692,60 @@ class SchoolStore extends ChangeNotifier {
 
   Future<void> sendPasswordResetEmail(String phone) async {
     if (backendEnabled) {
-      lastError = 'استعادة كلمة المرور تتم حالياً من موقع الإدارة.';
+      final resetData = await (_repository as SupabaseRepository)
+          .createPasswordResetCode(phone: phone);
+      final smsPhone = resetData['phone'] ?? '';
+      final code = resetData['code'] ?? '';
+      try {
+        await FirebaseFunctions.instance
+            .httpsCallable('sendPasswordResetCode')
+            .call<void>({'phone': smsPhone, 'code': code});
+      } on Object {
+        await sendPasswordResetSmsDirect(phone: smsPhone, code: code);
+      }
+      lastError = null;
       notifyListeners();
       return;
     }
+  }
+
+  Future<void> resetPasswordWithCode({
+    required String phone,
+    required String code,
+    required String newPassword,
+  }) async {
+    if (backendEnabled) {
+      await (_repository as SupabaseRepository).resetPasswordWithCode(
+        phone: phone,
+        code: code,
+        newPassword: newPassword,
+      );
+      return;
+    }
+
+    final matches = users.where((user) => user.phone == phone.trim());
+    if (matches.isEmpty) {
+      throw const SupabaseAppException('رقم الهاتف غير مسجل.');
+    }
+    final user = matches.first;
+    final index = users.indexOf(user);
+    users[index] = AppUser(
+      id: user.id,
+      name: user.name,
+      phone: user.phone,
+      password: newPassword,
+      role: user.role,
+      status: user.status,
+      classId: user.classId,
+      courseId: user.courseId,
+      subject: user.subject,
+      selectedSubjects: user.selectedSubjects,
+      paymentProofPath: user.paymentProofPath,
+      paymentSenderPhone: user.paymentSenderPhone,
+      paymentAmount: user.paymentAmount,
+      activeDeviceId: user.activeDeviceId,
+    );
+    notifyListeners();
   }
 
   Future<void> registerStudent({
@@ -3447,14 +3500,124 @@ class ForgotPasswordPage extends StatefulWidget {
 
 class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
   final phoneController = TextEditingController();
+  final codeController = TextEditingController();
+  final passwordController = TextEditingController();
+  final confirmPasswordController = TextEditingController();
   String? message;
   bool success = false;
   bool sending = false;
+  bool codeSent = false;
 
   @override
   void dispose() {
     phoneController.dispose();
+    codeController.dispose();
+    passwordController.dispose();
+    confirmPasswordController.dispose();
     super.dispose();
+  }
+
+  Future<void> sendCode(SchoolStore store) async {
+    final phone = phoneController.text.trim();
+    if (phone.isEmpty) {
+      setState(() {
+        success = false;
+        message = 'أدخل رقم الهاتف أولا.';
+      });
+      return;
+    }
+
+    setState(() {
+      sending = true;
+      message = null;
+    });
+
+    try {
+      await store.sendPasswordResetEmail(phone);
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        codeSent = true;
+        success = true;
+        message = 'تم إرسال رمز التحقق إلى رقمك. الرمز صالح لمدة 10 دقائق.';
+      });
+    } on Object catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        success = false;
+        message = 'تعذر إرسال الرمز: ${friendlyApiError(error)}';
+      });
+    } finally {
+      if (mounted) {
+        setState(() => sending = false);
+      }
+    }
+  }
+
+  Future<void> resetPassword(SchoolStore store) async {
+    final phone = phoneController.text.trim();
+    final code = codeController.text.trim();
+    final password = passwordController.text;
+    if (code.length != 6) {
+      setState(() {
+        success = false;
+        message = 'أدخل رمز التحقق المكون من 6 أرقام.';
+      });
+      return;
+    }
+    if (password.length < 6) {
+      setState(() {
+        success = false;
+        message = 'كلمة المرور يجب أن تكون 6 أحرف أو أرقام على الأقل.';
+      });
+      return;
+    }
+    if (password != confirmPasswordController.text) {
+      setState(() {
+        success = false;
+        message = 'تأكيد كلمة المرور غير مطابق.';
+      });
+      return;
+    }
+
+    setState(() {
+      sending = true;
+      message = null;
+    });
+
+    try {
+      await store.resetPasswordWithCode(
+        phone: phone,
+        code: code,
+        newPassword: password,
+      );
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        success = true;
+        message = 'تم تغيير كلمة المرور بنجاح. يمكنك تسجيل الدخول الآن.';
+      });
+      await Future<void>.delayed(const Duration(milliseconds: 1600));
+      if (mounted) {
+        Navigator.of(context).pop();
+      }
+    } on Object catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        success = false;
+        message = 'تعذر تغيير كلمة المرور: ${friendlyApiError(error)}';
+      });
+    } finally {
+      if (mounted) {
+        setState(() => sending = false);
+      }
+    }
   }
 
   @override
@@ -3469,7 +3632,7 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
         children: [
           const HeaderPanel(
             title: 'استعادة كلمة المرور',
-            subtitle: 'أدخل رقم هاتفك لاستعادة الوصول إلى الحساب',
+            subtitle: 'سنرسل لك رمز تحقق لتعيين كلمة مرور جديدة',
             icon: Icons.lock_reset_rounded,
           ),
           const SizedBox(height: 16),
@@ -3481,12 +3644,44 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
               children: [
                 TextField(
                   controller: phoneController,
+                  enabled: !codeSent,
                   keyboardType: TextInputType.phone,
                   decoration: const InputDecoration(
                     labelText: 'رقم الهاتف',
                     prefixIcon: Icon(Icons.phone_iphone_rounded),
                   ),
                 ),
+                if (codeSent) ...[
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: codeController,
+                    keyboardType: TextInputType.number,
+                    maxLength: 6,
+                    decoration: const InputDecoration(
+                      labelText: 'رمز التحقق',
+                      prefixIcon: Icon(Icons.verified_user_rounded),
+                      counterText: '',
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: passwordController,
+                    obscureText: true,
+                    decoration: const InputDecoration(
+                      labelText: 'كلمة المرور الجديدة',
+                      prefixIcon: Icon(Icons.lock_outline_rounded),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: confirmPasswordController,
+                    obscureText: true,
+                    decoration: const InputDecoration(
+                      labelText: 'تأكيد كلمة المرور',
+                      prefixIcon: Icon(Icons.lock_reset_rounded),
+                    ),
+                  ),
+                ],
                 if (message != null) ...[
                   const SizedBox(height: 10),
                   Text(
@@ -3503,49 +3698,26 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
                 FilledButton.icon(
                   onPressed: sending
                       ? null
-                      : () async {
-                          final phone = phoneController.text.trim();
-                          if (phone.isEmpty) {
-                            setState(() {
-                              success = false;
-                              message = 'أدخل رقم الهاتف أولا.';
-                            });
-                            return;
-                          }
-
-                          setState(() {
-                            sending = true;
-                            message = null;
-                          });
-
-                          try {
-                            await store.sendPasswordResetEmail(phone);
-                            if (!mounted) {
-                              return;
-                            }
-                            setState(() {
-                              success = true;
-                              message =
-                                  'إذا كان الرقم مسجلا ستتم متابعة الاستعادة من الإدارة.';
-                            });
-                          } on Object catch (error) {
-                            if (!mounted) {
-                              return;
-                            }
-                            setState(() {
-                              success = false;
-                              message =
-                                  'تعذر إرسال الرابط: ${friendlyApiError(error)}';
-                            });
-                          } finally {
-                            if (mounted) {
-                              setState(() => sending = false);
-                            }
-                          }
-                        },
-                  icon: const Icon(Icons.send_rounded),
-                  label: Text(sending ? 'جار الإرسال...' : 'إرسال الرابط'),
+                      : () => codeSent ? resetPassword(store) : sendCode(store),
+                  icon: Icon(
+                    codeSent ? Icons.check_rounded : Icons.sms_rounded,
+                  ),
+                  label: Text(
+                    sending
+                        ? 'جار المعالجة...'
+                        : codeSent
+                        ? 'تغيير كلمة المرور'
+                        : 'إرسال رمز التحقق',
+                  ),
                 ),
+                if (codeSent) ...[
+                  const SizedBox(height: 8),
+                  TextButton.icon(
+                    onPressed: sending ? null : () => sendCode(store),
+                    icon: const Icon(Icons.refresh_rounded),
+                    label: const Text('إعادة إرسال الرمز'),
+                  ),
+                ],
               ],
             ),
           ),
@@ -7132,6 +7304,35 @@ Uint8List? imageBytesFromDataUri(String value) {
     return base64Decode(value.replaceFirst(marker, ''));
   } on Object {
     return null;
+  }
+}
+
+Future<void> sendPasswordResetSmsDirect({
+  required String phone,
+  required String code,
+}) async {
+  if (!SmsConfig.isConfigured) {
+    throw const SupabaseAppException(
+      'إرسال الرسائل غير مفعّل. أضف مفتاح SMS_TO_API_KEY عند بناء التطبيق.',
+    );
+  }
+
+  final response = await http.post(
+    Uri.parse('https://api.sms.to/sms/send'),
+    headers: {
+      'Authorization': 'Bearer ${SmsConfig.apiKey}',
+      'Content-Type': 'application/json',
+    },
+    body: jsonEncode({
+      'to': phone,
+      'sender_id': SmsConfig.senderId,
+      'bypass_optout': true,
+      'message':
+          'رمز استعادة كلمة المرور في Epsilon هو: $code. صالح لمدة 10 دقائق.',
+    }),
+  );
+  if (response.statusCode < 200 || response.statusCode >= 300) {
+    throw SupabaseAppException('تعذر إرسال رمز التحقق: ${response.body}');
   }
 }
 
