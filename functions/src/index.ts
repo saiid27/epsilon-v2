@@ -60,6 +60,14 @@ function smsEnv(name: string): string {
   return value.trim();
 }
 
+function chinguisoftPhone(phone: string): string {
+  const digits = phone.replace(/\D/g, "");
+  if (digits.startsWith("222") && digits.length === 11) {
+    return digits.substring(3);
+  }
+  return digits;
+}
+
 async function requireAdmin(authContext?: CallableAuth): Promise<void> {
   const uid = authContext?.uid;
   if (!uid) {
@@ -117,23 +125,29 @@ export const sendPasswordResetCode = onCall(
       throw new HttpsError("invalid-argument", "Invalid reset code.");
     }
 
-    const apiKey = smsEnv("SMS_TO_API_KEY");
-    const senderId = process.env.SMS_TO_SENDER_ID?.trim() || "Epsilon";
-    const message = `رمز استعادة كلمة المرور في Epsilon هو: ${code}. صالح لمدة 10 دقائق.`;
+    const campaignKey = smsEnv("CHINGUISOFT_CAMPAIGN_KEY");
+    const campaignToken = smsEnv("CHINGUISOFT_CAMPAIGN_TOKEN");
+    const campaignUrl =
+      process.env.CHINGUISOFT_CAMPAIGN_URL?.trim() ||
+      "https://example.com/promo";
 
-    const response = await fetch("https://api.sms.to/sms/send", {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
+    const response = await fetch(
+      `https://chinguisoft.com/api/sms/campaign/${campaignKey}`,
+      {
+        method: "POST",
+        headers: {
+          "Campaign-token": campaignToken,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          phone: chinguisoftPhone(phone),
+          lang: "ar",
+          url: campaignUrl,
+          code,
+          reference: 0,
+        }),
       },
-      body: JSON.stringify({
-        message,
-        to: phone,
-        sender_id: senderId,
-        bypass_optout: true,
-      }),
-    });
+    );
 
     if (!response.ok) {
       const body = await response.text();

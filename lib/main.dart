@@ -7313,27 +7313,38 @@ Future<void> sendPasswordResetSmsDirect({
 }) async {
   if (!SmsConfig.isConfigured) {
     throw const SupabaseAppException(
-      'إرسال الرسائل غير مفعّل. أضف مفتاح SMS_TO_API_KEY عند بناء التطبيق.',
+      'إرسال الرسائل غير مفعّل. أضف بيانات Chinguisoft عند بناء التطبيق.',
     );
   }
 
+  final endpoint = Uri.parse(
+    'https://chinguisoft.com/api/sms/campaign/${SmsConfig.campaignKey}',
+  );
   final response = await http.post(
-    Uri.parse('https://api.sms.to/sms/send'),
+    endpoint,
     headers: {
-      'Authorization': 'Bearer ${SmsConfig.apiKey}',
+      'Campaign-token': SmsConfig.campaignToken,
       'Content-Type': 'application/json',
     },
     body: jsonEncode({
-      'to': phone,
-      'sender_id': SmsConfig.senderId,
-      'bypass_optout': true,
-      'message':
-          'رمز استعادة كلمة المرور في Epsilon هو: $code. صالح لمدة 10 دقائق.',
+      'phone': chinguisoftPhone(phone),
+      'lang': 'ar',
+      'url': SmsConfig.campaignUrl,
+      'code': code,
+      'reference': 0,
     }),
   );
   if (response.statusCode < 200 || response.statusCode >= 300) {
     throw SupabaseAppException('تعذر إرسال رمز التحقق: ${response.body}');
   }
+}
+
+String chinguisoftPhone(String phone) {
+  final digits = phone.replaceAll(RegExp(r'[^0-9]'), '');
+  if (digits.startsWith('222') && digits.length == 11) {
+    return digits.substring(3);
+  }
+  return digits;
 }
 
 class PaymentProofPreview extends StatelessWidget {
