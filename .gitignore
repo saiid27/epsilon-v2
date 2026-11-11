@@ -56,3 +56,6 @@ app.*.map.json
 scripts/service-account*.json
 **/service-account*.json
 .firebase/
+
+# Supabase CLI local state
+/supabase/.temp/

@@ -1,7 +1,7 @@
 name: epsilon
 description: A Flutter mobile application.
 publish_to: 'none'
-version: 1.0.3+6
+version: 1.0.5+9
 
 environment:
   sdk: ^3.11.0
@@ -10,21 +10,13 @@ dependencies:
   flutter:
     sdk: flutter
   cupertino_icons: ^1.0.8
-  firebase_core: ^4.7.0
-  firebase_auth: ^6.4.0
-  cloud_firestore: ^6.3.0
-  cloud_functions: ^6.2.0
-  firebase_storage: ^13.0.0
-  file_picker: ^10.3.7
   audioplayers: ^6.5.1
-  image_picker: ^1.2.1
   shared_preferences: ^2.5.3
   url_launcher: ^6.3.2
   video_player: ^2.10.1
   webview_flutter: ^4.13.1
   webview_flutter_android: ^4.11.0
   webview_flutter_wkwebview: ^3.24.5
-  firebase_messaging: ^16.2.0
   flutter_local_notifications: ^21.0.0
   http: ^1.2.2
   supabase_flutter: ^2.17.2

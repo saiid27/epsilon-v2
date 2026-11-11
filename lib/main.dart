@@ -3,17 +3,10 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:cloud_functions/cloud_functions.dart';
 import 'package:audioplayers/audioplayers.dart';
-import 'package:file_picker/file_picker.dart';
-import 'package:firebase_core/firebase_core.dart';
-import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
-import 'package:http/http.dart' as http;
-import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
@@ -27,10 +20,7 @@ import 'package:webview_flutter_android/webview_flutter_android.dart';
 import 'package:webview_flutter_wkwebview/webview_flutter_wkwebview.dart';
 
 import 'supabase_repository.dart';
-import 'firebase_options.dart';
-import 'firebase_schema.dart';
 import 'supabase_config.dart';
-import 'sms_config.dart';
 
 const epsilonBlue = Color(0xFF2457E6);
 const epsilonTeal = Color(0xFF0F9F7A);
@@ -41,9 +31,37 @@ const epsilonSurface = Color(0xFFFFFFFF);
 const epsilonSoft = Color(0xFFF4F7FC);
 const epsilonLine = Color(0xFFDDE6F5);
 
-@pragma('vm:entry-point')
-Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
-  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+class PickedNativeFile {
+  const PickedNativeFile({required this.path, required this.name});
+
+  final String path;
+  final String name;
+}
+
+class NativeFilePicker {
+  const NativeFilePicker._();
+
+  static const MethodChannel _channel = MethodChannel('epsilon/file_picker');
+
+  static Future<PickedNativeFile?> pickImage() => _pickFile('image');
+
+  static Future<PickedNativeFile?> pickExcel() => _pickFile('excel');
+
+  static Future<PickedNativeFile?> _pickFile(String type) async {
+    final result = await _channel.invokeMapMethod<String, Object?>(
+      'pickFile',
+      <String, Object?>{'type': type},
+    );
+    final path = result?['path']?.toString();
+    if (path == null || path.trim().isEmpty) {
+      return null;
+    }
+    final name = result?['name']?.toString().trim();
+    return PickedNativeFile(
+      path: path,
+      name: name == null || name.isEmpty ? path.split('/').last : name,
+    );
+  }
 }
 
 Future<void> main() async {
@@ -134,37 +152,6 @@ class PushNotifications {
     );
   }
 
-  // ignore: unused_element
-  static Future<void> _showForegroundNotification(RemoteMessage message) async {
-    final title = message.notification?.title ?? message.data['title'];
-    final body = message.notification?.body ?? message.data['body'];
-
-    if (title == null && body == null) {
-      return;
-    }
-
-    await _localNotifications.show(
-      id: message.messageId.hashCode,
-      title: title ?? 'إشعار جديد',
-      body: body ?? '',
-      notificationDetails: NotificationDetails(
-        android: AndroidNotificationDetails(
-          _androidChannel.id,
-          _androidChannel.name,
-          channelDescription: _androidChannel.description,
-          importance: Importance.high,
-          priority: Priority.high,
-          playSound: true,
-        ),
-        iOS: const DarwinNotificationDetails(
-          presentAlert: true,
-          presentBadge: true,
-          presentSound: true,
-        ),
-      ),
-    );
-  }
-
   static Future<void> showLocalNotification({
     required String id,
     required String title,
@@ -194,6 +181,15 @@ class PushNotifications {
 }
 
 String friendlyApiError(Object error) {
+  if (error is SupabaseAppException) {
+    return error.message;
+  }
+
+  final rawText = error.toString();
+  if (rawText.startsWith('SupabaseAppException: ')) {
+    return rawText.replaceFirst('SupabaseAppException: ', '');
+  }
+
   final text = error.toString().toLowerCase();
 
   if (text.contains('unauthenticated') || text.contains('not-signed-in')) {
@@ -223,6 +219,8 @@ String friendlyApiError(Object error) {
 
 enum UserRole { admin, teacher, student }
 
+enum AdminType { developer, generalManager, schoolManager }
+
 enum AccountStatus { pending, active, blocked, rejected }
 
 class AppUser {
@@ -237,12 +235,15 @@ class AppUser {
     this.courseId,
     this.subject,
     List<String>? selectedSubjects,
+    this.adminType = AdminType.schoolManager,
+    List<String>? managedCourseIds,
     this.paymentProofPath,
     this.paymentSenderPhone,
     this.activeDeviceId,
     this.paymentAmount = '',
     this.subscriptionExpiresAt,
-  }) : selectedSubjects = selectedSubjects ?? const [];
+  }) : selectedSubjects = selectedSubjects ?? const [],
+       managedCourseIds = managedCourseIds ?? const [];
 
   final String id;
   final String name;
@@ -254,6 +255,8 @@ class AppUser {
   String? courseId;
   String? subject;
   List<String> selectedSubjects;
+  AdminType adminType;
+  List<String> managedCourseIds;
   String? paymentProofPath;
   String? paymentSenderPhone;
   String? activeDeviceId;
@@ -471,6 +474,8 @@ class ExpenseItem {
     required this.amount,
     required this.category,
     required this.createdAt,
+    this.courseId,
+    this.courseTitle,
     this.note = '',
   });
 
@@ -480,6 +485,8 @@ class ExpenseItem {
   final String category;
   final String note;
   final DateTime createdAt;
+  final String? courseId;
+  final String? courseTitle;
 
   Map<String, dynamic> toJson() {
     return {
@@ -489,6 +496,8 @@ class ExpenseItem {
       'category': category,
       'note': note,
       'createdAt': createdAt.toIso8601String(),
+      if (courseId != null) 'courseId': courseId,
+      if (courseTitle != null) 'courseTitle': courseTitle,
     };
   }
 }
@@ -500,6 +509,8 @@ class PaymentRecord {
     required this.amount,
     required this.type,
     required this.createdAt,
+    this.courseId,
+    this.courseTitle,
   });
 
   final String id;
@@ -507,6 +518,8 @@ class PaymentRecord {
   final String amount;
   final String type;
   final DateTime createdAt;
+  final String? courseId;
+  final String? courseTitle;
 
   Map<String, dynamic> toJson() {
     return {
@@ -515,6 +528,38 @@ class PaymentRecord {
       'amount': amount,
       'type': type,
       'createdAt': createdAt.toIso8601String(),
+      if (courseId != null) 'courseId': courseId,
+      if (courseTitle != null) 'courseTitle': courseTitle,
+    };
+  }
+}
+
+class CourseIncomeSummary {
+  const CourseIncomeSummary({
+    required this.course,
+    required this.payments,
+    required this.total,
+  });
+
+  final Course course;
+  final List<PaymentRecord> payments;
+  final double total;
+}
+
+class AdminAccessConfig {
+  const AdminAccessConfig({
+    required this.adminType,
+    required this.managedCourseIds,
+  });
+
+  final AdminType adminType;
+  final List<String> managedCourseIds;
+
+  Map<String, dynamic> toJson(String userId) {
+    return {
+      'userId': userId,
+      'adminType': adminTypeValue(adminType),
+      'managedCourseIds': managedCourseIds,
     };
   }
 }
@@ -551,13 +596,13 @@ class SchoolStore extends ChangeNotifier {
   final List<AppUser> users = [];
   final List<AppNotification> notifications = [];
   final Set<String> readNotificationIds = {};
+  final Map<String, AdminAccessConfig> adminAccessByUserId = {};
   String paymentNumber = '22334455';
   String paymentAmount = 'غير محدد';
   ThemeMode themeMode = ThemeMode.light;
   String languageCode = 'ar';
   AppUser? currentUser;
   bool isLoading = false;
-  bool _claimingStudentDevice = false;
   bool _notificationsLoadedOnce = false;
   String? lastError;
 
@@ -601,130 +646,6 @@ class SchoolStore extends ChangeNotifier {
     return classes.first.id;
   }
 
-  // ignore: unused_element
-  void _bindFirebase() {
-    final repository = _repository!;
-    _listenToPublicCourses();
-    _listenToGuestContent();
-
-    _subscriptions.add(
-      repository.auth.authStateChanges().listen((firebaseUser) async {
-        if (firebaseUser == null) {
-          currentUser = null;
-          users.clear();
-          unawaited(_usersSubscription?.cancel() ?? Future<void>.value());
-          unawaited(_currentUserSubscription?.cancel() ?? Future<void>.value());
-          unawaited(_coursesSubscription?.cancel() ?? Future<void>.value());
-          unawaited(_lessonsSubscription?.cancel() ?? Future<void>.value());
-          _usersSubscription = null;
-          _currentUserSubscription = null;
-          _coursesSubscription = null;
-          _lessonsSubscription = null;
-          lessons.clear();
-          _listenToPublicCourses();
-          notifyListeners();
-          return;
-        }
-
-        final snapshot = await repository.users.doc(firebaseUser.uid).get();
-        if (!snapshot.exists) {
-          currentUser = null;
-          users.clear();
-          unawaited(_usersSubscription?.cancel() ?? Future<void>.value());
-          unawaited(_currentUserSubscription?.cancel() ?? Future<void>.value());
-          unawaited(_coursesSubscription?.cancel() ?? Future<void>.value());
-          unawaited(_lessonsSubscription?.cancel() ?? Future<void>.value());
-          _usersSubscription = null;
-          _currentUserSubscription = null;
-          _coursesSubscription = null;
-          _lessonsSubscription = null;
-          notifyListeners();
-          return;
-        }
-
-        currentUser = _userFromDoc(snapshot);
-        if (currentUser?.role == UserRole.admin) {
-          unawaited(_currentUserSubscription?.cancel() ?? Future<void>.value());
-          _currentUserSubscription = null;
-          _listenToAllUsers();
-        } else {
-          unawaited(_usersSubscription?.cancel() ?? Future<void>.value());
-          _usersSubscription = null;
-          _listenToCurrentUser(firebaseUser.uid);
-        }
-        _listenToCoursesAndLessons(currentUser!);
-        notifyListeners();
-      }),
-    );
-
-    _subscriptions.add(
-      repository.classes.snapshots().listen((snapshot) {
-        classes
-          ..clear()
-          ..addAll(snapshot.docs.map(_classFromDoc));
-        notifyListeners();
-      }, onError: _rememberError),
-    );
-
-    _subscriptions.add(
-      repository.notifications
-          .orderBy(NotificationFields.createdAt, descending: true)
-          .snapshots()
-          .listen((snapshot) {
-            final previousIds = notifications
-                .map((notification) => notification.id)
-                .toSet();
-            final incoming = snapshot.docs.map(_notificationFromDoc).toList();
-            final hasNewStudentNotification =
-                _notificationsLoadedOnce &&
-                currentUser?.role == UserRole.student &&
-                incoming.any(
-                  (notification) =>
-                      !previousIds.contains(notification.id) &&
-                      !readNotificationIds.contains(notification.id),
-                );
-
-            notifications
-              ..clear()
-              ..addAll(incoming);
-            _notificationsLoadedOnce = true;
-
-            if (hasNewStudentNotification) {
-              final newestNotification = incoming.firstWhere(
-                (notification) =>
-                    !previousIds.contains(notification.id) &&
-                    !readNotificationIds.contains(notification.id),
-              );
-              unawaited(
-                PushNotifications.showLocalNotification(
-                  id: newestNotification.id,
-                  title: newestNotification.title,
-                  body: newestNotification.body,
-                ),
-              );
-              SystemSound.play(SystemSoundType.alert);
-              HapticFeedback.mediumImpact();
-            }
-            notifyListeners();
-          }, onError: _rememberError),
-    );
-
-    _subscriptions.add(
-      repository.appSettings.snapshots().listen((snapshot) {
-        final data = snapshot.data();
-        final number = data?[SettingsFields.paymentNumber];
-        if (number is String && number.trim().isNotEmpty) {
-          paymentNumber = number;
-        }
-        final amount = data?[SettingsFields.paymentAmount];
-        if (amount is String && amount.trim().isNotEmpty) {
-          paymentAmount = amount;
-        }
-        notifyListeners();
-      }, onError: _rememberError),
-    );
-  }
-
   Future<void> _bindApi() async {
     try {
       final repository = _repository as SupabaseRepository;
@@ -736,6 +657,7 @@ class SchoolStore extends ChangeNotifier {
         users
           ..clear()
           ..add(currentUser!);
+        _applyAdminAccessToUsers();
         await _loadSignedInApiData();
         _startNotificationPolling();
       }
@@ -819,7 +741,52 @@ class SchoolStore extends ChangeNotifier {
       payments
         ..clear()
         ..addAll(_paymentsFromApi(paymentItems));
+      final adminAccessItems = settings['adminAccess'];
+      adminAccessByUserId
+        ..clear()
+        ..addAll(_adminAccessFromApi(adminAccessItems));
+      _applyAdminAccessToUsers();
       notifyListeners();
+    }
+  }
+
+  Map<String, AdminAccessConfig> _adminAccessFromApi(Object? data) {
+    if (data is! List) {
+      return const {};
+    }
+    final access = <String, AdminAccessConfig>{};
+    for (final item in data.whereType<Map>()) {
+      final map = Map<String, dynamic>.from(item);
+      final userId = '${map['userId'] ?? ''}'.trim();
+      if (userId.isEmpty) {
+        continue;
+      }
+      access[userId] = AdminAccessConfig(
+        adminType: _adminTypeFromString('${map['adminType'] ?? ''}'),
+        managedCourseIds: stringListFromDynamic(map['managedCourseIds']),
+      );
+    }
+    return access;
+  }
+
+  void _applyAdminAccessToUsers() {
+    for (final user in users) {
+      if (user.role != UserRole.admin) {
+        continue;
+      }
+      final access = adminAccessByUserId[user.id];
+      if (access != null) {
+        user.adminType = access.adminType;
+        user.managedCourseIds = access.managedCourseIds;
+      }
+      if (user.phone.trim() == '34605765') {
+        user.adminType = AdminType.developer;
+        user.managedCourseIds = const [];
+      }
+    }
+    final currentId = currentUser?.id;
+    if (currentId != null) {
+      currentUser = users.where((user) => user.id == currentId).firstOrNull;
     }
   }
 
@@ -840,6 +807,12 @@ class SchoolStore extends ChangeNotifier {
             createdAt:
                 DateTime.tryParse('${map['createdAt'] ?? ''}')?.toLocal() ??
                 DateTime.now(),
+            courseId: '${map['courseId'] ?? ''}'.trim().isEmpty
+                ? null
+                : '${map['courseId']}'.trim(),
+            courseTitle: '${map['courseTitle'] ?? ''}'.trim().isEmpty
+                ? null
+                : '${map['courseTitle']}'.trim(),
           );
         })
         .where((item) => item.title.isNotEmpty)
@@ -863,6 +836,12 @@ class SchoolStore extends ChangeNotifier {
             createdAt:
                 DateTime.tryParse('${map['createdAt'] ?? ''}')?.toLocal() ??
                 DateTime.now(),
+            courseId: '${map['courseId'] ?? ''}'.trim().isEmpty
+                ? null
+                : '${map['courseId']}'.trim(),
+            courseTitle: '${map['courseTitle'] ?? ''}'.trim().isEmpty
+                ? null
+                : '${map['courseTitle']}'.trim(),
           );
         })
         .where((item) => item.amount.isNotEmpty)
@@ -874,11 +853,82 @@ class SchoolStore extends ChangeNotifier {
       .map((payment) => priceNumberFromText(payment.amount) ?? 0)
       .fold<double>(0, (runningTotal, amount) => runningTotal + amount);
 
+  List<PaymentRecord> get visiblePayments {
+    final user = currentUser;
+    if (user == null || user.role != UserRole.admin) {
+      return const [];
+    }
+    if (user.adminType == AdminType.developer) {
+      return payments;
+    }
+    final allowedCourseIds = adminManagedCourseIds(user);
+    if (allowedCourseIds.isEmpty) {
+      return const [];
+    }
+    return payments
+        .where(
+          (payment) =>
+              payment.courseId != null &&
+              allowedCourseIds.contains(payment.courseId),
+        )
+        .toList();
+  }
+
+  double get visiblePaymentsAmount => visiblePayments
+      .map((payment) => priceNumberFromText(payment.amount) ?? 0)
+      .fold<double>(0, (runningTotal, amount) => runningTotal + amount);
+
   double get totalExpensesAmount => expenses
       .map((expense) => priceNumberFromText(expense.amount) ?? 0)
       .fold<double>(0, (runningTotal, amount) => runningTotal + amount);
 
+  List<ExpenseItem> get visibleExpenses {
+    final user = currentUser;
+    if (user == null || user.role != UserRole.admin) {
+      return const [];
+    }
+    if (user.adminType == AdminType.developer) {
+      return expenses;
+    }
+    final allowedCourseIds = adminManagedCourseIds(user);
+    if (allowedCourseIds.isEmpty) {
+      return const [];
+    }
+    return expenses
+        .where(
+          (expense) =>
+              expense.courseId != null &&
+              allowedCourseIds.contains(expense.courseId),
+        )
+        .toList();
+  }
+
+  double get visibleExpensesAmount => visibleExpenses
+      .map((expense) => priceNumberFromText(expense.amount) ?? 0)
+      .fold<double>(0, (runningTotal, amount) => runningTotal + amount);
+
   double get totalBoxAmount => totalPaymentsAmount - totalExpensesAmount;
+
+  double get visibleBoxAmount {
+    final user = currentUser;
+    if (user?.adminType == AdminType.developer) {
+      return totalBoxAmount;
+    }
+    return visiblePaymentsAmount - visibleExpensesAmount;
+  }
+
+  double courseIncomeAmount(String courseId) => payments
+      .where((payment) => payment.courseId == courseId)
+      .map((payment) => priceNumberFromText(payment.amount) ?? 0)
+      .fold<double>(0, (runningTotal, amount) => runningTotal + amount);
+
+  double courseExpenseAmount(String courseId) => expenses
+      .where((expense) => expense.courseId == courseId)
+      .map((expense) => priceNumberFromText(expense.amount) ?? 0)
+      .fold<double>(0, (runningTotal, amount) => runningTotal + amount);
+
+  double courseBoxAmount(String courseId) =>
+      courseIncomeAmount(courseId) - courseExpenseAmount(courseId);
 
   List<PaymentMethod> _paymentMethodsFromApi(Object? data) {
     if (data is! List) {
@@ -920,6 +970,7 @@ class SchoolStore extends ChangeNotifier {
             (item) => _userFromApi(Map<String, dynamic>.from(item)),
           ),
         );
+      _applyAdminAccessToUsers();
       currentUser = users
           .where((candidate) => candidate.id == user.id)
           .cast<AppUser?>()
@@ -1037,282 +1088,6 @@ class SchoolStore extends ChangeNotifier {
     notifyListeners();
   }
 
-  void _listenToAllUsers() {
-    if (_usersSubscription != null) {
-      return;
-    }
-
-    _usersSubscription = _repository!.users.snapshots().listen((snapshot) {
-      users
-        ..clear()
-        ..addAll(snapshot.docs.map(_userFromDoc));
-      final signedInUid = _repository!.auth.currentUser?.uid;
-      if (signedInUid != null) {
-        currentUser = users.where((user) => user.id == signedInUid).firstOrNull;
-      }
-      notifyListeners();
-    }, onError: _rememberError);
-  }
-
-  void _listenToCurrentUser(String uid) {
-    if (_currentUserSubscription != null) {
-      return;
-    }
-
-    _currentUserSubscription = _repository!.users.doc(uid).snapshots().listen((
-      snapshot,
-    ) {
-      if (!snapshot.exists) {
-        logout();
-        return;
-      }
-
-      final user = _userFromDoc(snapshot);
-      currentUser = user;
-      users
-        ..clear()
-        ..add(user);
-
-      if (user.role == UserRole.student) {
-        unawaited(_enforceStudentDevice(user));
-      }
-
-      notifyListeners();
-    }, onError: _rememberError);
-  }
-
-  Future<String> _deviceId() async {
-    const key = 'epsilon_device_id';
-    final prefs = await SharedPreferences.getInstance();
-    final existing = prefs.getString(key);
-    if (existing != null && existing.trim().isNotEmpty) {
-      return existing;
-    }
-
-    final random = Random.secure();
-    final generated =
-        '${DateTime.now().microsecondsSinceEpoch}-'
-        '${random.nextInt(1 << 32)}-${random.nextInt(1 << 32)}';
-    await prefs.setString(key, generated);
-    return generated;
-  }
-
-  Future<void> _claimStudentDevice(String uid) async {
-    final deviceId = await _deviceId();
-    await _repository!.setStudentActiveDevice(uid: uid, deviceId: deviceId);
-  }
-
-  // ignore: unused_element
-  Future<void> _claimStudentDeviceIfNeeded(String uid) async {
-    final snapshot = await _repository!.users.doc(uid).get();
-    final user = _userFromDoc(snapshot);
-    if (user.role != UserRole.student) {
-      return;
-    }
-
-    await _claimStudentDevice(uid);
-  }
-
-  Future<void> _enforceStudentDevice(AppUser user) async {
-    if (!backendEnabled || _claimingStudentDevice) {
-      return;
-    }
-
-    final deviceId = await _deviceId();
-    final activeDeviceId = user.activeDeviceId?.trim();
-
-    if (activeDeviceId == null || activeDeviceId.isEmpty) {
-      _claimingStudentDevice = true;
-      try {
-        await _claimStudentDevice(user.id);
-      } finally {
-        _claimingStudentDevice = false;
-      }
-      return;
-    }
-
-    if (activeDeviceId != deviceId) {
-      lastError = 'تم تسجيل الدخول لهذا الحساب من جهاز آخر.';
-      await _repository?.signOut();
-      currentUser = null;
-      users.clear();
-      notifyListeners();
-    }
-  }
-
-  void _listenToPublicCourses() {
-    unawaited(_coursesSubscription?.cancel() ?? Future<void>.value());
-    _coursesSubscription = _repository!.courses
-        .where(CourseFields.isActive, isEqualTo: true)
-        .snapshots()
-        .listen((snapshot) {
-          courses
-            ..clear()
-            ..addAll(snapshot.docs.map(_courseFromDoc));
-          notifyListeners();
-        }, onError: _rememberError);
-  }
-
-  void _listenToGuestContent() {
-    _guestVideosSubscription = _repository!.guestVideos
-        .orderBy(GuestContentFields.createdAt, descending: true)
-        .snapshots()
-        .listen((snapshot) {
-          guestVideos
-            ..clear()
-            ..addAll(snapshot.docs.map(_guestContentFromDoc));
-          notifyListeners();
-        }, onError: _rememberError);
-
-    _archiveFilesSubscription = _repository!.archiveFiles
-        .orderBy(GuestContentFields.createdAt, descending: true)
-        .snapshots()
-        .listen((snapshot) {
-          archiveFiles
-            ..clear()
-            ..addAll(snapshot.docs.map(_guestContentFromDoc));
-          notifyListeners();
-        }, onError: _rememberError);
-  }
-
-  void _listenToCoursesAndLessons(AppUser user) {
-    unawaited(_coursesSubscription?.cancel() ?? Future<void>.value());
-    unawaited(_lessonsSubscription?.cancel() ?? Future<void>.value());
-
-    final repository = _repository!;
-    Query<Map<String, dynamic>> courseQuery = repository.courses;
-    Query<Map<String, dynamic>> lessonQuery = repository.lessons;
-
-    if (user.role != UserRole.admin) {
-      final classId = user.classId;
-      if (classId == null) {
-        courses.clear();
-        lessons.clear();
-        notifyListeners();
-        return;
-      }
-
-      courseQuery = courseQuery.where(CourseFields.classId, isEqualTo: classId);
-      lessonQuery = lessonQuery.where(LessonFields.classId, isEqualTo: classId);
-      if (user.role == UserRole.student) {
-        courseQuery = courseQuery.where(CourseFields.isActive, isEqualTo: true);
-        lessonQuery = lessonQuery.where(
-          LessonFields.isPublished,
-          isEqualTo: true,
-        );
-      }
-    }
-
-    _coursesSubscription = courseQuery.snapshots().listen((snapshot) {
-      courses
-        ..clear()
-        ..addAll(snapshot.docs.map(_courseFromDoc));
-      notifyListeners();
-    }, onError: _rememberError);
-
-    _lessonsSubscription = lessonQuery.snapshots().listen((snapshot) {
-      lessons
-        ..clear()
-        ..addAll(snapshot.docs.map(_lessonFromDoc));
-      notifyListeners();
-    }, onError: _rememberError);
-  }
-
-  AppUser _userFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
-    final data = doc.data() ?? {};
-    return AppUser(
-      id: doc.id,
-      name: (data[UserFields.name] as String?) ?? 'مستخدم',
-      phone: (data[UserFields.email] as String?) ?? '',
-      password: '',
-      role: _roleFromString(data[UserFields.role] as String?),
-      status: _statusFromString(data[UserFields.status] as String?),
-      classId: data[UserFields.classId] as String?,
-      courseId: data[UserFields.courseId] as String?,
-      subject: data[UserFields.subject] as String?,
-      selectedSubjects: stringListFromDynamic(data['selectedSubjects']),
-      paymentProofPath: data[UserFields.paymentProofUrl] as String?,
-      paymentSenderPhone: data[UserFields.paymentSenderPhone] as String?,
-      activeDeviceId: data[UserFields.activeDeviceId] as String?,
-      subscriptionExpiresAt: _dateFromApiOrNull(data['subscriptionExpiresAt']),
-    );
-  }
-
-  SchoolClass _classFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
-    final data = doc.data() ?? {};
-    return SchoolClass(
-      id: doc.id,
-      name: (data['name'] as String?) ?? 'عام',
-      level: (data['level'] as String?) ?? 'كل المستويات',
-    );
-  }
-
-  Course _courseFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
-    final data = doc.data() ?? {};
-    final subjects = data[CourseFields.subjects];
-    return Course(
-      id: doc.id,
-      title: (data[CourseFields.title] as String?) ?? 'قسم',
-      classId: (data[CourseFields.classId] as String?) ?? defaultClassId,
-      description:
-          (data[CourseFields.description] as String?) ??
-          'دروس وتمارين وملخصات منظمة للطلاب',
-      price: (data[CourseFields.price] as String?) ?? '',
-      subjects: subjects is List
-          ? subjects.whereType<String>().toList()
-          : const ['الرياضيات', 'الفيزياء', 'الكيمياء'],
-      renewalMonths: ((data['renewalMonths'] as num?)?.toInt() ?? 1).clamp(
-        1,
-        120,
-      ),
-      isActive: (data[CourseFields.isActive] as bool?) ?? true,
-    );
-  }
-
-  Lesson _lessonFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
-    final data = doc.data() ?? {};
-    final timestamp = data[LessonFields.createdAt];
-    return Lesson(
-      id: doc.id,
-      title: (data[LessonFields.title] as String?) ?? 'درس',
-      url: (data[LessonFields.url] as String?) ?? '',
-      teacherId: (data[LessonFields.teacherId] as String?) ?? '',
-      classId: (data[LessonFields.classId] as String?) ?? '',
-      courseId: (data[LessonFields.courseId] as String?) ?? '',
-      subject: (data[LessonFields.subject] as String?) ?? 'مادة عامة',
-      createdAt: timestamp is Timestamp ? timestamp.toDate() : DateTime.now(),
-      isPublished: (data[LessonFields.isPublished] as bool?) ?? true,
-    );
-  }
-
-  GuestContentItem _guestContentFromDoc(
-    DocumentSnapshot<Map<String, dynamic>> doc,
-  ) {
-    final data = doc.data() ?? {};
-    final timestamp = data[GuestContentFields.createdAt];
-    return GuestContentItem(
-      id: doc.id,
-      title: (data[GuestContentFields.title] as String?) ?? 'محتوى',
-      url: (data[GuestContentFields.url] as String?) ?? '',
-      description: (data[GuestContentFields.description] as String?) ?? '',
-      courseId: data[GuestContentFields.courseId] as String?,
-      createdAt: timestamp is Timestamp ? timestamp.toDate() : DateTime.now(),
-    );
-  }
-
-  AppNotification _notificationFromDoc(
-    DocumentSnapshot<Map<String, dynamic>> doc,
-  ) {
-    final data = doc.data() ?? {};
-    final timestamp = data[NotificationFields.createdAt];
-    return AppNotification(
-      id: doc.id,
-      title: (data[NotificationFields.title] as String?) ?? 'إشعار',
-      body: (data[NotificationFields.body] as String?) ?? '',
-      createdAt: timestamp is Timestamp ? timestamp.toDate() : DateTime.now(),
-    );
-  }
-
   AppUser _userFromApi(Map<String, dynamic> data) {
     return AppUser(
       id: '${data['id'] ?? ''}',
@@ -1328,6 +1103,8 @@ class SchoolStore extends ChangeNotifier {
       courseId: data['courseId'] as String? ?? data['level'] as String?,
       subject: data['subject'] as String?,
       selectedSubjects: stringListFromDynamic(data['selectedSubjects']),
+      adminType: _adminTypeFromString(data['adminType'] as String?),
+      managedCourseIds: stringListFromDynamic(data['managedCourseIds']),
       paymentProofPath: data['paymentProofUrl'] as String?,
       paymentSenderPhone: data['paymentSenderPhone'] as String?,
       activeDeviceId: data['activeDeviceId'] as String?,
@@ -1472,9 +1249,6 @@ class SchoolStore extends ChangeNotifier {
   }
 
   DateTime? _dateFromApiOrNull(Object? value) {
-    if (value is Timestamp) {
-      return value.toDate();
-    }
     if (value is String && value.trim().isNotEmpty) {
       return DateTime.tryParse(value)?.toLocal();
     }
@@ -1487,6 +1261,14 @@ class SchoolStore extends ChangeNotifier {
       'developer' => UserRole.admin,
       'teacher' => UserRole.teacher,
       _ => UserRole.student,
+    };
+  }
+
+  AdminType _adminTypeFromString(String? value) {
+    return switch (value) {
+      'developer' => AdminType.developer,
+      'general_manager' => AdminType.generalManager,
+      _ => AdminType.schoolManager,
     };
   }
 
@@ -1535,6 +1317,7 @@ class SchoolStore extends ChangeNotifier {
         phone: '22240000000',
         password: '123456',
         role: UserRole.admin,
+        adminType: AdminType.developer,
         status: AccountStatus.active,
       ),
       AppUser(
@@ -1710,6 +1493,8 @@ class SchoolStore extends ChangeNotifier {
       courseId: user.courseId,
       subject: user.subject,
       selectedSubjects: user.selectedSubjects,
+      adminType: user.adminType,
+      managedCourseIds: user.managedCourseIds,
       paymentProofPath: user.paymentProofPath,
       paymentSenderPhone: user.paymentSenderPhone,
       paymentAmount: user.paymentAmount,
@@ -1723,17 +1508,9 @@ class SchoolStore extends ChangeNotifier {
 
   Future<void> sendPasswordResetEmail(String phone) async {
     if (backendEnabled) {
-      final resetData = await (_repository as SupabaseRepository)
-          .createPasswordResetCode(phone: phone);
-      final smsPhone = resetData['phone'] ?? '';
-      final code = resetData['code'] ?? '';
-      try {
-        await FirebaseFunctions.instance
-            .httpsCallable('sendPasswordResetCode')
-            .call<void>({'phone': smsPhone, 'code': code});
-      } on Object {
-        await sendPasswordResetSmsDirect(phone: smsPhone, code: code);
-      }
+      await (_repository as SupabaseRepository).sendPasswordResetOtp(
+        phone: phone,
+      );
       lastError = null;
       notifyListeners();
       return;
@@ -1771,6 +1548,8 @@ class SchoolStore extends ChangeNotifier {
       courseId: user.courseId,
       subject: user.subject,
       selectedSubjects: user.selectedSubjects,
+      adminType: user.adminType,
+      managedCourseIds: user.managedCourseIds,
       paymentProofPath: user.paymentProofPath,
       paymentSenderPhone: user.paymentSenderPhone,
       paymentAmount: user.paymentAmount,
@@ -1857,7 +1636,12 @@ class SchoolStore extends ChangeNotifier {
           subscriptionExpiresAt: expiresAt,
         );
         await _loadSignedInApiData();
-        _recordPayment(studentName: name, amount: paymentAmount, type: 'تسجيل');
+        _recordPayment(
+          studentName: name,
+          amount: paymentAmount,
+          type: 'تسجيل',
+          courseId: courseId,
+        );
       } on Object catch (error) {
         _rememberError(error);
       }
@@ -1881,7 +1665,12 @@ class SchoolStore extends ChangeNotifier {
       ),
     );
     notifyListeners();
-    _recordPayment(studentName: name, amount: paymentAmount, type: 'تسجيل');
+    _recordPayment(
+      studentName: name,
+      amount: paymentAmount,
+      type: 'تسجيل',
+      courseId: courseId,
+    );
   }
 
   Future<void> createTeacher({
@@ -1921,6 +1710,65 @@ class SchoolStore extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> createAdmin({
+    required String name,
+    required String phone,
+    required String password,
+    required AdminType adminType,
+    required List<String> managedCourseIds,
+  }) async {
+    final cleanCourseIds = managedCourseIds
+        .map((id) => id.trim())
+        .where((id) => id.isNotEmpty)
+        .toSet()
+        .toList();
+    if (adminType != AdminType.developer && cleanCourseIds.isEmpty) {
+      lastError = 'اختر قسما واحدا على الأقل لهذا الأدمن.';
+      notifyListeners();
+      return;
+    }
+    lastError = null;
+    if (backendEnabled) {
+      final data = await (_repository as SupabaseRepository).createAdmin(
+        name: name,
+        phone: phone,
+        password: password,
+      );
+      final created = _userFromApi(
+        Map<String, dynamic>.from(data['user'] as Map),
+      );
+      adminAccessByUserId[created.id] = AdminAccessConfig(
+        adminType: adminType,
+        managedCourseIds: cleanCourseIds,
+      );
+      await (_repository as SupabaseRepository).updateSettings(
+        adminAccess: adminAccessByUserId.entries
+            .map((entry) => entry.value.toJson(entry.key))
+            .toList(),
+      );
+      await _loadSignedInApiData();
+      notifyListeners();
+      return;
+    }
+
+    final admin = AppUser(
+      id: 'admin-${DateTime.now().microsecondsSinceEpoch}',
+      name: name.trim(),
+      phone: phone.trim(),
+      password: password,
+      role: UserRole.admin,
+      status: AccountStatus.active,
+      adminType: adminType,
+      managedCourseIds: cleanCourseIds,
+    );
+    users.add(admin);
+    adminAccessByUserId[admin.id] = AdminAccessConfig(
+      adminType: adminType,
+      managedCourseIds: cleanCourseIds,
+    );
+    notifyListeners();
+  }
+
   void approveUser(AppUser user) {
     final expiresAt = subscriptionExpiryFor(user);
     if (backendEnabled) {
@@ -1937,6 +1785,7 @@ class SchoolStore extends ChangeNotifier {
                 studentName: user.name,
                 amount: user.paymentAmount,
                 type: 'تسجيل',
+                courseId: user.courseId,
               ),
             )
             .catchError(_rememberError),
@@ -1950,6 +1799,7 @@ class SchoolStore extends ChangeNotifier {
       studentName: user.name,
       amount: user.paymentAmount,
       type: 'تسجيل',
+      courseId: user.courseId,
     );
   }
 
@@ -2135,13 +1985,28 @@ class SchoolStore extends ChangeNotifier {
     required String title,
     required String amount,
     required String category,
+    required String courseId,
     String note = '',
   }) {
     final cleanTitle = title.trim();
     final cleanAmount = amount.trim();
-    if (cleanTitle.isEmpty || cleanAmount.isEmpty) {
+    final parsedAmount = priceNumberFromText(cleanAmount);
+    final course = courseById(courseId);
+    if (cleanTitle.isEmpty ||
+        cleanAmount.isEmpty ||
+        parsedAmount == null ||
+        course == null) {
+      lastError = 'اختر القسم واكتب مبلغا صحيحا.';
+      notifyListeners();
       return;
     }
+    final availableAmount = courseBoxAmount(courseId);
+    if (availableAmount <= 0 || parsedAmount > availableAmount) {
+      lastError = 'لا يوجد رصيد كاف في صندوق هذا القسم.';
+      notifyListeners();
+      return;
+    }
+    lastError = null;
     expenses.insert(
       0,
       ExpenseItem(
@@ -2151,6 +2016,8 @@ class SchoolStore extends ChangeNotifier {
         category: category.trim().isEmpty ? 'عام' : category.trim(),
         note: note.trim(),
         createdAt: DateTime.now(),
+        courseId: course.id,
+        courseTitle: course.title,
       ),
     );
     notifyListeners();
@@ -2181,11 +2048,13 @@ class SchoolStore extends ChangeNotifier {
     required String studentName,
     required String amount,
     required String type,
+    String? courseId,
   }) {
     final cleanAmount = amount.trim();
     if (cleanAmount.isEmpty || priceNumberFromText(cleanAmount) == null) {
       return;
     }
+    final course = courseById(courseId);
     payments.insert(
       0,
       PaymentRecord(
@@ -2194,6 +2063,8 @@ class SchoolStore extends ChangeNotifier {
         amount: cleanAmount,
         type: type,
         createdAt: DateTime.now(),
+        courseId: courseId,
+        courseTitle: course?.title,
       ),
     );
     notifyListeners();
@@ -2232,7 +2103,12 @@ class SchoolStore extends ChangeNotifier {
       user.subscriptionExpiresAt = expiresAt;
       notifyListeners();
     }
-    _recordPayment(studentName: user.name, amount: amount, type: 'تجديد');
+    _recordPayment(
+      studentName: user.name,
+      amount: amount,
+      type: 'تجديد',
+      courseId: user.courseId,
+    );
   }
 
   DateTime subscriptionExpiryFor(AppUser user) {
@@ -2336,11 +2212,15 @@ class SchoolStore extends ChangeNotifier {
     required String classId,
     required String courseId,
     AppUser? teacherOverride,
+    String? subjectOverride,
   }) {
     final teacher = teacherOverride ?? currentUser;
     if (teacher == null) {
       return;
     }
+    final lessonSubject = subjectOverride?.trim().isNotEmpty == true
+        ? subjectOverride!.trim()
+        : teacher.subject ?? 'مادة عامة';
 
     if (backendEnabled) {
       unawaited(
@@ -2350,7 +2230,7 @@ class SchoolStore extends ChangeNotifier {
               url: url,
               classId: classId,
               courseId: courseId,
-              subject: teacher.subject ?? 'مادة عامة',
+              subject: lessonSubject,
               teacherId: teacher.id,
             )
             .then((_) => _loadSignedInApiData())
@@ -2367,7 +2247,7 @@ class SchoolStore extends ChangeNotifier {
         teacherId: teacher.id,
         classId: classId,
         courseId: courseId,
-        subject: teacher.subject ?? 'مادة عامة',
+        subject: lessonSubject,
         createdAt: DateTime.now(),
       ),
     );
@@ -2734,8 +2614,106 @@ class SchoolStore extends ChangeNotifier {
   List<AppUser> get teachers =>
       users.where((user) => user.role == UserRole.teacher).toList();
 
+  List<AppUser> get admins =>
+      users.where((user) => user.role == UserRole.admin).toList();
+
   List<AppUser> get students =>
       users.where((user) => user.role == UserRole.student).toList();
+
+  List<AppUser> get visibleStudents {
+    final user = currentUser;
+    if (user == null || user.role != UserRole.admin) {
+      return const [];
+    }
+    if (user.adminType == AdminType.developer) {
+      return students;
+    }
+    final allowedCourseIds = adminManagedCourseIds(user);
+    return students
+        .where(
+          (student) =>
+              student.courseId != null &&
+              allowedCourseIds.contains(student.courseId),
+        )
+        .toList();
+  }
+
+  List<AppUser> get visiblePendingStudents => visibleStudents
+      .where((user) => user.status == AccountStatus.pending)
+      .toList();
+
+  bool get currentAdminIsDeveloper =>
+      currentUser?.role == UserRole.admin &&
+      currentUser?.adminType == AdminType.developer;
+
+  Set<String> adminManagedCourseIds(AppUser admin) {
+    if (admin.adminType == AdminType.developer) {
+      return courses.map((course) => course.id).toSet();
+    }
+    final ids = <String>{...admin.managedCourseIds};
+    if (admin.courseId != null && admin.courseId!.trim().isNotEmpty) {
+      ids.add(admin.courseId!);
+    }
+    return ids;
+  }
+
+  List<Course> visibleFinancialCoursesFor(AppUser? admin) {
+    if (admin == null || admin.role != UserRole.admin) {
+      return const [];
+    }
+    if (admin.adminType == AdminType.developer) {
+      return courses;
+    }
+    final allowedIds = adminManagedCourseIds(admin);
+    return courses.where((course) => allowedIds.contains(course.id)).toList();
+  }
+
+  List<CourseIncomeSummary> get visibleCourseIncomeSummaries {
+    final visibleCourses = visibleFinancialCoursesFor(currentUser);
+    return visibleCourses.map((course) {
+      final coursePayments = visiblePayments
+          .where((payment) => payment.courseId == course.id)
+          .toList();
+      final total = coursePayments
+          .map((payment) => priceNumberFromText(payment.amount) ?? 0)
+          .fold<double>(0, (runningTotal, amount) => runningTotal + amount);
+      final expensesTotal = courseExpenseAmount(course.id);
+      return CourseIncomeSummary(
+        course: course,
+        payments: coursePayments,
+        total: total - expensesTotal,
+      );
+    }).toList();
+  }
+
+  Future<void> updateAdminAccess({
+    required AppUser admin,
+    required AdminType adminType,
+    required List<String> managedCourseIds,
+  }) async {
+    final cleanCourseIds = managedCourseIds
+        .map((id) => id.trim())
+        .where((id) => id.isNotEmpty)
+        .toSet()
+        .toList();
+    if (backendEnabled) {
+      adminAccessByUserId[admin.id] = AdminAccessConfig(
+        adminType: adminType,
+        managedCourseIds: cleanCourseIds,
+      );
+      await (_repository as SupabaseRepository).updateSettings(
+        adminAccess: adminAccessByUserId.entries
+            .map((entry) => entry.value.toJson(entry.key))
+            .toList(),
+      );
+      await _loadSignedInApiData();
+      notifyListeners();
+      return;
+    }
+    admin.adminType = adminType;
+    admin.managedCourseIds = cleanCourseIds;
+    notifyListeners();
+  }
 
   SchoolClass? classById(String? id) {
     if (id == null) {
@@ -3719,6 +3697,14 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
   @override
   Widget build(BuildContext context) {
     final store = StoreScope.of(context);
+    if (!store.currentAdminIsDeveloper) {
+      return const StatusScreen(
+        title: 'غير مسموح',
+        message: 'هذه الصفحة مخصصة لحساب الدفلوبر فقط.',
+        icon: Icons.lock_rounded,
+        color: Color(0xFFEF4444),
+      );
+    }
 
     return Scaffold(
       backgroundColor: const Color(0xFFF7F9FF),
@@ -4765,14 +4751,8 @@ class _NationalResultSearchPageState extends State<NationalResultSearchPage> {
 
   Future<void> uploadExcel() async {
     final store = StoreScope.of(context);
-    final picked = await FilePicker.platform.pickFiles(
-      type: FileType.custom,
-      allowedExtensions: const ['xlsx', 'xlsm'],
-      withData: false,
-    );
-    final file = picked?.files.single;
-    final path = file?.path;
-    if (file == null || path == null) {
+    final file = await NativeFilePicker.pickExcel();
+    if (file == null) {
       return;
     }
 
@@ -4783,7 +4763,7 @@ class _NationalResultSearchPageState extends State<NationalResultSearchPage> {
     try {
       final count = await store.uploadNationalResults(
         examType: widget.examType,
-        filePath: path,
+        filePath: file.path,
         fileName: file.name,
       );
       setState(() {
@@ -6896,11 +6876,10 @@ class StudentPaymentPage extends StatefulWidget {
 
 class _StudentPaymentPageState extends State<StudentPaymentPage>
     with SingleTickerProviderStateMixin {
-  final picker = ImagePicker();
   final paymentSenderPhoneController = TextEditingController();
   late final AnimationController attentionController;
   late final Animation<double> pulseAnimation;
-  XFile? proofImage;
+  PickedNativeFile? proofImage;
   String? selectedPaymentMethodId;
   bool submitted = false;
   String? error;
@@ -6925,10 +6904,7 @@ class _StudentPaymentPageState extends State<StudentPaymentPage>
   }
 
   Future<void> pickProofImage() async {
-    final image = await picker.pickImage(
-      source: ImageSource.gallery,
-      imageQuality: 82,
-    );
+    final image = await NativeFilePicker.pickImage();
     if (image == null) {
       return;
     }
@@ -6956,7 +6932,7 @@ class _StudentPaymentPageState extends State<StudentPaymentPage>
         : store.paymentAmount;
 
     try {
-      final proofDataUri = await paymentProofDataUri(image);
+      final proofDataUri = await paymentProofDataUri(image.path, image.name);
       await store.registerStudent(
         name: widget.name,
         phone: widget.phone,
@@ -7380,9 +7356,9 @@ class InfoRow extends StatelessWidget {
   }
 }
 
-Future<String> paymentProofDataUri(XFile image) async {
-  final bytes = await image.readAsBytes();
-  final extension = image.path.split('.').last.toLowerCase();
+Future<String> paymentProofDataUri(String path, String fileName) async {
+  final bytes = await File(path).readAsBytes();
+  final extension = fileName.split('.').last.toLowerCase();
   final mimeType = switch (extension) {
     'png' => 'image/png',
     'webp' => 'image/webp',
@@ -7401,46 +7377,6 @@ Uint8List? imageBytesFromDataUri(String value) {
   } on Object {
     return null;
   }
-}
-
-Future<void> sendPasswordResetSmsDirect({
-  required String phone,
-  required String code,
-}) async {
-  if (!SmsConfig.isConfigured) {
-    throw const SupabaseAppException(
-      'إرسال الرسائل غير مفعّل. أضف بيانات Chinguisoft عند بناء التطبيق.',
-    );
-  }
-
-  final endpoint = Uri.parse(
-    'https://chinguisoft.com/api/sms/campaign/${SmsConfig.campaignKey}',
-  );
-  final response = await http.post(
-    endpoint,
-    headers: {
-      'Campaign-token': SmsConfig.campaignToken,
-      'Content-Type': 'application/json',
-    },
-    body: jsonEncode({
-      'phone': chinguisoftPhone(phone),
-      'lang': 'ar',
-      'url': SmsConfig.campaignUrl,
-      'code': code,
-      'reference': 0,
-    }),
-  );
-  if (response.statusCode < 200 || response.statusCode >= 300) {
-    throw SupabaseAppException('تعذر إرسال رمز التحقق: ${response.body}');
-  }
-}
-
-String chinguisoftPhone(String phone) {
-  final digits = phone.replaceAll(RegExp(r'[^0-9]'), '');
-  if (digits.startsWith('222') && digits.length == 11) {
-    return digits.substring(3);
-  }
-  return digits;
 }
 
 class PaymentProofPreview extends StatelessWidget {
@@ -7715,7 +7651,7 @@ class AdminDashboard extends StatelessWidget {
     final actions = [
       AdminQuickActionData(
         title: 'الحسابات',
-        metric: '${store.students.length}',
+        metric: '${store.visibleStudents.length}',
         icon: Icons.manage_accounts_rounded,
         color: const Color(0xFFB63B65),
         onTap: () => Navigator.of(
@@ -7724,7 +7660,7 @@ class AdminDashboard extends StatelessWidget {
       ),
       AdminQuickActionData(
         title: 'طلبات الدفع',
-        metric: '${store.pendingStudents.length}',
+        metric: '${store.visiblePendingStudents.length}',
         icon: Icons.fact_check_rounded,
         color: const Color(0xFFF59E0B),
         onTap: () => Navigator.of(context).push(
@@ -7733,7 +7669,7 @@ class AdminDashboard extends StatelessWidget {
       ),
       AdminQuickActionData(
         title: 'كشف الطلاب',
-        metric: '${store.students.length}',
+        metric: '${store.visibleStudents.length}',
         icon: Icons.table_chart_rounded,
         color: const Color(0xFF3F8069),
         onTap: () => Navigator.of(context).push(
@@ -7794,6 +7730,16 @@ class AdminDashboard extends StatelessWidget {
           context,
         ).push(MaterialPageRoute(builder: (_) => const AdminAddTeacherPage())),
       ),
+      if (store.currentAdminIsDeveloper)
+        AdminQuickActionData(
+          title: 'صلاحيات الإدارة',
+          metric: '${store.admins.length}',
+          icon: Icons.admin_panel_settings_rounded,
+          color: const Color(0xFF334155),
+          onTap: () => Navigator.of(
+            context,
+          ).push(MaterialPageRoute(builder: (_) => const AdminAccessPage())),
+        ),
     ];
 
     return Scaffold(
@@ -7804,8 +7750,11 @@ class AdminDashboard extends StatelessWidget {
         children: [
           AdminFinanceCard(
             adminName: admin?.name ?? 'الإدارة',
-            totalAmount: '${formatBoxAmount(store.totalBoxAmount)} أوقية',
-            pendingCount: store.pendingStudents.length,
+            totalAmount: '${formatBoxAmount(store.visibleBoxAmount)} أوقية',
+            pendingCount: store.visiblePendingStudents.length,
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const AdminIncomeDetailsPage()),
+            ),
           ),
           const SizedBox(height: 22),
           Row(
@@ -7888,175 +7837,660 @@ class AdminFinanceCard extends StatelessWidget {
     required this.adminName,
     required this.totalAmount,
     required this.pendingCount,
+    required this.onTap,
     super.key,
   });
 
   final String adminName;
   final String totalAmount;
   final int pendingCount;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          begin: AlignmentDirectional.topStart,
-          end: AlignmentDirectional.bottomEnd,
-          colors: [Color(0xFF2457E6), Color(0xFF1D75D8), Color(0xFF0F9F7A)],
-        ),
+    return Material(
+      color: Colors.transparent,
+      borderRadius: BorderRadius.circular(26),
+      child: InkWell(
+        onTap: onTap,
         borderRadius: BorderRadius.circular(26),
-        boxShadow: [
-          BoxShadow(
-            color: epsilonBlue.withValues(alpha: 0.20),
-            blurRadius: 28,
-            offset: const Offset(0, 16),
-          ),
-        ],
-      ),
-      child: Stack(
-        children: [
-          PositionedDirectional(
-            top: -54,
-            start: 64,
-            child: Icon(
-              Icons.account_balance_wallet_rounded,
-              size: 178,
-              color: Colors.white.withValues(alpha: 0.055),
+        child: Ink(
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(
+              begin: AlignmentDirectional.topStart,
+              end: AlignmentDirectional.bottomEnd,
+              colors: [Color(0xFF2457E6), Color(0xFF1D75D8), Color(0xFF0F9F7A)],
             ),
-          ),
-          PositionedDirectional(
-            bottom: -34,
-            end: -26,
-            child: Container(
-              width: 126,
-              height: 126,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: epsilonGold.withValues(alpha: 0.18),
+            borderRadius: BorderRadius.circular(26),
+            boxShadow: [
+              BoxShadow(
+                color: epsilonBlue.withValues(alpha: 0.20),
+                blurRadius: 28,
+                offset: const Offset(0, 16),
               ),
-            ),
+            ],
           ),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
+          child: Stack(
             children: [
-              Row(
-                children: [
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(13),
-                    child: Image.asset(
-                      'assets/onboarding/epsilon_logo.jpeg',
-                      width: 46,
-                      height: 46,
-                      fit: BoxFit.cover,
-                    ),
+              PositionedDirectional(
+                top: -54,
+                start: 64,
+                child: Icon(
+                  Icons.account_balance_wallet_rounded,
+                  size: 178,
+                  color: Colors.white.withValues(alpha: 0.055),
+                ),
+              ),
+              PositionedDirectional(
+                bottom: -34,
+                end: -26,
+                child: Container(
+                  width: 126,
+                  height: 126,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: epsilonGold.withValues(alpha: 0.18),
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                ),
+              ),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Row(
+                    children: [
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(13),
+                        child: Image.asset(
+                          'assets/onboarding/epsilon_logo.jpeg',
+                          width: 46,
+                          height: 46,
+                          fit: BoxFit.cover,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'أهلا بكم',
+                              style: TextStyle(
+                                color: Color(0xFFEAF4FF),
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            Text(
+                              adminName,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 20,
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Container(
+                        width: 40,
+                        height: 40,
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.16),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(
+                          Icons.chevron_left_rounded,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 26),
+                  Container(
+                    padding: const EdgeInsets.all(18),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.18),
+                      borderRadius: BorderRadius.circular(22),
+                      border: Border.all(color: Colors.white30),
+                    ),
+                    child: Row(
                       children: [
-                        const Text(
-                          'أهلا بكم',
-                          style: TextStyle(
-                            color: Color(0xFFEAF4FF),
-                            fontWeight: FontWeight.w700,
+                        Container(
+                          width: 48,
+                          height: 48,
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: 0.18),
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(
+                            Icons.visibility_off_rounded,
+                            color: Colors.white,
                           ),
                         ),
-                        Text(
-                          adminName,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 20,
-                            fontWeight: FontWeight.w900,
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text(
+                                'إجمالي الموجود في الصندوق',
+                                style: TextStyle(
+                                  color: Color(0xFFEAF4FF),
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                totalAmount,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 26,
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 11,
+                            vertical: 8,
+                          ),
+                          decoration: BoxDecoration(
+                            color: epsilonGold,
+                            borderRadius: BorderRadius.circular(999),
+                          ),
+                          child: Text(
+                            '$pendingCount طلب',
+                            style: const TextStyle(
+                              color: Color(0xFF1F2937),
+                              fontWeight: FontWeight.w900,
+                            ),
                           ),
                         ),
                       ],
                     ),
                   ),
-                  Container(
-                    width: 40,
-                    height: 40,
-                    decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.16),
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(
-                      Icons.notifications_rounded,
-                      color: Colors.white,
-                    ),
-                  ),
                 ],
               ),
-              const SizedBox(height: 26),
-              Container(
-                padding: const EdgeInsets.all(18),
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.18),
-                  borderRadius: BorderRadius.circular(22),
-                  border: Border.all(color: Colors.white30),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class AdminIncomeDetailsPage extends StatelessWidget {
+  const AdminIncomeDetailsPage({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final store = StoreScope.of(context);
+    final summaries = store.visibleCourseIncomeSummaries;
+
+    return Scaffold(
+      backgroundColor: const Color(0xFFF7F9FF),
+      appBar: const EpsilonAppBar(title: 'تفاصيل المداخيل'),
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+        children: [
+          AdminPageHeader(
+            title: 'دخل الأقسام',
+            subtitle: 'تفصيل المبالغ حسب القسم أو الدورة المرتبطة بحسابك',
+            icon: Icons.account_balance_wallet_rounded,
+            color: const Color(0xFF0F9F7A),
+          ),
+          const SizedBox(height: 16),
+          SectionCard(
+            title: 'الإجمالي',
+            icon: Icons.payments_rounded,
+            child: InfoRow(
+              label: 'المبلغ الظاهر',
+              value: '${formatBoxAmount(store.visibleBoxAmount)} أوقية',
+            ),
+          ),
+          const SizedBox(height: 16),
+          SectionCard(
+            title: 'حسب القسم',
+            icon: Icons.menu_book_rounded,
+            child: summaries.isEmpty
+                ? const EmptyState(text: 'لا توجد مداخيل مرتبطة بالأقسام بعد.')
+                : Column(
+                    children: [
+                      for (final summary in summaries) ...[
+                        CourseIncomeTile(summary: summary),
+                        const SizedBox(height: 10),
+                      ],
+                    ],
+                  ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class CourseIncomeTile extends StatelessWidget {
+  const CourseIncomeTile({required this.summary, super.key});
+
+  final CourseIncomeSummary summary;
+
+  @override
+  Widget build(BuildContext context) {
+    final store = StoreScope.of(context);
+    final accent = courseAccent(summary.course.title);
+    final income = store.courseIncomeAmount(summary.course.id);
+    final expenses = store.courseExpenseAmount(summary.course.id);
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFAFBFF),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: accent.withValues(alpha: 0.18)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Icon(courseIcon(summary.course.title), color: accent),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  summary.course.title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: epsilonInk,
+                    fontWeight: FontWeight.w900,
+                  ),
                 ),
+              ),
+              Text(
+                '${formatBoxAmount(summary.total)} أوقية',
+                style: TextStyle(color: accent, fontWeight: FontWeight.w900),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: InfoRow(
+                  label: 'الدخل',
+                  value: '${formatBoxAmount(income)} أوقية',
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: InfoRow(
+                  label: 'المصاريف',
+                  value: '${formatBoxAmount(expenses)} أوقية',
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'الصافي - ${summary.payments.length} عملية دفع',
+            style: const TextStyle(
+              color: epsilonMuted,
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          if (summary.payments.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            for (final payment in summary.payments.take(5))
+              Padding(
+                padding: const EdgeInsets.only(bottom: 6),
                 child: Row(
                   children: [
-                    Container(
-                      width: 48,
-                      height: 48,
-                      decoration: BoxDecoration(
-                        color: Colors.white.withValues(alpha: 0.18),
-                        shape: BoxShape.circle,
-                      ),
-                      child: const Icon(
-                        Icons.visibility_off_rounded,
-                        color: Colors.white,
-                      ),
-                    ),
-                    const SizedBox(width: 14),
                     Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            'إجمالي الموجود في الصندوق',
-                            style: TextStyle(
-                              color: Color(0xFFEAF4FF),
-                              fontWeight: FontWeight.w800,
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            totalAmount,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 26,
-                              fontWeight: FontWeight.w900,
-                            ),
-                          ),
-                        ],
+                      child: Text(
+                        '${payment.studentName} - ${payment.type}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontWeight: FontWeight.w700),
                       ),
                     ),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 11,
-                        vertical: 8,
-                      ),
-                      decoration: BoxDecoration(
-                        color: epsilonGold,
-                        borderRadius: BorderRadius.circular(999),
-                      ),
-                      child: Text(
-                        '$pendingCount طلب',
-                        style: const TextStyle(
-                          color: Color(0xFF1F2937),
-                          fontWeight: FontWeight.w900,
-                        ),
-                      ),
+                    const SizedBox(width: 8),
+                    Text(
+                      payment.amount,
+                      style: const TextStyle(fontWeight: FontWeight.w900),
                     ),
                   ],
                 ),
               ),
-            ],
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class AdminAccessPage extends StatelessWidget {
+  const AdminAccessPage({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final store = StoreScope.of(context);
+
+    return Scaffold(
+      backgroundColor: const Color(0xFFF7F9FF),
+      appBar: const EpsilonAppBar(title: 'صلاحيات الإدارة'),
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+        children: [
+          AdminPageHeader(
+            title: 'أنواع الأدمن',
+            subtitle: 'الدفلوبر يحدد نوع كل أدمن والأقسام المالية الظاهرة له',
+            icon: Icons.admin_panel_settings_rounded,
+            color: const Color(0xFF334155),
+          ),
+          const SizedBox(height: 16),
+          const CreateAdminForm(),
+          const SizedBox(height: 16),
+          SectionCard(
+            title: 'حسابات الإدارة',
+            icon: Icons.manage_accounts_rounded,
+            child: store.admins.isEmpty
+                ? const EmptyState(text: 'لا توجد حسابات إدارة.')
+                : Column(
+                    children: [
+                      for (final admin in store.admins) ...[
+                        AdminAccessTile(admin: admin),
+                        const SizedBox(height: 12),
+                      ],
+                    ],
+                  ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class CreateAdminForm extends StatefulWidget {
+  const CreateAdminForm({super.key});
+
+  @override
+  State<CreateAdminForm> createState() => _CreateAdminFormState();
+}
+
+class _CreateAdminFormState extends State<CreateAdminForm> {
+  final nameController = TextEditingController();
+  final phoneController = TextEditingController();
+  final passwordController = TextEditingController(text: '123456');
+  AdminType adminType = AdminType.schoolManager;
+  final Set<String> selectedCourseIds = {};
+  String? message;
+  bool isSaving = false;
+
+  @override
+  void dispose() {
+    nameController.dispose();
+    phoneController.dispose();
+    passwordController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final store = StoreScope.of(context);
+    return SectionCard(
+      title: 'إنشاء حساب أدمن',
+      icon: Icons.person_add_alt_1_rounded,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          TextField(
+            controller: nameController,
+            decoration: const InputDecoration(labelText: 'اسم الأدمن'),
+          ),
+          const SizedBox(height: 10),
+          TextField(
+            controller: phoneController,
+            keyboardType: TextInputType.phone,
+            decoration: const InputDecoration(
+              labelText: 'رقم الهاتف',
+              prefixIcon: Icon(Icons.phone_iphone_rounded),
+            ),
+          ),
+          const SizedBox(height: 10),
+          TextField(
+            controller: passwordController,
+            decoration: const InputDecoration(labelText: 'كلمة المرور'),
+          ),
+          const SizedBox(height: 10),
+          DropdownButtonFormField<AdminType>(
+            initialValue: adminType,
+            decoration: const InputDecoration(labelText: 'نوع الأدمن'),
+            items: AdminType.values
+                .where((type) => type != AdminType.developer)
+                .map(
+                  (type) => DropdownMenuItem(
+                    value: type,
+                    child: Text(adminTypeLabel(type)),
+                  ),
+                )
+                .toList(),
+            onChanged: (value) {
+              if (value != null) {
+                setState(() => adminType = value);
+              }
+            },
+          ),
+          const SizedBox(height: 10),
+          store.courses.isEmpty
+              ? const EmptyState(text: 'أنشئ أقساما قبل إنشاء أدمن محدود.')
+              : Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: store.courses.map((course) {
+                    final selected = selectedCourseIds.contains(course.id);
+                    return FilterChip(
+                      selected: selected,
+                      label: Text(course.title),
+                      avatar: Icon(courseIcon(course.title), size: 18),
+                      onSelected: (value) {
+                        setState(() {
+                          if (value) {
+                            selectedCourseIds.add(course.id);
+                          } else {
+                            selectedCourseIds.remove(course.id);
+                          }
+                        });
+                      },
+                    );
+                  }).toList(),
+                ),
+          if (message != null) ...[
+            const SizedBox(height: 10),
+            Text(
+              message!,
+              style: TextStyle(
+                color: message!.startsWith('تم')
+                    ? Colors.green.shade700
+                    : Colors.red.shade700,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+          const SizedBox(height: 12),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: FilledButton.icon(
+              onPressed: isSaving
+                  ? null
+                  : () async {
+                      if (nameController.text.trim().isEmpty ||
+                          phoneController.text.trim().isEmpty ||
+                          passwordController.text.length < 6) {
+                        setState(
+                          () => message =
+                              'أكمل البيانات وتأكد أن كلمة المرور 6 أحرف على الأقل.',
+                        );
+                        return;
+                      }
+                      if (selectedCourseIds.isEmpty) {
+                        setState(() => message = 'اختر قسما واحدا على الأقل.');
+                        return;
+                      }
+                      setState(() {
+                        isSaving = true;
+                        message = null;
+                      });
+                      try {
+                        await store.createAdmin(
+                          name: nameController.text,
+                          phone: phoneController.text,
+                          password: passwordController.text,
+                          adminType: adminType,
+                          managedCourseIds: selectedCourseIds.toList(),
+                        );
+                        if (!mounted) {
+                          return;
+                        }
+                        if (store.lastError != null) {
+                          setState(() => message = store.lastError);
+                          return;
+                        }
+                        nameController.clear();
+                        phoneController.clear();
+                        selectedCourseIds.clear();
+                        setState(() => message = 'تم إنشاء حساب الأدمن.');
+                      } on Object catch (error) {
+                        if (!mounted) {
+                          return;
+                        }
+                        setState(
+                          () => message =
+                              'فشل إنشاء الأدمن: ${friendlyApiError(error)}',
+                        );
+                      } finally {
+                        if (mounted) {
+                          setState(() => isSaving = false);
+                        }
+                      }
+                    },
+              icon: const Icon(Icons.add_rounded),
+              label: Text(isSaving ? 'جار الإنشاء...' : 'إنشاء الأدمن'),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class AdminAccessTile extends StatefulWidget {
+  const AdminAccessTile({required this.admin, super.key});
+
+  final AppUser admin;
+
+  @override
+  State<AdminAccessTile> createState() => _AdminAccessTileState();
+}
+
+class _AdminAccessTileState extends State<AdminAccessTile> {
+  late AdminType adminType = widget.admin.adminType;
+  late final Set<String> selectedCourseIds = {
+    ...widget.admin.managedCourseIds,
+    if (widget.admin.courseId != null) widget.admin.courseId!,
+  };
+  bool isSaving = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final store = StoreScope.of(context);
+    final isSelf = store.currentUser?.id == widget.admin.id;
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFFE3E9FF)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          UserTile(user: widget.admin, compact: true),
+          const SizedBox(height: 10),
+          DropdownButtonFormField<AdminType>(
+            initialValue: adminType,
+            decoration: const InputDecoration(labelText: 'نوع الأدمن'),
+            items: AdminType.values
+                .map(
+                  (type) => DropdownMenuItem(
+                    value: type,
+                    child: Text(adminTypeLabel(type)),
+                  ),
+                )
+                .toList(),
+            onChanged: isSelf
+                ? null
+                : (value) {
+                    if (value != null) {
+                      setState(() => adminType = value);
+                    }
+                  },
+          ),
+          const SizedBox(height: 10),
+          if (adminType == AdminType.developer)
+            const EmptyState(text: 'الدفلوبر يرى كل المداخيل تلقائيا.')
+          else if (store.courses.isEmpty)
+            const EmptyState(text: 'لا توجد أقسام للربط.')
+          else
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: store.courses.map((course) {
+                final selected = selectedCourseIds.contains(course.id);
+                return FilterChip(
+                  selected: selected,
+                  label: Text(course.title),
+                  avatar: Icon(courseIcon(course.title), size: 18),
+                  onSelected: (value) {
+                    setState(() {
+                      if (value) {
+                        selectedCourseIds.add(course.id);
+                      } else {
+                        selectedCourseIds.remove(course.id);
+                      }
+                    });
+                  },
+                );
+              }).toList(),
+            ),
+          const SizedBox(height: 12),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: FilledButton.icon(
+              onPressed: isSelf || isSaving
+                  ? null
+                  : () async {
+                      setState(() => isSaving = true);
+                      await store.updateAdminAccess(
+                        admin: widget.admin,
+                        adminType: adminType,
+                        managedCourseIds: selectedCourseIds.toList(),
+                      );
+                      if (!context.mounted) {
+                        return;
+                      }
+                      setState(() => isSaving = false);
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('تم حفظ الصلاحيات')),
+                      );
+                    },
+              icon: const Icon(Icons.save_rounded),
+              label: Text(isSaving ? 'جار الحفظ...' : 'حفظ الصلاحيات'),
+            ),
           ),
         ],
       ),
@@ -8140,6 +8574,7 @@ class _AdminExpensesPageState extends State<AdminExpensesPage> {
   final amountController = TextEditingController();
   final noteController = TextEditingController();
   String category = 'رواتب';
+  String? courseId;
   String? error;
 
   static const categories = [
@@ -8162,16 +8597,22 @@ class _AdminExpensesPageState extends State<AdminExpensesPage> {
 
   void submit(SchoolStore store) {
     if (titleController.text.trim().isEmpty ||
-        amountController.text.trim().isEmpty) {
-      setState(() => error = 'اكتب اسم المصروف والمبلغ أولا.');
+        amountController.text.trim().isEmpty ||
+        courseId == null) {
+      setState(() => error = 'اختر القسم واكتب اسم المصروف والمبلغ أولا.');
       return;
     }
     store.createExpense(
       title: titleController.text,
       amount: amountController.text,
       category: category,
+      courseId: courseId!,
       note: noteController.text,
     );
+    if (store.lastError != null) {
+      setState(() => error = store.lastError);
+      return;
+    }
     titleController.clear();
     amountController.clear();
     noteController.clear();
@@ -8184,7 +8625,15 @@ class _AdminExpensesPageState extends State<AdminExpensesPage> {
   @override
   Widget build(BuildContext context) {
     final store = StoreScope.of(context);
-    final total = store.expenses
+    final courses = store.visibleFinancialCoursesFor(store.currentUser);
+    if (courses.isNotEmpty && !courses.any((course) => course.id == courseId)) {
+      courseId = courses.first.id;
+    }
+    final selectedCourse = store.courseById(courseId);
+    final selectedCourseBox = courseId == null
+        ? 0.0
+        : store.courseBoxAmount(courseId!);
+    final total = store.visibleExpenses
         .map((expense) => priceNumberFromText(expense.amount) ?? 0)
         .fold<double>(0, (runningTotal, amount) => runningTotal + amount);
     final totalText = total == total.roundToDouble()
@@ -8218,7 +8667,7 @@ class _AdminExpensesPageState extends State<AdminExpensesPage> {
               Expanded(
                 child: ExpenseSummaryCard(
                   title: 'عدد العمليات',
-                  value: store.expenses.length.toString(),
+                  value: store.visibleExpenses.length.toString(),
                   icon: Icons.list_alt_rounded,
                   color: epsilonBlue,
                 ),
@@ -8250,6 +8699,35 @@ class _AdminExpensesPageState extends State<AdminExpensesPage> {
                     prefixIcon: Icon(Icons.payments_rounded),
                   ),
                 ),
+                const SizedBox(height: 10),
+                courses.isEmpty
+                    ? const EmptyState(text: 'لا توجد أقسام مرتبطة بحسابك.')
+                    : DropdownButtonFormField<String>(
+                        initialValue: courseId,
+                        decoration: const InputDecoration(
+                          labelText: 'القسم',
+                          prefixIcon: Icon(Icons.menu_book_rounded),
+                        ),
+                        items: courses
+                            .map(
+                              (course) => DropdownMenuItem(
+                                value: course.id,
+                                child: Text(course.title),
+                              ),
+                            )
+                            .toList(),
+                        onChanged: (value) => setState(() {
+                          courseId = value;
+                          error = null;
+                        }),
+                      ),
+                if (selectedCourse != null) ...[
+                  const SizedBox(height: 8),
+                  InfoRow(
+                    label: 'رصيد ${selectedCourse.title}',
+                    value: '${formatBoxAmount(selectedCourseBox)} أوقية',
+                  ),
+                ],
                 const SizedBox(height: 10),
                 DropdownButtonFormField<String>(
                   initialValue: category,
@@ -8296,11 +8774,11 @@ class _AdminExpensesPageState extends State<AdminExpensesPage> {
           SectionCard(
             title: 'سجل المصاريف',
             icon: Icons.history_rounded,
-            child: store.expenses.isEmpty
+            child: store.visibleExpenses.isEmpty
                 ? const EmptyState(text: 'لا توجد مصاريف مسجلة بعد.')
                 : Column(
                     children: [
-                      for (final expense in store.expenses)
+                      for (final expense in store.visibleExpenses)
                         ExpenseTile(expense: expense),
                     ],
                   ),
@@ -8419,6 +8897,19 @@ class ExpenseTile extends StatelessWidget {
                     fontWeight: FontWeight.w700,
                   ),
                 ),
+                if (expense.courseTitle?.trim().isNotEmpty == true) ...[
+                  const SizedBox(height: 3),
+                  Text(
+                    'القسم: ${expense.courseTitle}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: epsilonMuted,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
                 if (expense.note.trim().isNotEmpty) ...[
                   const SizedBox(height: 3),
                   Text(
@@ -8503,6 +8994,7 @@ class _AdminUploadLessonPageState extends State<AdminUploadLessonPage> {
   final urlController = TextEditingController();
   String? teacherId;
   String? courseId;
+  String? subject;
   String? error;
 
   @override
@@ -8515,17 +9007,22 @@ class _AdminUploadLessonPageState extends State<AdminUploadLessonPage> {
   @override
   Widget build(BuildContext context) {
     final store = StoreScope.of(context);
-    final teachers = store.teachers
-        .where((teacher) => teacher.courseId != null)
-        .toList();
-    if (teacherId == null && teachers.isNotEmpty) {
-      teacherId = teachers.first.id;
+    final visibleCourses = store.visibleFinancialCoursesFor(store.currentUser);
+    final visibleCourseIds = visibleCourses.map((course) => course.id).toSet();
+    final teachers = store.teachers.where((teacher) {
+      final teacherCourseId = teacher.courseId;
+      return teacherCourseId != null &&
+          visibleCourseIds.contains(teacherCourseId);
+    }).toList();
+    if (teacherId != null &&
+        !teachers.any((teacher) => teacher.id == teacherId)) {
+      teacherId = null;
     }
     final selectedTeacher = teachers.where((item) => item.id == teacherId);
     final teacher = selectedTeacher.isEmpty ? null : selectedTeacher.first;
     final availableCourses = teacher == null
-        ? <Course>[]
-        : store.courses
+        ? visibleCourses
+        : visibleCourses
               .where(
                 (course) =>
                     course.id == teacher.courseId &&
@@ -8538,6 +9035,13 @@ class _AdminUploadLessonPageState extends State<AdminUploadLessonPage> {
     if (!availableCourses.any((course) => course.id == courseId)) {
       courseId = availableCourses.isEmpty ? null : availableCourses.first.id;
     }
+    final selectedCourse = store.courseById(courseId);
+    final availableSubjects = teacher?.subject == null
+        ? selectedCourse?.subjects ?? <String>[]
+        : <String>[teacher!.subject!];
+    if (!availableSubjects.contains(subject)) {
+      subject = availableSubjects.firstOrNull;
+    }
 
     return Scaffold(
       backgroundColor: const Color(0xFFF7F9FF),
@@ -8546,8 +9050,8 @@ class _AdminUploadLessonPageState extends State<AdminUploadLessonPage> {
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
         children: [
           AdminPageHeader(
-            title: 'رفع درس للأستاذ',
-            subtitle: 'اختر الأستاذ المرتبط بالقسم ثم أضف رابط الدرس',
+            title: 'رفع درس',
+            subtitle: 'اختر القسم والمادة، ويمكن ربط الدرس بأستاذ عند توفره',
             icon: Icons.cloud_upload_rounded,
             color: const Color(0xFF6D38C9),
           ),
@@ -8555,36 +9059,43 @@ class _AdminUploadLessonPageState extends State<AdminUploadLessonPage> {
           SectionCard(
             title: 'بيانات الدرس',
             icon: Icons.add_link_rounded,
-            child: teachers.isEmpty
-                ? const EmptyState(text: 'أضف أستاذا مرتبطا بقسم أولا.')
+            child: availableCourses.isEmpty
+                ? const EmptyState(text: 'أنشئ قسما قبل رفع الدروس.')
                 : Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      DropdownButtonFormField<String>(
-                        initialValue: teacherId,
-                        decoration: const InputDecoration(
-                          labelText: 'الأستاذ',
-                          prefixIcon: Icon(Icons.co_present_rounded),
-                        ),
-                        items: teachers
-                            .map(
-                              (teacher) => DropdownMenuItem(
+                      if (teachers.isNotEmpty) ...[
+                        DropdownButtonFormField<String?>(
+                          initialValue: teacherId,
+                          decoration: const InputDecoration(
+                            labelText: 'الأستاذ',
+                            prefixIcon: Icon(Icons.co_present_rounded),
+                          ),
+                          items: [
+                            const DropdownMenuItem<String?>(
+                              value: null,
+                              child: Text('رفع مباشر من الإدارة'),
+                            ),
+                            ...teachers.map(
+                              (teacher) => DropdownMenuItem<String?>(
                                 value: teacher.id,
                                 child: Text(
                                   '${teacher.name} - ${teacher.subject ?? 'مادة عامة'}',
                                 ),
                               ),
-                            )
-                            .toList(),
-                        onChanged: (value) {
-                          setState(() {
-                            teacherId = value;
-                            courseId = null;
-                            error = null;
-                          });
-                        },
-                      ),
-                      const SizedBox(height: 10),
+                            ),
+                          ],
+                          onChanged: (value) {
+                            setState(() {
+                              teacherId = value;
+                              courseId = null;
+                              subject = null;
+                              error = null;
+                            });
+                          },
+                        ),
+                        const SizedBox(height: 10),
+                      ],
                       DropdownButtonFormField<String>(
                         initialValue: courseId,
                         decoration: const InputDecoration(
@@ -8599,7 +9110,31 @@ class _AdminUploadLessonPageState extends State<AdminUploadLessonPage> {
                               ),
                             )
                             .toList(),
-                        onChanged: (value) => setState(() => courseId = value),
+                        onChanged: teacher == null
+                            ? (value) => setState(() {
+                                courseId = value;
+                                subject = null;
+                              })
+                            : null,
+                      ),
+                      const SizedBox(height: 10),
+                      DropdownButtonFormField<String>(
+                        initialValue: subject,
+                        decoration: const InputDecoration(
+                          labelText: 'المادة',
+                          prefixIcon: Icon(Icons.subject_rounded),
+                        ),
+                        items: availableSubjects
+                            .map(
+                              (item) => DropdownMenuItem(
+                                value: item,
+                                child: Text(item),
+                              ),
+                            )
+                            .toList(),
+                        onChanged: teacher == null
+                            ? (value) => setState(() => subject = value)
+                            : null,
                       ),
                       const SizedBox(height: 10),
                       TextField(
@@ -8632,13 +9167,13 @@ class _AdminUploadLessonPageState extends State<AdminUploadLessonPage> {
                           final pickedCourse = courseId == null
                               ? null
                               : store.courseById(courseId);
-                          if (pickedTeacher == null ||
-                              pickedCourse == null ||
+                          if (pickedCourse == null ||
+                              subject == null ||
                               titleController.text.trim().isEmpty ||
                               urlController.text.trim().isEmpty) {
                             setState(
                               () => error =
-                                  'أكمل الأستاذ والقسم والعنوان والرابط.',
+                                  'أكمل القسم والمادة والعنوان والرابط.',
                             );
                             return;
                           }
@@ -8646,9 +9181,10 @@ class _AdminUploadLessonPageState extends State<AdminUploadLessonPage> {
                             title: titleController.text,
                             url: urlController.text,
                             classId:
-                                pickedTeacher.classId ?? pickedCourse.classId,
+                                pickedTeacher?.classId ?? pickedCourse.classId,
                             courseId: pickedCourse.id,
                             teacherOverride: pickedTeacher,
+                            subjectOverride: subject,
                           );
                           titleController.clear();
                           urlController.clear();
@@ -8684,9 +9220,9 @@ class _AdminStudentsReportPageState extends State<AdminStudentsReportPage> {
   @override
   Widget build(BuildContext context) {
     final store = StoreScope.of(context);
-    final courses = [...store.courses]
+    final courses = [...store.visibleFinancialCoursesFor(store.currentUser)]
       ..sort((a, b) => a.title.compareTo(b.title));
-    final students = [...store.students]
+    final students = [...store.visibleStudents]
       ..sort((a, b) {
         final courseA = store.courseById(a.courseId)?.title ?? 'غير محدد';
         final courseB = store.courseById(b.courseId)?.title ?? 'غير محدد';
@@ -8752,7 +9288,7 @@ class _AdminStudentsReportPageState extends State<AdminStudentsReportPage> {
                     Expanded(
                       child: ReportStatCard(
                         label: 'إجمالي الطلاب',
-                        value: store.students.length.toString(),
+                        value: students.length.toString(),
                       ),
                     ),
                     const SizedBox(width: 10),
@@ -9188,7 +9724,7 @@ class AdminAccountsPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final store = StoreScope.of(context);
-    final students = store.students;
+    final students = store.visibleStudents;
 
     return Scaffold(
       backgroundColor: const Color(0xFFF7F9FF),
@@ -9233,6 +9769,7 @@ class AdminPaymentRequestsPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final store = StoreScope.of(context);
+    final pendingStudents = store.visiblePendingStudents;
 
     return Scaffold(
       backgroundColor: const Color(0xFFF7F9FF),
@@ -9250,10 +9787,10 @@ class AdminPaymentRequestsPage extends StatelessWidget {
           SectionCard(
             title: 'طلبات بانتظار المراجعة',
             icon: Icons.receipt_long_rounded,
-            child: store.pendingStudents.isEmpty
+            child: pendingStudents.isEmpty
                 ? const EmptyState(text: 'لا توجد طلبات دفع بانتظار المراجعة.')
                 : Column(
-                    children: store.pendingStudents
+                    children: pendingStudents
                         .map((student) => PaymentReviewTile(user: student))
                         .toList(),
                   ),
@@ -9364,9 +9901,12 @@ class _CreateStudentFormState extends State<CreateStudentForm> {
   @override
   Widget build(BuildContext context) {
     final store = StoreScope.of(context);
-    if (store.courses.isNotEmpty &&
-        !store.courses.any((course) => course.id == courseId)) {
-      courseId = store.courses.first.id;
+    final availableCourses = store.visibleFinancialCoursesFor(
+      store.currentUser,
+    );
+    if (availableCourses.isNotEmpty &&
+        !availableCourses.any((course) => course.id == courseId)) {
+      courseId = availableCourses.first.id;
     }
 
     return SectionCard(
@@ -9393,12 +9933,12 @@ class _CreateStudentFormState extends State<CreateStudentForm> {
             decoration: const InputDecoration(labelText: 'كلمة المرور'),
           ),
           const SizedBox(height: 10),
-          store.courses.isEmpty
+          availableCourses.isEmpty
               ? const EmptyState(text: 'أنشئ قسما قبل إضافة طالب.')
               : DropdownButtonFormField<String>(
                   initialValue: courseId,
                   decoration: const InputDecoration(labelText: 'القسم'),
-                  items: store.courses
+                  items: availableCourses
                       .map(
                         (course) => DropdownMenuItem(
                           value: course.id,
@@ -10513,7 +11053,9 @@ class _CreateTeacherFormState extends State<CreateTeacherForm> {
   @override
   Widget build(BuildContext context) {
     final store = StoreScope.of(context);
-    final availableSections = store.courses;
+    final availableSections = store.visibleFinancialCoursesFor(
+      store.currentUser,
+    );
     if (availableSections.isNotEmpty &&
         !availableSections.any((course) => course.id == courseId)) {
       courseId = availableSections.first.id;
@@ -12420,7 +12962,15 @@ class UserTile extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(height: 8),
-                    StatusBadge(status: user.status),
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 6,
+                      children: [
+                        StatusBadge(status: user.status),
+                        if (user.role == UserRole.admin)
+                          AdminTypeBadge(type: user.adminType),
+                      ],
+                    ),
                     if (user.role == UserRole.student &&
                         user.subscriptionExpiresAt != null) ...[
                       const SizedBox(height: 5),
@@ -12484,6 +13034,39 @@ class StatusBadge extends StatelessWidget {
             fontSize: 11,
             fontWeight: FontWeight.w900,
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class AdminTypeBadge extends StatelessWidget {
+  const AdminTypeBadge({required this.type, super.key});
+
+  final AdminType type;
+
+  Color get color {
+    return switch (type) {
+      AdminType.developer => const Color(0xFF334155),
+      AdminType.generalManager => const Color(0xFF2457E6),
+      AdminType.schoolManager => const Color(0xFF0F766E),
+    };
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        adminTypeLabel(type),
+        style: TextStyle(
+          color: color,
+          fontSize: 11,
+          fontWeight: FontWeight.w900,
         ),
       ),
     );
@@ -13364,6 +13947,22 @@ String roleLabel(UserRole? role) {
     UserRole.teacher => 'أستاذ',
     UserRole.student => 'طالب',
     null => '-',
+  };
+}
+
+String adminTypeLabel(AdminType type) {
+  return switch (type) {
+    AdminType.developer => 'دفلوبر',
+    AdminType.generalManager => 'مدير عام',
+    AdminType.schoolManager => 'مدير الثانوية',
+  };
+}
+
+String adminTypeValue(AdminType type) {
+  return switch (type) {
+    AdminType.developer => 'developer',
+    AdminType.generalManager => 'general_manager',
+    AdminType.schoolManager => 'school_manager',
   };
 }
 

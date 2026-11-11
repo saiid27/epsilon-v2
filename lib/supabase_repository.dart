@@ -19,6 +19,7 @@ class SupabaseRepository {
 
   final SupabaseClient client;
   static const _userIdKey = 'epsilon_supabase_user_id';
+  static const _deviceIdKey = 'epsilon_device_id';
 
   Future<void> initialize() async {}
 
@@ -39,7 +40,22 @@ class SupabaseRepository {
     }
     final rows = await client.from('users').select().eq('id', userId).limit(1);
     final users = _list(rows);
-    return users.isEmpty ? null : _userPayload(users.first);
+    if (users.isEmpty) {
+      await prefs.remove(_userIdKey);
+      return null;
+    }
+    final user = _userPayload(users.first);
+    final deviceId = await _deviceId();
+    final activeDeviceId = '${user['activeDeviceId'] ?? ''}'.trim();
+    if (activeDeviceId.isEmpty) {
+      await _setActiveDevice('${user['id']}', deviceId);
+      return {...user, 'activeDeviceId': deviceId};
+    }
+    if (activeDeviceId != deviceId) {
+      await prefs.remove(_userIdKey);
+      return null;
+    }
+    return user;
   }
 
   Future<Map<String, dynamic>> signIn({
@@ -60,44 +76,70 @@ class SupabaseRepository {
     if (user['status'] != 'active') {
       throw const SupabaseAppException('الحساب غير مفعل بعد.');
     }
+    final deviceId = await _deviceId();
+    final activeDeviceId = '${user['activeDeviceId'] ?? ''}'.trim();
+    if (activeDeviceId.isNotEmpty && activeDeviceId != deviceId) {
+      throw const SupabaseAppException(
+        'هذا الحساب مفتوح على هاتف آخر. سجّل الخروج من الهاتف الآخر أولاً.',
+      );
+    }
+    await _setActiveDevice('${user['id']}', deviceId);
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_userIdKey, '${user['id']}');
-    return user;
+    return {...user, 'activeDeviceId': deviceId};
   }
 
   Future<void> signOut() async {
     final prefs = await SharedPreferences.getInstance();
+    final userId = prefs.getString(_userIdKey);
+    if (userId != null && userId.trim().isNotEmpty) {
+      final deviceId = await _deviceId();
+      await client
+          .from('users')
+          .update({'active_device_id': null})
+          .eq('id', userId)
+          .eq('active_device_id', deviceId);
+    }
     await prefs.remove(_userIdKey);
   }
 
-  Future<Map<String, String>> createPasswordResetCode({
-    required String phone,
-  }) async {
-    final cleanPhone = phone.trim();
-    final rows = await client
-        .from('users')
-        .select('id, phone')
-        .eq('phone', cleanPhone)
-        .limit(1);
-    final users = _list(rows);
-    if (users.isEmpty) {
-      throw const SupabaseAppException('رقم الهاتف غير مسجل.');
+  Future<String> _deviceId() async {
+    final prefs = await SharedPreferences.getInstance();
+    final saved = prefs.getString(_deviceIdKey);
+    if (saved != null && saved.trim().isNotEmpty) {
+      return saved;
     }
+    final random = Random.secure();
+    final bytes = List<int>.generate(16, (_) => random.nextInt(256));
+    final id = [
+      DateTime.now().microsecondsSinceEpoch.toRadixString(16),
+      ...bytes.map((byte) => byte.toRadixString(16).padLeft(2, '0')),
+    ].join();
+    await prefs.setString(_deviceIdKey, id);
+    return id;
+  }
 
-    final code = (Random.secure().nextInt(900000) + 100000).toString();
-    final expiresAt = DateTime.now()
-        .toUtc()
-        .add(const Duration(minutes: 10))
-        .toIso8601String();
-    await client
+  Future<void> _setActiveDevice(String userId, String deviceId) {
+    return client
         .from('users')
-        .update({
-          'password_reset_code': code,
-          'password_reset_expires_at': expiresAt,
-        })
-        .eq('id', '${users.first['id']}');
+        .update({'active_device_id': deviceId})
+        .eq('id', userId);
+  }
 
-    return {'phone': _smsPhone(cleanPhone), 'code': code};
+  Future<void> sendPasswordResetOtp({required String phone}) async {
+    try {
+      await client.functions.invoke(
+        'otp',
+        body: {
+          'action': 'request',
+          'phone': phone.trim(),
+          'lang': 'ar',
+          'purpose': 'password_reset',
+        },
+      );
+    } on FunctionException catch (error) {
+      throw _functionAppException(error);
+    }
   }
 
   Future<void> resetPasswordWithCode({
@@ -105,36 +147,29 @@ class SupabaseRepository {
     required String code,
     required String newPassword,
   }) async {
-    final rows = await client
-        .from('users')
-        .select('id, password_reset_code, password_reset_expires_at')
-        .eq('phone', phone.trim())
-        .limit(1);
-    final users = _list(rows);
-    if (users.isEmpty) {
-      throw const SupabaseAppException('رقم الهاتف غير مسجل.');
-    }
-
-    final user = users.first;
-    final savedCode = '${user['password_reset_code'] ?? ''}'.trim();
-    final expiresAt = DateTime.tryParse(
-      '${user['password_reset_expires_at'] ?? ''}',
-    );
-    if (savedCode.isEmpty ||
-        savedCode != code.trim() ||
-        expiresAt == null ||
-        expiresAt.isBefore(DateTime.now().toUtc())) {
-      throw const SupabaseAppException('رمز التحقق غير صحيح أو منتهي.');
-    }
-
-    await client
-        .from('users')
-        .update({
+    try {
+      await client.functions.invoke(
+        'reset-password',
+        body: {
+          'phone': phone.trim(),
+          'code': code.trim(),
           'password': newPassword,
-          'password_reset_code': null,
-          'password_reset_expires_at': null,
-        })
-        .eq('id', '${user['id']}');
+        },
+      );
+    } on FunctionException catch (error) {
+      throw _functionAppException(error);
+    }
+  }
+
+  SupabaseAppException _functionAppException(FunctionException error) {
+    final details = error.details;
+    if (details is Map && details['error'] is String) {
+      return SupabaseAppException(details['error'] as String);
+    }
+    if (details is Map && details['message'] is String) {
+      return SupabaseAppException(details['message'] as String);
+    }
+    return const SupabaseAppException('حدث خطأ غير متوقع. حاول مرة أخرى.');
   }
 
   Future<Map<String, dynamic>> get(String path) async {
@@ -211,6 +246,7 @@ class SupabaseRepository {
         'offerTextActive': values['offerTextActive'] ?? 'true',
         'expenses': _decodeJsonList(values['expenses']),
         'payments': _decodeJsonList(values['payments']),
+        'adminAccess': _decodeJsonList(values['adminAccess']),
         'paymentMethods': await paymentMethods(),
       },
     };
@@ -221,6 +257,7 @@ class SupabaseRepository {
     String? paymentAmount,
     List<Map<String, dynamic>>? expenses,
     List<Map<String, dynamic>>? payments,
+    List<Map<String, dynamic>>? adminAccess,
   }) async {
     if (paymentNumber != null) {
       await _upsertSetting('paymentNumber', paymentNumber);
@@ -233,6 +270,9 @@ class SupabaseRepository {
     }
     if (payments != null) {
       await _upsertSetting('payments', jsonEncode(payments));
+    }
+    if (adminAccess != null) {
+      await _upsertSetting('adminAccess', jsonEncode(adminAccess));
     }
     return settings();
   }
@@ -261,21 +301,6 @@ class SupabaseRepository {
       return const [];
     }
     return const [];
-  }
-
-  String _smsPhone(String phone) {
-    final trimmed = phone.trim();
-    if (trimmed.startsWith('+')) {
-      return trimmed;
-    }
-    if (trimmed.startsWith('00')) {
-      return '+${trimmed.substring(2)}';
-    }
-    final digits = trimmed.replaceAll(RegExp(r'[^0-9]'), '');
-    if (digits.length == 8) {
-      return '+222$digits';
-    }
-    return '+$digits';
   }
 
   Future<Map<String, dynamic>> createPaymentMethod({
@@ -327,6 +352,40 @@ class SupabaseRepository {
         .select()
         .single();
     return {'user': _userPayload(_map(row))};
+  }
+
+  Future<Map<String, dynamic>> createAdmin({
+    required String name,
+    required String phone,
+    required String password,
+  }) async {
+    final row = await client
+        .from('users')
+        .insert({
+          'name': name.trim(),
+          'phone': phone.trim(),
+          'password': password,
+          'role': 'admin',
+          'status': 'active',
+        })
+        .select()
+        .single();
+    return {'user': _userPayload(_map(row))};
+  }
+
+  Future<void> updateAdminAccess({
+    required String uid,
+    required String adminType,
+    required List<String> managedCourseIds,
+  }) {
+    return client
+        .from('users')
+        .update({
+          'admin_type': adminType,
+          'managed_course_ids': managedCourseIds,
+        })
+        .eq('id', uid)
+        .eq('role', 'admin');
   }
 
   Future<void> updateAccountStatus(
@@ -649,6 +708,8 @@ class SupabaseRepository {
       'courseId': row['course_id'],
       'subject': row['subject'],
       'selectedSubjects': row['selected_subjects'],
+      'adminType': row['admin_type'],
+      'managedCourseIds': row['managed_course_ids'],
       'paymentProofUrl': row['payment_proof_url'],
       'paymentSenderPhone': row['payment_sender_phone'],
       'activeDeviceId': row['active_device_id'],

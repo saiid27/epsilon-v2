@@ -17,18 +17,6 @@ flutter run
 - `ios/`: ملفات بناء iOS.
 - `test/`: اختبارات التطبيق.
 
-## Firebase
-
-ملفات Firebase الموجودة داخل التطبيق ما زالت محفوظة:
-
-- `firebase.json`
-- `firestore.rules`
-- `firestore.indexes.json`
-- `functions/`
-- `lib/firebase_repository.dart`
-- `lib/firebase_schema.dart`
-- `lib/firebase_options.dart`
-
 ## Supabase
 
 تم ربط التطبيق بـ Supabase من خلال:

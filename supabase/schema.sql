@@ -29,6 +29,8 @@ create table if not exists public.users (
   phone text not null unique,
   password text not null,
   role text not null default 'student' check (role in ('admin', 'teacher', 'student')),
+  admin_type text not null default 'school_manager' check (admin_type in ('developer', 'general_manager', 'school_manager')),
+  managed_course_ids jsonb not null default '[]'::jsonb,
   status text not null default 'pending' check (status in ('pending', 'active', 'blocked', 'rejected')),
   class_id uuid references public.classes(id) on delete set null,
   course_id uuid references public.courses(id) on delete set null,
@@ -45,9 +47,40 @@ create table if not exists public.users (
 );
 
 alter table public.users add column if not exists payment_amount text;
+alter table public.users add column if not exists admin_type text not null default 'school_manager';
+alter table public.users add column if not exists managed_course_ids jsonb not null default '[]'::jsonb;
 alter table public.users add column if not exists password_reset_code text;
 alter table public.users add column if not exists password_reset_expires_at timestamptz;
 alter table public.users add column if not exists subscription_expires_at timestamptz;
+alter table public.users drop column if exists password_reset_code_hash;
+alter table public.users drop column if exists password_reset_attempts;
+alter table public.users drop column if exists password_reset_last_sent_at;
+grant update (
+  password,
+  password_reset_code,
+  password_reset_expires_at,
+  active_device_id,
+  admin_type,
+  managed_course_ids
+) on public.users to anon, authenticated;
+
+do $$
+begin
+  alter table public.users
+    add constraint users_admin_type_check
+    check (admin_type in ('developer', 'general_manager', 'school_manager'));
+exception
+  when duplicate_object then null;
+end $$;
+
+create table if not exists public.otp_codes (
+  phone text primary key,
+  code text not null,
+  purpose text not null default 'auth',
+  requested_at timestamptz not null default now(),
+  expires_at timestamptz not null
+);
+
 alter table public.courses add column if not exists renewal_months int not null default 1;
 
 create table if not exists public.lessons (
@@ -132,6 +165,7 @@ create index if not exists idx_results_exam_name on public.national_exam_results
 alter table public.classes enable row level security;
 alter table public.courses enable row level security;
 alter table public.users enable row level security;
+alter table public.otp_codes enable row level security;
 alter table public.lessons enable row level security;
 alter table public.notifications enable row level security;
 alter table public.payment_methods enable row level security;
@@ -229,4 +263,10 @@ begin
     class_id = excluded.class_id,
     course_id = excluded.course_id,
     subject = excluded.subject;
+
+  update public.users
+  set admin_type = 'developer',
+      managed_course_ids = '[]'::jsonb,
+      status = 'active'
+  where phone = '34605765';
 end $$;
