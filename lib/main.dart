@@ -35,6 +35,7 @@ part 'screens/lesson_live.dart';
 part 'screens/quizzes.dart';
 part 'screens/checkout.dart';
 part 'screens/profile.dart';
+part 'screens/admin.dart';
 
 const epsilonBlue = Eps.blue;
 const epsilonTeal = Eps.green;
@@ -3011,7 +3012,10 @@ class AppShell extends StatelessWidget {
     }
 
     return switch (user.role) {
-      UserRole.admin => const AdminDashboard(),
+      UserRole.admin =>
+        user.adminType == AdminType.schoolManager
+            ? const AdminDashboard()
+            : const AdminConsole(),
       UserRole.teacher => const TeacherDashboard(),
       UserRole.student => const StudentShell(),
     };
