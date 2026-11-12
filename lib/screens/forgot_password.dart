@@ -235,10 +235,7 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
                         color: Eps.blueSoft,
                         borderRadius: BorderRadius.circular(22),
                         boxShadow: const [
-                          BoxShadow(
-                            color: Color(0xFFF4F8FF),
-                            spreadRadius: 10,
-                          ),
+                          BoxShadow(color: Color(0xFFF4F8FF), spreadRadius: 10),
                         ],
                       ),
                       child: Icon(icon, color: Eps.blue, size: 28),
@@ -350,7 +347,8 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
                                 ? Eps.blue
                                 : const Color(0xFFDCE2EB),
                           ),
-                          boxShadow: !hasError &&
+                          boxShadow:
+                              !hasError &&
                                   i == code.length &&
                                   codeFocus.hasFocus
                               ? const [

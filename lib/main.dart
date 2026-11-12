@@ -20,6 +20,7 @@ import 'package:webview_flutter/webview_flutter.dart';
 import 'package:webview_flutter_android/webview_flutter_android.dart';
 import 'package:webview_flutter_wkwebview/webview_flutter_wkwebview.dart';
 
+import 'data/learn.dart';
 import 'supabase_repository.dart';
 import 'supabase_config.dart';
 import 'ui/eps_theme.dart';
@@ -28,6 +29,12 @@ import 'ui/eps_widgets.dart';
 part 'screens/auth.dart';
 part 'screens/onboarding.dart';
 part 'screens/forgot_password.dart';
+part 'screens/student_home.dart';
+part 'screens/my_subjects.dart';
+part 'screens/lesson_live.dart';
+part 'screens/quizzes.dart';
+part 'screens/checkout.dart';
+part 'screens/profile.dart';
 
 const epsilonBlue = Eps.blue;
 const epsilonTeal = Eps.green;
@@ -2764,30 +2771,36 @@ class _EpsilonAppState extends State<EpsilonApp> {
   late final SchoolStore store = SchoolStore(
     backendEnabled: widget.backendStatus.isReady,
   );
+  late final LearnStore learn = LearnStore(
+    enabled: widget.backendStatus.isReady,
+  );
 
   @override
   Widget build(BuildContext context) {
     return StoreScope(
       notifier: store,
-      child: AnimatedBuilder(
-        animation: store,
-        builder: (context, _) {
-          return MaterialApp(
-            debugShowCheckedModeBanner: false,
-            title: 'Epsilon Academy',
-            locale: Locale(store.languageCode),
-            themeMode: store.themeMode,
-            builder: (context, child) {
-              return Directionality(
-                textDirection: TextDirection.rtl,
-                child: child ?? const SizedBox.shrink(),
-              );
-            },
-            theme: Eps.lightTheme(),
-            darkTheme: Eps.darkTheme(),
-            home: StartupSplashGate(backendStatus: widget.backendStatus),
-          );
-        },
+      child: LearnScope(
+        notifier: learn,
+        child: AnimatedBuilder(
+          animation: store,
+          builder: (context, _) {
+            return MaterialApp(
+              debugShowCheckedModeBanner: false,
+              title: 'Epsilon Academy',
+              locale: Locale(store.languageCode),
+              themeMode: store.themeMode,
+              builder: (context, child) {
+                return Directionality(
+                  textDirection: TextDirection.rtl,
+                  child: child ?? const SizedBox.shrink(),
+                );
+              },
+              theme: Eps.lightTheme(),
+              darkTheme: Eps.darkTheme(),
+              home: StartupSplashGate(backendStatus: widget.backendStatus),
+            );
+          },
+        ),
       ),
     );
   }
@@ -2947,7 +2960,7 @@ class AppShell extends StatelessWidget {
     return switch (user.role) {
       UserRole.admin => const AdminDashboard(),
       UserRole.teacher => const TeacherDashboard(),
-      UserRole.student => const StudentDashboard(),
+      UserRole.student => const StudentShell(),
     };
   }
 }

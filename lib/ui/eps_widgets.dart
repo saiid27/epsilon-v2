@@ -203,7 +203,11 @@ class EpsPage extends StatelessWidget {
           children: [
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 18),
-              child: EpsPageHeader(title: title, action: action, onBack: onBack),
+              child: EpsPageHeader(
+                title: title,
+                action: action,
+                onBack: onBack,
+              ),
             ),
             Expanded(
               child: ListView(padding: padding, children: children),
@@ -387,10 +391,7 @@ class _DashedBorderPainter extends CustomPainter {
       ..style = PaintingStyle.stroke;
     final path = Path()
       ..addRRect(
-        RRect.fromRectAndRadius(
-          Offset.zero & size,
-          Radius.circular(radius),
-        ),
+        RRect.fromRectAndRadius(Offset.zero & size, Radius.circular(radius)),
       );
     for (final metric in path.computeMetrics()) {
       var distance = 0.0;
@@ -499,6 +500,7 @@ class EpsProgress extends StatelessWidget {
             FractionallySizedBox(
               alignment: AlignmentDirectional.centerStart,
               widthFactor: value.clamp(0.0, 1.0),
+              heightFactor: 1,
               child: DecoratedBox(
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(height),
@@ -664,7 +666,9 @@ class EpsListTile extends StatelessWidget {
       onTap: onTap,
       padding: const EdgeInsets.all(12),
       color: tone == null ? Colors.white : tone!.bg.withValues(alpha: 0.55),
-      borderColor: tone == null ? Eps.line : tone!.solid.withValues(alpha: 0.35),
+      borderColor: tone == null
+          ? Eps.line
+          : tone!.solid.withValues(alpha: 0.35),
       child: Row(
         children: [
           if (leading != null) ...[leading!, const SizedBox(width: 12)],
@@ -713,7 +717,8 @@ class EpsNavItem {
   final bool dot;
 }
 
-/// Bottom navigation (`.bottom-nav`) with top indicator on active item.
+/// Bottom navigation (`.bottom-nav`): 77px, 21px icons, 8px labels and a
+/// 28x3 indicator above the active item.
 class EpsBottomNav extends StatelessWidget {
   const EpsBottomNav({
     required this.items,
@@ -730,7 +735,7 @@ class EpsBottomNav extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       decoration: const BoxDecoration(
-        color: Color(0xF0FFFFFF),
+        color: Color(0xEFFFFFFF),
         border: Border(top: BorderSide(color: Eps.line)),
         boxShadow: [
           BoxShadow(
@@ -742,19 +747,22 @@ class EpsBottomNav extends StatelessWidget {
       ),
       child: SafeArea(
         top: false,
-        child: SizedBox(
-          height: 66,
-          child: Row(
-            children: [
-              for (var i = 0; i < items.length; i++)
-                Expanded(
-                  child: _NavButton(
-                    item: items[i],
-                    active: i == index,
-                    onTap: () => onChanged(i),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(8, 8, 8, 10),
+          child: SizedBox(
+            height: 58,
+            child: Row(
+              children: [
+                for (var i = 0; i < items.length; i++)
+                  Expanded(
+                    child: _NavButton(
+                      item: items[i],
+                      active: i == index,
+                      onTap: () => onChanged(i),
+                    ),
                   ),
-                ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
@@ -776,60 +784,61 @@ class _NavButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final color = active ? Eps.blue : Eps.faint;
-    return InkWell(
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
       onTap: onTap,
       child: Stack(
-        alignment: Alignment.topCenter,
+        clipBehavior: Clip.none,
+        alignment: Alignment.center,
         children: [
-          AnimatedContainer(
-            duration: const Duration(milliseconds: 220),
-            width: active ? 28 : 0,
-            height: 3,
-            decoration: const BoxDecoration(
-              color: Eps.blue,
-              borderRadius: BorderRadius.vertical(bottom: Radius.circular(4)),
-            ),
-          ),
-          Center(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Stack(
-                  clipBehavior: Clip.none,
-                  children: [
-                    Icon(
-                      active ? (item.activeIcon ?? item.icon) : item.icon,
-                      color: color,
-                      size: 24,
-                    ),
-                    if (item.dot)
-                      PositionedDirectional(
-                        top: -2,
-                        end: -4,
-                        child: Container(
-                          width: 8,
-                          height: 8,
-                          decoration: BoxDecoration(
-                            color: Eps.red,
-                            shape: BoxShape.circle,
-                            border: Border.all(color: Colors.white),
-                          ),
-                        ),
-                      ),
-                  ],
-                ),
-                const SizedBox(height: 3),
-                Text(
-                  item.label,
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: color,
-                    fontWeight: active ? FontWeight.w800 : FontWeight.w600,
+          if (active)
+            Positioned(
+              top: -8,
+              child: Container(
+                width: 28,
+                height: 3,
+                decoration: const BoxDecoration(
+                  color: Eps.blue,
+                  borderRadius: BorderRadius.vertical(
+                    bottom: Radius.circular(4),
                   ),
                 ),
-              ],
+              ),
             ),
+          Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(item.icon, color: color, size: 21),
+              const SizedBox(height: 3),
+              Text(
+                item.label,
+                style: TextStyle(
+                  fontSize: 8,
+                  height: 1.5,
+                  color: color,
+                  fontWeight: active ? FontWeight.w800 : FontWeight.w400,
+                ),
+              ),
+            ],
           ),
+          if (item.dot)
+            const Positioned(
+              top: 6,
+              right: 20,
+              child: SizedBox(
+                width: 7,
+                height: 7,
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: Eps.red,
+                    shape: BoxShape.circle,
+                    border: Border.fromBorderSide(
+                      BorderSide(color: Colors.white),
+                    ),
+                  ),
+                ),
+              ),
+            ),
         ],
       ),
     );

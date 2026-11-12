@@ -600,11 +600,7 @@ class _EpsOnboardingState extends State<EpsOnboarding> {
 }
 
 class _OnboardingArt extends StatelessWidget {
-  const _OnboardingArt({
-    required this.slide,
-    required this.index,
-    super.key,
-  });
+  const _OnboardingArt({required this.slide, required this.index, super.key});
 
   final _OnboardingSlide slide;
   final int index;

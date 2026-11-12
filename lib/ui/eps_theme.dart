@@ -149,13 +149,21 @@ class Eps {
         selectedColor: blue,
         side: const BorderSide(color: line),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        labelStyle: const TextStyle(fontFamily: font, fontWeight: FontWeight.w700),
+        labelStyle: const TextStyle(
+          fontFamily: font,
+          fontWeight: FontWeight.w700,
+        ),
       ),
       snackBarTheme: SnackBarThemeData(
         behavior: SnackBarBehavior.floating,
         backgroundColor: ink,
-        contentTextStyle: const TextStyle(fontFamily: font, color: Colors.white),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(radius)),
+        contentTextStyle: const TextStyle(
+          fontFamily: font,
+          color: Colors.white,
+        ),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(radius),
+        ),
       ),
       dialogTheme: DialogThemeData(
         backgroundColor: Colors.white,
