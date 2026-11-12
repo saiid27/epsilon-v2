@@ -2,35 +2,42 @@ import 'package:flutter/material.dart';
 
 import 'eps_theme.dart';
 
-/// Round official logo used on splash/auth screens.
+/// Official logo cropped into a circle (`.official-logo`). The blue ring is
+/// part of the image itself.
 class EpsLogo extends StatelessWidget {
-  const EpsLogo({this.size = 96, this.ring = true, super.key});
+  const EpsLogo({
+    this.size = 108,
+    this.shadow = const BoxShadow(
+      color: Color(0x22173B8A),
+      blurRadius: 22,
+      offset: Offset(0, 8),
+    ),
+    super.key,
+  });
 
   final double size;
-  final bool ring;
+  final BoxShadow? shadow;
 
   @override
   Widget build(BuildContext context) {
+    final image = size * 1.046;
     return Container(
       width: size,
       height: size,
-      padding: EdgeInsets.all(ring ? size * 0.035 : 0),
       decoration: BoxDecoration(
         shape: BoxShape.circle,
-        color: Colors.white,
-        border: ring ? Border.all(color: Eps.blue, width: size * 0.03) : null,
-        boxShadow: const [
-          BoxShadow(
-            color: Color(0x262F5BD3),
-            blurRadius: 28,
-            offset: Offset(0, 10),
-          ),
-        ],
+        boxShadow: shadow == null ? null : [shadow!],
       ),
-      child: ClipOval(
-        child: Image.asset(
-          'assets/onboarding/epsilon_logo.jpeg',
-          fit: BoxFit.cover,
+      child: OverflowBox(
+        maxWidth: image,
+        maxHeight: image,
+        child: ClipOval(
+          child: Image.asset(
+            'assets/onboarding/epsilon_logo.jpeg',
+            width: image,
+            height: image,
+            fit: BoxFit.cover,
+          ),
         ),
       ),
     );
@@ -44,7 +51,9 @@ class EpsIconButton extends StatelessWidget {
     this.onTap,
     this.tooltip,
     this.badge,
-    this.size = 42,
+    this.size = 40,
+    this.radius = 13,
+    this.iconSize = 19,
     super.key,
   });
 
@@ -53,22 +62,24 @@ class EpsIconButton extends StatelessWidget {
   final String? tooltip;
   final int? badge;
   final double size;
+  final double radius;
+  final double iconSize;
 
   @override
   Widget build(BuildContext context) {
     final button = Material(
       color: Colors.white,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(13),
+        borderRadius: BorderRadius.circular(radius),
         side: const BorderSide(color: Eps.line),
       ),
       child: InkWell(
-        borderRadius: BorderRadius.circular(13),
+        borderRadius: BorderRadius.circular(radius),
         onTap: onTap,
         child: SizedBox(
           width: size,
           height: size,
-          child: Icon(icon, size: 21, color: Eps.ink),
+          child: Icon(icon, size: iconSize, color: Eps.ink),
         ),
       ),
     );
@@ -221,7 +232,11 @@ class EpsPrimaryButton extends StatelessWidget {
     this.icon,
     this.loading = false,
     this.color,
-    this.height = 54,
+    this.height = 48,
+    this.radius = Eps.radius,
+    this.fontSize = 12,
+    this.iconSize = 17,
+    this.shadow = true,
     super.key,
   });
 
@@ -231,6 +246,10 @@ class EpsPrimaryButton extends StatelessWidget {
   final bool loading;
   final Color? color;
   final double height;
+  final double radius;
+  final double fontSize;
+  final double iconSize;
+  final bool shadow;
 
   @override
   Widget build(BuildContext context) {
@@ -241,19 +260,21 @@ class EpsPrimaryButton extends StatelessWidget {
       child: Container(
         height: height,
         decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(Eps.radius),
+          borderRadius: BorderRadius.circular(radius),
           gradient: enabled || loading
               ? (color == null
                     ? Eps.primaryGradient
                     : LinearGradient(colors: [color!, color!]))
               : null,
           color: enabled || loading ? null : const Color(0xFFC9CED9),
-          boxShadow: enabled ? Eps.buttonShadow : null,
+          boxShadow: enabled && shadow && color == null
+              ? Eps.buttonShadow
+              : null,
         ),
         child: Material(
           color: Colors.transparent,
           child: InkWell(
-            borderRadius: BorderRadius.circular(Eps.radius),
+            borderRadius: BorderRadius.circular(radius),
             onTap: enabled ? onPressed : null,
             child: Center(
               child: loading
@@ -273,16 +294,16 @@ class EpsPrimaryButton extends StatelessWidget {
                             label,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
+                            style: TextStyle(
                               color: Colors.white,
-                              fontSize: 15,
+                              fontSize: fontSize,
                               fontWeight: FontWeight.w800,
                             ),
                           ),
                         ),
                         if (icon != null) ...[
-                          const SizedBox(width: 8),
-                          Icon(icon, color: Colors.white, size: 19),
+                          const SizedBox(width: 5),
+                          Icon(icon, color: Colors.white, size: iconSize),
                         ],
                       ],
                     ),
@@ -424,7 +445,7 @@ class EpsBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
         color: tone.bg,
         borderRadius: BorderRadius.circular(999),
@@ -433,14 +454,14 @@ class EpsBadge extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           if (icon != null) ...[
-            Icon(icon, size: 13, color: tone.fg),
-            const SizedBox(width: 4),
+            Icon(icon, size: 11, color: tone.fg),
+            const SizedBox(width: 5),
           ],
           Text(
             label,
             style: TextStyle(
               color: tone.fg,
-              fontSize: 11.5,
+              fontSize: 9,
               fontWeight: FontWeight.w700,
               height: 1.3,
             ),

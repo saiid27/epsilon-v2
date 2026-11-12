@@ -33,9 +33,12 @@ class Eps {
   static const radius = 14.0;
   static const cardRadius = 17.0;
 
+  static const fontNum = 'Inter';
+
+  /// `linear-gradient(100deg, --blue, #2b58b4)`.
   static const primaryGradient = LinearGradient(
-    begin: AlignmentDirectional.centerStart,
-    end: AlignmentDirectional.centerEnd,
+    begin: Alignment(-1, -0.18),
+    end: Alignment(1, 0.18),
     colors: [blue, blueDeep],
   );
 
