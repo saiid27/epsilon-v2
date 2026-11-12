@@ -30,7 +30,8 @@ Deno.serve(async (req) => {
         .maybeSingle();
 
       if (!user) return json({ message: 'رقم الهاتف غير مسجل.' }, 404);
-      if (user.status !== 'active') {
+      const signupPending = purpose === 'signup' && user.status === 'pending';
+      if (user.status !== 'active' && !signupPending) {
         return json(
           { message: 'لا يمكن إرسال الرمز إلا للحسابات المقبولة من الإدارة.' },
           403,
@@ -95,6 +96,15 @@ Deno.serve(async (req) => {
       }
       if (purpose !== 'password_reset') {
         await supabase.from('otp_codes').delete().eq('phone', phone).eq('purpose', purpose);
+      }
+      if (purpose === 'signup') {
+        await supabase
+          .from('users')
+          .update({ status: 'active' })
+          .eq('phone', phone)
+          .eq('role', 'student')
+          .eq('status', 'pending')
+          .is('course_id', null);
       }
       return json({ message: 'تم التحقق من الرمز' });
     }

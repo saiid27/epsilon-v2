@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
+import 'dart:ui' show ImageFilter;
 
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
@@ -19,6 +20,7 @@ import 'package:webview_flutter/webview_flutter.dart';
 import 'package:webview_flutter_android/webview_flutter_android.dart';
 import 'package:webview_flutter_wkwebview/webview_flutter_wkwebview.dart';
 
+import 'data/learn.dart';
 import 'supabase_repository.dart';
 import 'supabase_config.dart';
 import 'ui/eps_theme.dart';
@@ -27,6 +29,13 @@ import 'ui/eps_widgets.dart';
 part 'screens/auth.dart';
 part 'screens/onboarding.dart';
 part 'screens/forgot_password.dart';
+part 'screens/student_home.dart';
+part 'screens/my_subjects.dart';
+part 'screens/lesson_live.dart';
+part 'screens/quizzes.dart';
+part 'screens/checkout.dart';
+part 'screens/profile.dart';
+part 'screens/admin.dart';
 
 const epsilonBlue = Eps.blue;
 const epsilonTeal = Eps.green;
@@ -1512,6 +1521,59 @@ class SchoolStore extends ChangeNotifier {
     return true;
   }
 
+  /// Redesigned signup: free account, verified by SMS code.
+  Future<void> registerFreeStudent({
+    required String name,
+    required String phone,
+    required String password,
+    required String level,
+  }) async {
+    if (backendEnabled) {
+      await (_repository as SupabaseRepository).registerFreeStudent(
+        name: name,
+        phone: phone,
+        password: password,
+        level: level,
+      );
+      return;
+    }
+    users.add(
+      AppUser(
+        id: 'local-${DateTime.now().microsecondsSinceEpoch}',
+        name: name.trim(),
+        phone: phone.trim(),
+        password: password,
+        role: UserRole.student,
+        status: AccountStatus.active,
+      ),
+    );
+  }
+
+  Future<void> resendSignupCode(String phone) async {
+    if (backendEnabled) {
+      await (_repository as SupabaseRepository).requestOtp(
+        phone: phone,
+        purpose: 'signup',
+      );
+    }
+  }
+
+  /// Verifies the signup code, then signs the student in.
+  Future<bool> verifySignupAndLogin({
+    required String phone,
+    required String code,
+    required String password,
+  }) async {
+    if (backendEnabled) {
+      await (_repository as SupabaseRepository).verifyOtp(
+        phone: phone,
+        code: code,
+        purpose: 'signup',
+      );
+    }
+    return login(phone, password);
+  }
+
   Future<void> sendPasswordResetEmail(String phone) async {
     if (backendEnabled) {
       await (_repository as SupabaseRepository).sendPasswordResetOtp(
@@ -2763,30 +2825,36 @@ class _EpsilonAppState extends State<EpsilonApp> {
   late final SchoolStore store = SchoolStore(
     backendEnabled: widget.backendStatus.isReady,
   );
+  late final LearnStore learn = LearnStore(
+    enabled: widget.backendStatus.isReady,
+  );
 
   @override
   Widget build(BuildContext context) {
     return StoreScope(
       notifier: store,
-      child: AnimatedBuilder(
-        animation: store,
-        builder: (context, _) {
-          return MaterialApp(
-            debugShowCheckedModeBanner: false,
-            title: 'Epsilon Academy',
-            locale: Locale(store.languageCode),
-            themeMode: store.themeMode,
-            builder: (context, child) {
-              return Directionality(
-                textDirection: TextDirection.rtl,
-                child: child ?? const SizedBox.shrink(),
-              );
-            },
-            theme: Eps.lightTheme(),
-            darkTheme: Eps.darkTheme(),
-            home: StartupSplashGate(backendStatus: widget.backendStatus),
-          );
-        },
+      child: LearnScope(
+        notifier: learn,
+        child: AnimatedBuilder(
+          animation: store,
+          builder: (context, _) {
+            return MaterialApp(
+              debugShowCheckedModeBanner: false,
+              title: 'Epsilon Academy',
+              locale: Locale(store.languageCode),
+              themeMode: store.themeMode,
+              builder: (context, child) {
+                return Directionality(
+                  textDirection: TextDirection.rtl,
+                  child: child ?? const SizedBox.shrink(),
+                );
+              },
+              theme: Eps.lightTheme(),
+              darkTheme: Eps.darkTheme(),
+              home: StartupSplashGate(backendStatus: widget.backendStatus),
+            );
+          },
+        ),
       ),
     );
   }
@@ -2944,9 +3012,12 @@ class AppShell extends StatelessWidget {
     }
 
     return switch (user.role) {
-      UserRole.admin => const AdminDashboard(),
+      UserRole.admin =>
+        user.adminType == AdminType.schoolManager
+            ? const AdminDashboard()
+            : const AdminConsole(),
       UserRole.teacher => const TeacherDashboard(),
-      UserRole.student => const StudentDashboard(),
+      UserRole.student => const StudentShell(),
     };
   }
 }

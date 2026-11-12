@@ -172,21 +172,43 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
       );
     }
 
-    final (IconData icon, String title, String subtitle) = switch (step) {
+    const subStyle = TextStyle(fontSize: 9, color: Eps.muted, height: 1.8);
+    final (IconData icon, String title, Widget subtitle) = switch (step) {
       0 => (
         Icons.lock_outline_rounded,
         'نسيت كلمة المرور؟',
-        'أدخل رقم هاتفك وسنرسل إليك رمزاً لاستعادة حسابك.',
+        const Text(
+          'أدخل رقم هاتفك وسنرسل إليك رمزاً لاستعادة حسابك.',
+          textAlign: TextAlign.center,
+          style: subStyle,
+        ),
       ),
       1 => (
         Icons.chat_bubble_outline_rounded,
         'تحقق من رقمك',
-        'أرسلنا رمزاً من $codeLength أرقام إلى\n+222 ${phoneController.text.trim()}',
+        Column(
+          children: [
+            const Text(
+              'أرسلنا رمزاً من $codeLength أرقام إلى',
+              textAlign: TextAlign.center,
+              style: subStyle,
+            ),
+            Text(
+              '+222 ${phoneController.text.trim()}',
+              textDirection: TextDirection.ltr,
+              style: subStyle.copyWith(fontWeight: FontWeight.w700),
+            ),
+          ],
+        ),
       ),
       _ => (
         Icons.check_rounded,
         'أنشئ كلمة مرور جديدة',
-        'اختر كلمة مرور قوية ومختلفة عن كلمات المرور السابقة.',
+        const Text(
+          'اختر كلمة مرور قوية ومختلفة عن كلمات المرور السابقة.',
+          textAlign: TextAlign.center,
+          style: subStyle,
+        ),
       ),
     };
 
@@ -200,69 +222,69 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
       child: Scaffold(
         backgroundColor: Eps.bg,
         body: SafeArea(
-          child: ListView(
-            padding: const EdgeInsets.fromLTRB(22, 16, 22, 28),
+          child: Stack(
             children: [
-              Align(
-                alignment: AlignmentDirectional.centerEnd,
-                child: EpsIconButton(
-                  icon: Icons.arrow_forward_rounded,
-                  tooltip: 'رجوع',
-                  onTap: back,
-                ),
+              ListView(
+                padding: const EdgeInsets.fromLTRB(22, 92, 22, 32),
+                children: [
+                  Center(
+                    child: Container(
+                      width: 67,
+                      height: 67,
+                      decoration: BoxDecoration(
+                        color: Eps.blueSoft,
+                        borderRadius: BorderRadius.circular(22),
+                        boxShadow: const [
+                          BoxShadow(color: Color(0xFFF4F8FF), spreadRadius: 10),
+                        ],
+                      ),
+                      child: Icon(icon, color: Eps.blue, size: 28),
+                    ),
+                  ),
+                  const SizedBox(height: 26),
+                  Text(
+                    title,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      fontSize: 23,
+                      fontWeight: FontWeight.w400,
+                      color: Eps.ink,
+                      height: 1.5,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  subtitle,
+                  KeyedSubtree(
+                    key: ValueKey(step),
+                    child: switch (step) {
+                      0 => phoneStep(store),
+                      1 => codeStep(store),
+                      _ => passwordStep(store),
+                    },
+                  ),
+                  if (message != null)
+                    success
+                        ? Padding(
+                            padding: const EdgeInsets.only(top: 10),
+                            child: Text(
+                              message!,
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(
+                                color: Eps.greenInk,
+                                fontSize: 9,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          )
+                        : AuthErrorText(message!),
+                ],
               ),
-              const SizedBox(height: 36),
-              Center(child: EpsMark(icon: icon, size: 68)),
-              const SizedBox(height: 22),
-              Text(
-                title,
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  fontSize: 25,
-                  fontWeight: FontWeight.w800,
-                  color: Eps.ink,
+              if (step < 2)
+                Positioned(
+                  top: 17,
+                  left: 18,
+                  child: AuthBackButton(onTap: back),
                 ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                subtitle,
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  fontSize: 13,
-                  color: Eps.muted,
-                  height: 1.6,
-                ),
-              ),
-              const SizedBox(height: 22),
-              AnimatedSwitcher(
-                duration: const Duration(milliseconds: 240),
-                child: KeyedSubtree(
-                  key: ValueKey(step),
-                  child: switch (step) {
-                    0 => phoneStep(store),
-                    1 => codeStep(store),
-                    _ => passwordStep(store),
-                  },
-                ),
-              ),
-              if (message != null)
-                success
-                    ? Container(
-                        margin: const EdgeInsets.only(top: 12),
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: Eps.greenSoft,
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: Text(
-                          message!,
-                          style: const TextStyle(
-                            color: Eps.greenInk,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      )
-                    : AuthErrorText(message!),
             ],
           ),
         ),
@@ -274,13 +296,13 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        const EpsFieldLabel('رقم الهاتف'),
+        const AuthLabel('رقم الهاتف', top: 35),
         EpsPhoneField(
           controller: phoneController,
           textInputAction: TextInputAction.done,
           onSubmitted: (_) => sendCode(store),
         ),
-        const SizedBox(height: 22),
+        const SizedBox(height: 20),
         EpsPrimaryButton(
           label: 'إرسال رمز التحقق',
           loading: sending,
@@ -292,9 +314,11 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
 
   Widget codeStep(SchoolStore store) {
     final code = codeController.text;
+    final hasError = message != null && !success;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        const SizedBox(height: 35),
         GestureDetector(
           onTap: () => codeFocus.requestFocus(),
           child: Stack(
@@ -304,33 +328,48 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    for (var i = 0; i < codeLength; i++)
+                    for (var i = 0; i < codeLength; i++) ...[
+                      if (i > 0) const SizedBox(width: 8),
                       Container(
-                        width: 46,
-                        height: 56,
-                        margin: const EdgeInsets.symmetric(horizontal: 4),
+                        width: 47,
+                        height: 60,
                         alignment: Alignment.center,
                         decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(14),
+                          color: hasError
+                              ? const Color(0xFFFFF5F6)
+                              : Colors.white,
+                          borderRadius: BorderRadius.circular(15),
                           border: Border.all(
-                            color: i == code.length && codeFocus.hasFocus
-                                ? Eps.blue2
-                                : Eps.field,
-                            width: i == code.length && codeFocus.hasFocus
-                                ? 1.6
-                                : 1,
+                            width: 1.5,
+                            color: hasError
+                                ? Eps.red
+                                : i == code.length && codeFocus.hasFocus
+                                ? Eps.blue
+                                : const Color(0xFFDCE2EB),
                           ),
+                          boxShadow:
+                              !hasError &&
+                                  i == code.length &&
+                                  codeFocus.hasFocus
+                              ? const [
+                                  BoxShadow(
+                                    color: Eps.blueSoft,
+                                    spreadRadius: 3,
+                                  ),
+                                ]
+                              : null,
                         ),
                         child: Text(
                           i < code.length ? code[i] : '',
                           style: const TextStyle(
-                            fontSize: 22,
+                            fontFamily: Eps.fontNum,
+                            fontSize: 20,
                             fontWeight: FontWeight.w800,
-                            color: Eps.ink,
+                            color: Eps.blue,
                           ),
                         ),
                       ),
+                    ],
                   ],
                 ),
               ),
@@ -352,19 +391,43 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
             ],
           ),
         ),
-        const SizedBox(height: 24),
+        const SizedBox(height: 26),
         EpsPrimaryButton(label: 'تحقق من الرمز', onPressed: confirmCode),
-        const SizedBox(height: 14),
-        Center(
-          child: resendLeft > 0
-              ? Text(
-                  'لم يصلك الرمز؟ إعادة الإرسال خلال 00:${resendLeft.toString().padLeft(2, '0')}',
-                  style: const TextStyle(fontSize: 12.5, color: Eps.muted),
-                )
-              : TextButton(
-                  onPressed: sending ? null : () => sendCode(store),
-                  child: const Text('إعادة إرسال الرمز'),
+        const SizedBox(height: 20),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Text(
+              'لم يصلك الرمز؟ ',
+              style: TextStyle(fontSize: 9, color: Eps.muted),
+            ),
+            if (resendLeft > 0) ...[
+              const Text(
+                'إعادة الإرسال خلال ',
+                style: TextStyle(fontSize: 9, color: Color(0xFF8992A3)),
+              ),
+              Text(
+                '00:${resendLeft.toString().padLeft(2, '0')}',
+                textDirection: TextDirection.ltr,
+                style: const TextStyle(
+                  fontSize: 9,
+                  fontWeight: FontWeight.w700,
+                  color: Color(0xFF8992A3),
                 ),
+              ),
+            ] else
+              GestureDetector(
+                onTap: sending ? null : () => sendCode(store),
+                child: const Text(
+                  'إعادة الإرسال الآن',
+                  style: TextStyle(
+                    fontSize: 9,
+                    fontWeight: FontWeight.w800,
+                    color: Eps.blue,
+                  ),
+                ),
+              ),
+          ],
         ),
       ],
     );
@@ -374,20 +437,20 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        const EpsFieldLabel('كلمة المرور الجديدة'),
+        const AuthLabel('كلمة المرور الجديدة', top: 35),
         EpsPasswordField(
           controller: passwordController,
           hint: '6 أحرف على الأقل',
           textInputAction: TextInputAction.next,
         ),
-        const EpsFieldLabel('تأكيد كلمة المرور'),
+        const AuthLabel('تأكيد كلمة المرور'),
         EpsPasswordField(
           controller: confirmPasswordController,
           hint: 'أعد كتابة كلمة المرور',
           textInputAction: TextInputAction.done,
           onSubmitted: (_) => resetPassword(store),
         ),
-        const SizedBox(height: 22),
+        const SizedBox(height: 20),
         EpsPrimaryButton(
           label: 'حفظ كلمة المرور',
           loading: sending,

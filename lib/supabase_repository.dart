@@ -142,6 +142,74 @@ class SupabaseRepository {
     }
   }
 
+  /// Free account from the redesigned signup: starts `pending` and becomes
+  /// `active` when the phone code is verified (otp function, purpose signup).
+  Future<void> registerFreeStudent({
+    required String name,
+    required String phone,
+    required String password,
+    required String level,
+  }) async {
+    final existing = _list(
+      await client
+          .from('users')
+          .select('id')
+          .eq('phone', phone.trim())
+          .limit(1),
+    );
+    if (existing.isNotEmpty) {
+      throw const SupabaseAppException('رقم الهاتف مسجل مسبقاً.');
+    }
+    await client.from('users').insert({
+      'name': name.trim(),
+      'phone': phone.trim(),
+      'password': password,
+      'role': 'student',
+      'status': 'pending',
+      'level': level,
+    });
+    await requestOtp(phone: phone, purpose: 'signup');
+  }
+
+  Future<void> requestOtp({
+    required String phone,
+    required String purpose,
+  }) async {
+    try {
+      await client.functions.invoke(
+        'otp',
+        body: {
+          'action': 'request',
+          'phone': phone.trim(),
+          'lang': 'ar',
+          'purpose': purpose,
+        },
+      );
+    } on FunctionException catch (error) {
+      throw _functionAppException(error);
+    }
+  }
+
+  Future<void> verifyOtp({
+    required String phone,
+    required String code,
+    required String purpose,
+  }) async {
+    try {
+      await client.functions.invoke(
+        'otp',
+        body: {
+          'action': 'verify',
+          'phone': phone.trim(),
+          'code': code.trim(),
+          'purpose': purpose,
+        },
+      );
+    } on FunctionException catch (error) {
+      throw _functionAppException(error);
+    }
+  }
+
   Future<void> resetPasswordWithCode({
     required String phone,
     required String code,

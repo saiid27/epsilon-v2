@@ -2,35 +2,42 @@ import 'package:flutter/material.dart';
 
 import 'eps_theme.dart';
 
-/// Round official logo used on splash/auth screens.
+/// Official logo cropped into a circle (`.official-logo`). The blue ring is
+/// part of the image itself.
 class EpsLogo extends StatelessWidget {
-  const EpsLogo({this.size = 96, this.ring = true, super.key});
+  const EpsLogo({
+    this.size = 108,
+    this.shadow = const BoxShadow(
+      color: Color(0x22173B8A),
+      blurRadius: 22,
+      offset: Offset(0, 8),
+    ),
+    super.key,
+  });
 
   final double size;
-  final bool ring;
+  final BoxShadow? shadow;
 
   @override
   Widget build(BuildContext context) {
+    final image = size * 1.046;
     return Container(
       width: size,
       height: size,
-      padding: EdgeInsets.all(ring ? size * 0.035 : 0),
       decoration: BoxDecoration(
         shape: BoxShape.circle,
-        color: Colors.white,
-        border: ring ? Border.all(color: Eps.blue, width: size * 0.03) : null,
-        boxShadow: const [
-          BoxShadow(
-            color: Color(0x262F5BD3),
-            blurRadius: 28,
-            offset: Offset(0, 10),
-          ),
-        ],
+        boxShadow: shadow == null ? null : [shadow!],
       ),
-      child: ClipOval(
-        child: Image.asset(
-          'assets/onboarding/epsilon_logo.jpeg',
-          fit: BoxFit.cover,
+      child: OverflowBox(
+        maxWidth: image,
+        maxHeight: image,
+        child: ClipOval(
+          child: Image.asset(
+            'assets/onboarding/epsilon_logo.jpeg',
+            width: image,
+            height: image,
+            fit: BoxFit.cover,
+          ),
         ),
       ),
     );
@@ -44,7 +51,9 @@ class EpsIconButton extends StatelessWidget {
     this.onTap,
     this.tooltip,
     this.badge,
-    this.size = 42,
+    this.size = 40,
+    this.radius = 13,
+    this.iconSize = 19,
     super.key,
   });
 
@@ -53,22 +62,24 @@ class EpsIconButton extends StatelessWidget {
   final String? tooltip;
   final int? badge;
   final double size;
+  final double radius;
+  final double iconSize;
 
   @override
   Widget build(BuildContext context) {
     final button = Material(
       color: Colors.white,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(13),
+        borderRadius: BorderRadius.circular(radius),
         side: const BorderSide(color: Eps.line),
       ),
       child: InkWell(
-        borderRadius: BorderRadius.circular(13),
+        borderRadius: BorderRadius.circular(radius),
         onTap: onTap,
         child: SizedBox(
           width: size,
           height: size,
-          child: Icon(icon, size: 21, color: Eps.ink),
+          child: Icon(icon, size: iconSize, color: Eps.ink),
         ),
       ),
     );
@@ -192,7 +203,11 @@ class EpsPage extends StatelessWidget {
           children: [
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 18),
-              child: EpsPageHeader(title: title, action: action, onBack: onBack),
+              child: EpsPageHeader(
+                title: title,
+                action: action,
+                onBack: onBack,
+              ),
             ),
             Expanded(
               child: ListView(padding: padding, children: children),
@@ -221,7 +236,11 @@ class EpsPrimaryButton extends StatelessWidget {
     this.icon,
     this.loading = false,
     this.color,
-    this.height = 54,
+    this.height = 48,
+    this.radius = Eps.radius,
+    this.fontSize = 12,
+    this.iconSize = 17,
+    this.shadow = true,
     super.key,
   });
 
@@ -231,6 +250,10 @@ class EpsPrimaryButton extends StatelessWidget {
   final bool loading;
   final Color? color;
   final double height;
+  final double radius;
+  final double fontSize;
+  final double iconSize;
+  final bool shadow;
 
   @override
   Widget build(BuildContext context) {
@@ -241,19 +264,21 @@ class EpsPrimaryButton extends StatelessWidget {
       child: Container(
         height: height,
         decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(Eps.radius),
+          borderRadius: BorderRadius.circular(radius),
           gradient: enabled || loading
               ? (color == null
                     ? Eps.primaryGradient
                     : LinearGradient(colors: [color!, color!]))
               : null,
           color: enabled || loading ? null : const Color(0xFFC9CED9),
-          boxShadow: enabled ? Eps.buttonShadow : null,
+          boxShadow: enabled && shadow && color == null
+              ? Eps.buttonShadow
+              : null,
         ),
         child: Material(
           color: Colors.transparent,
           child: InkWell(
-            borderRadius: BorderRadius.circular(Eps.radius),
+            borderRadius: BorderRadius.circular(radius),
             onTap: enabled ? onPressed : null,
             child: Center(
               child: loading
@@ -273,16 +298,16 @@ class EpsPrimaryButton extends StatelessWidget {
                             label,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
+                            style: TextStyle(
                               color: Colors.white,
-                              fontSize: 15,
+                              fontSize: fontSize,
                               fontWeight: FontWeight.w800,
                             ),
                           ),
                         ),
                         if (icon != null) ...[
-                          const SizedBox(width: 8),
-                          Icon(icon, color: Colors.white, size: 19),
+                          const SizedBox(width: 5),
+                          Icon(icon, color: Colors.white, size: iconSize),
                         ],
                       ],
                     ),
@@ -366,10 +391,7 @@ class _DashedBorderPainter extends CustomPainter {
       ..style = PaintingStyle.stroke;
     final path = Path()
       ..addRRect(
-        RRect.fromRectAndRadius(
-          Offset.zero & size,
-          Radius.circular(radius),
-        ),
+        RRect.fromRectAndRadius(Offset.zero & size, Radius.circular(radius)),
       );
     for (final metric in path.computeMetrics()) {
       var distance = 0.0;
@@ -424,7 +446,7 @@ class EpsBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
         color: tone.bg,
         borderRadius: BorderRadius.circular(999),
@@ -433,14 +455,14 @@ class EpsBadge extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           if (icon != null) ...[
-            Icon(icon, size: 13, color: tone.fg),
-            const SizedBox(width: 4),
+            Icon(icon, size: 11, color: tone.fg),
+            const SizedBox(width: 5),
           ],
           Text(
             label,
             style: TextStyle(
               color: tone.fg,
-              fontSize: 11.5,
+              fontSize: 9,
               fontWeight: FontWeight.w700,
               height: 1.3,
             ),
@@ -478,6 +500,7 @@ class EpsProgress extends StatelessWidget {
             FractionallySizedBox(
               alignment: AlignmentDirectional.centerStart,
               widthFactor: value.clamp(0.0, 1.0),
+              heightFactor: 1,
               child: DecoratedBox(
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(height),
@@ -643,7 +666,9 @@ class EpsListTile extends StatelessWidget {
       onTap: onTap,
       padding: const EdgeInsets.all(12),
       color: tone == null ? Colors.white : tone!.bg.withValues(alpha: 0.55),
-      borderColor: tone == null ? Eps.line : tone!.solid.withValues(alpha: 0.35),
+      borderColor: tone == null
+          ? Eps.line
+          : tone!.solid.withValues(alpha: 0.35),
       child: Row(
         children: [
           if (leading != null) ...[leading!, const SizedBox(width: 12)],
@@ -692,7 +717,8 @@ class EpsNavItem {
   final bool dot;
 }
 
-/// Bottom navigation (`.bottom-nav`) with top indicator on active item.
+/// Bottom navigation (`.bottom-nav`): 77px, 21px icons, 8px labels and a
+/// 28x3 indicator above the active item.
 class EpsBottomNav extends StatelessWidget {
   const EpsBottomNav({
     required this.items,
@@ -709,7 +735,7 @@ class EpsBottomNav extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       decoration: const BoxDecoration(
-        color: Color(0xF0FFFFFF),
+        color: Color(0xEFFFFFFF),
         border: Border(top: BorderSide(color: Eps.line)),
         boxShadow: [
           BoxShadow(
@@ -721,19 +747,22 @@ class EpsBottomNav extends StatelessWidget {
       ),
       child: SafeArea(
         top: false,
-        child: SizedBox(
-          height: 66,
-          child: Row(
-            children: [
-              for (var i = 0; i < items.length; i++)
-                Expanded(
-                  child: _NavButton(
-                    item: items[i],
-                    active: i == index,
-                    onTap: () => onChanged(i),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(8, 8, 8, 10),
+          child: SizedBox(
+            height: 58,
+            child: Row(
+              children: [
+                for (var i = 0; i < items.length; i++)
+                  Expanded(
+                    child: _NavButton(
+                      item: items[i],
+                      active: i == index,
+                      onTap: () => onChanged(i),
+                    ),
                   ),
-                ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
@@ -755,60 +784,61 @@ class _NavButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final color = active ? Eps.blue : Eps.faint;
-    return InkWell(
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
       onTap: onTap,
       child: Stack(
-        alignment: Alignment.topCenter,
+        clipBehavior: Clip.none,
+        alignment: Alignment.center,
         children: [
-          AnimatedContainer(
-            duration: const Duration(milliseconds: 220),
-            width: active ? 28 : 0,
-            height: 3,
-            decoration: const BoxDecoration(
-              color: Eps.blue,
-              borderRadius: BorderRadius.vertical(bottom: Radius.circular(4)),
-            ),
-          ),
-          Center(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Stack(
-                  clipBehavior: Clip.none,
-                  children: [
-                    Icon(
-                      active ? (item.activeIcon ?? item.icon) : item.icon,
-                      color: color,
-                      size: 24,
-                    ),
-                    if (item.dot)
-                      PositionedDirectional(
-                        top: -2,
-                        end: -4,
-                        child: Container(
-                          width: 8,
-                          height: 8,
-                          decoration: BoxDecoration(
-                            color: Eps.red,
-                            shape: BoxShape.circle,
-                            border: Border.all(color: Colors.white),
-                          ),
-                        ),
-                      ),
-                  ],
-                ),
-                const SizedBox(height: 3),
-                Text(
-                  item.label,
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: color,
-                    fontWeight: active ? FontWeight.w800 : FontWeight.w600,
+          if (active)
+            Positioned(
+              top: -8,
+              child: Container(
+                width: 28,
+                height: 3,
+                decoration: const BoxDecoration(
+                  color: Eps.blue,
+                  borderRadius: BorderRadius.vertical(
+                    bottom: Radius.circular(4),
                   ),
                 ),
-              ],
+              ),
             ),
+          Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(item.icon, color: color, size: 21),
+              const SizedBox(height: 3),
+              Text(
+                item.label,
+                style: TextStyle(
+                  fontSize: 8,
+                  height: 1.5,
+                  color: color,
+                  fontWeight: active ? FontWeight.w800 : FontWeight.w400,
+                ),
+              ),
+            ],
           ),
+          if (item.dot)
+            const Positioned(
+              top: 6,
+              right: 20,
+              child: SizedBox(
+                width: 7,
+                height: 7,
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: Eps.red,
+                    shape: BoxShape.circle,
+                    border: Border.fromBorderSide(
+                      BorderSide(color: Colors.white),
+                    ),
+                  ),
+                ),
+              ),
+            ),
         ],
       ),
     );
