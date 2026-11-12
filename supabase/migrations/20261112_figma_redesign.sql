@@ -402,3 +402,11 @@ where u.role = 'student'
     select 1 from public.subject_subscriptions x
     where x.student_id = u.id and x.subject_id = s.id
   );
+
+-- Students who registered before the redesign already chose their section,
+-- so skip the first-run study profile for them.
+update public.users
+   set profile_completed = true
+ where role = 'student'
+   and course_id is not null
+   and profile_completed = false;

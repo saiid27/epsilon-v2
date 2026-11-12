@@ -768,28 +768,43 @@ class _RegisterCardState extends State<RegisterCard> {
   bool get confirmInvalid =>
       confirmPasswordController.text != passwordController.text;
 
-  void submit() {
+  bool sending = false;
+
+  Future<void> submit() async {
     final store = StoreScope.of(context);
     setState(() {
       submitted = true;
-      error = store.courses.isEmpty ? 'لا توجد أقسام متاحة حاليا.' : null;
+      error = null;
     });
-    if (nameInvalid ||
-        phoneInvalid ||
-        passwordInvalid ||
-        confirmInvalid ||
-        error != null) {
+    if (nameInvalid || phoneInvalid || passwordInvalid || confirmInvalid) {
       return;
     }
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => StudentCourseSelectionPage(
-          name: nameController.text.trim(),
-          phone: phoneController.text.trim(),
-          password: passwordController.text,
+    setState(() => sending = true);
+    try {
+      await store.registerFreeStudent(
+        name: nameController.text.trim(),
+        phone: phoneController.text.trim(),
+        password: passwordController.text,
+        level: level,
+      );
+      if (!mounted) {
+        return;
+      }
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => SignupOtpScreen(
+            phone: phoneController.text.trim(),
+            password: passwordController.text,
+          ),
         ),
-      ),
-    );
+      );
+    } on Object catch (e) {
+      setState(() => error = friendlyApiError(e));
+    } finally {
+      if (mounted) {
+        setState(() => sending = false);
+      }
+    }
   }
 
   @override
@@ -869,7 +884,11 @@ class _RegisterCardState extends State<RegisterCard> {
               : null,
         ),
         if (error != null) AuthErrorText(error!),
-        EpsPrimaryButton(label: 'إنشاء الحساب', onPressed: submit),
+        EpsPrimaryButton(
+          label: 'إنشاء الحساب',
+          loading: sending,
+          onPressed: submit,
+        ),
       ],
     );
   }
@@ -1029,6 +1048,268 @@ class AuthFreeCard extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// Phone verification after signup (Figma: otp).
+class SignupOtpScreen extends StatefulWidget {
+  const SignupOtpScreen({
+    required this.phone,
+    required this.password,
+    super.key,
+  });
+
+  final String phone;
+  final String password;
+
+  @override
+  State<SignupOtpScreen> createState() => _SignupOtpScreenState();
+}
+
+class _SignupOtpScreenState extends State<SignupOtpScreen> {
+  static const codeLength = 6;
+  final code = TextEditingController();
+  final focus = FocusNode();
+  int seconds = 60;
+  Timer? timer;
+  bool sending = false;
+  String? error;
+
+  @override
+  void initState() {
+    super.initState();
+    code.addListener(() => setState(() {}));
+    startTimer();
+    WidgetsBinding.instance.addPostFrameCallback((_) => focus.requestFocus());
+  }
+
+  void startTimer() {
+    timer?.cancel();
+    seconds = 60;
+    timer = Timer.periodic(const Duration(seconds: 1), (t) {
+      if (!mounted || seconds <= 1) {
+        t.cancel();
+        if (mounted) {
+          setState(() => seconds = 0);
+        }
+        return;
+      }
+      setState(() => seconds--);
+    });
+  }
+
+  @override
+  void dispose() {
+    timer?.cancel();
+    code.dispose();
+    focus.dispose();
+    super.dispose();
+  }
+
+  Future<void> verify() async {
+    if (code.text.length != codeLength) {
+      setState(() => error = 'أدخل رمز التحقق المكون من $codeLength أرقام.');
+      return;
+    }
+    final store = StoreScope.of(context);
+    setState(() {
+      sending = true;
+      error = null;
+    });
+    try {
+      final ok = await store.verifySignupAndLogin(
+        phone: widget.phone,
+        code: code.text,
+        password: widget.password,
+      );
+      if (!mounted) {
+        return;
+      }
+      if (ok) {
+        Navigator.of(context).popUntil((r) => r.isFirst);
+      } else {
+        setState(() => error = store.lastError ?? 'تعذر تسجيل الدخول.');
+      }
+    } on Object catch (e) {
+      setState(() => error = 'رمز التحقق غير صحيح. ${friendlyApiError(e)}');
+    } finally {
+      if (mounted) {
+        setState(() => sending = false);
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final hasError = error != null;
+    return Scaffold(
+      backgroundColor: Eps.bg,
+      body: SafeArea(
+        child: Stack(
+          children: [
+            ListView(
+              padding: const EdgeInsets.fromLTRB(22, 92, 22, 32),
+              children: [
+                Center(
+                  child: Container(
+                    width: 67,
+                    height: 67,
+                    decoration: BoxDecoration(
+                      color: Eps.blueSoft,
+                      borderRadius: BorderRadius.circular(22),
+                      boxShadow: const [
+                        BoxShadow(color: Color(0xFFF4F8FF), spreadRadius: 10),
+                      ],
+                    ),
+                    child: const Icon(
+                      Icons.chat_bubble_outline_rounded,
+                      color: Eps.blue,
+                      size: 29,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 26),
+                const Text(
+                  'تحقق من رقمك',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 23, color: Eps.ink, height: 1.5),
+                ),
+                const SizedBox(height: 3),
+                const Text(
+                  'أرسلنا رمزاً من $codeLength أرقام إلى',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 9, color: Eps.muted, height: 1.8),
+                ),
+                Text(
+                  '+222 ${widget.phone}',
+                  textAlign: TextAlign.center,
+                  textDirection: TextDirection.ltr,
+                  style: const TextStyle(
+                    fontSize: 9,
+                    fontWeight: FontWeight.w700,
+                    color: Eps.muted,
+                  ),
+                ),
+                const SizedBox(height: 35),
+                GestureDetector(
+                  onTap: () => focus.requestFocus(),
+                  child: Stack(
+                    children: [
+                      Directionality(
+                        textDirection: TextDirection.ltr,
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            for (var i = 0; i < codeLength; i++) ...[
+                              if (i > 0) const SizedBox(width: 8),
+                              Container(
+                                width: 47,
+                                height: 60,
+                                alignment: Alignment.center,
+                                decoration: BoxDecoration(
+                                  color: hasError
+                                      ? const Color(0xFFFFF5F6)
+                                      : Colors.white,
+                                  borderRadius: BorderRadius.circular(15),
+                                  border: Border.all(
+                                    width: 1.5,
+                                    color: hasError
+                                        ? Eps.red
+                                        : i == code.text.length &&
+                                              focus.hasFocus
+                                        ? Eps.blue
+                                        : const Color(0xFFDCE2EB),
+                                  ),
+                                ),
+                                child: Text(
+                                  i < code.text.length ? code.text[i] : '',
+                                  style: const TextStyle(
+                                    fontFamily: Eps.fontNum,
+                                    fontSize: 20,
+                                    fontWeight: FontWeight.w800,
+                                    color: Eps.blue,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                      Positioned.fill(
+                        child: Opacity(
+                          opacity: 0,
+                          child: TextField(
+                            controller: code,
+                            focusNode: focus,
+                            keyboardType: TextInputType.number,
+                            maxLength: codeLength,
+                            autofillHints: const [AutofillHints.oneTimeCode],
+                            inputFormatters: [
+                              FilteringTextInputFormatter.digitsOnly,
+                            ],
+                            onSubmitted: (_) => verify(),
+                            decoration: const InputDecoration(counterText: ''),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                if (error != null) AuthErrorText(error!),
+                const SizedBox(height: 26),
+                EpsPrimaryButton(
+                  label: 'تحقق من الرمز',
+                  loading: sending,
+                  onPressed: verify,
+                ),
+                const SizedBox(height: 20),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Text(
+                      'لم يصلك الرمز؟ ',
+                      style: TextStyle(fontSize: 9, color: Eps.muted),
+                    ),
+                    if (seconds > 0)
+                      Text(
+                        'إعادة الإرسال خلال 00:${seconds.toString().padLeft(2, '0')}',
+                        style: const TextStyle(
+                          fontSize: 9,
+                          color: Color(0xFF8992A3),
+                        ),
+                      )
+                    else
+                      GestureDetector(
+                        onTap: () async {
+                          await StoreScope.of(
+                            context,
+                          ).resendSignupCode(widget.phone);
+                          startTimer();
+                        },
+                        child: const Text(
+                          'إعادة الإرسال الآن',
+                          style: TextStyle(
+                            fontSize: 9,
+                            fontWeight: FontWeight.w800,
+                            color: Eps.blue,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ],
+            ),
+            Positioned(
+              top: 17,
+              left: 18,
+              child: AuthBackButton(
+                onTap: () => Navigator.of(context).maybePop(),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

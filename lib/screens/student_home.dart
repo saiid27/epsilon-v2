@@ -11,6 +11,7 @@ class StudentShell extends StatefulWidget {
 
 class StudentShellState extends State<StudentShell> {
   int tab = 0;
+  bool showWelcome = false;
 
   static StudentShellState? of(BuildContext context) =>
       context.findAncestorStateOfType<StudentShellState>();
@@ -33,6 +34,15 @@ class StudentShellState extends State<StudentShell> {
   @override
   Widget build(BuildContext context) {
     final learn = LearnScope.of(context);
+    final profile = learn.profile;
+    if (profile != null && !profile.profileCompleted) {
+      return ProfileSetupScreen(
+        onDone: () => setState(() => showWelcome = true),
+      );
+    }
+    if (showWelcome) {
+      return WelcomeScreen(onStart: () => setState(() => showWelcome = false));
+    }
     final hasLive = learn.liveSessions.any((s) => s.state == LiveState.live);
     final pages = [
       const StudentHomeTab(),
@@ -758,7 +768,10 @@ class _AddSubjectCard extends StatelessWidget {
     return GestureDetector(
       onTap: onTap,
       child: CustomPaint(
-        foregroundPainter: const DashedRRectPainter(color: Color(0xFFAEBDE2), radius: 14),
+        foregroundPainter: const DashedRRectPainter(
+          color: Color(0xFFAEBDE2),
+          radius: 14,
+        ),
         child: Container(
           height: 46,
           padding: const EdgeInsets.symmetric(horizontal: 12),

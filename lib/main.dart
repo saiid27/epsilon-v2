@@ -1520,6 +1520,59 @@ class SchoolStore extends ChangeNotifier {
     return true;
   }
 
+  /// Redesigned signup: free account, verified by SMS code.
+  Future<void> registerFreeStudent({
+    required String name,
+    required String phone,
+    required String password,
+    required String level,
+  }) async {
+    if (backendEnabled) {
+      await (_repository as SupabaseRepository).registerFreeStudent(
+        name: name,
+        phone: phone,
+        password: password,
+        level: level,
+      );
+      return;
+    }
+    users.add(
+      AppUser(
+        id: 'local-${DateTime.now().microsecondsSinceEpoch}',
+        name: name.trim(),
+        phone: phone.trim(),
+        password: password,
+        role: UserRole.student,
+        status: AccountStatus.active,
+      ),
+    );
+  }
+
+  Future<void> resendSignupCode(String phone) async {
+    if (backendEnabled) {
+      await (_repository as SupabaseRepository).requestOtp(
+        phone: phone,
+        purpose: 'signup',
+      );
+    }
+  }
+
+  /// Verifies the signup code, then signs the student in.
+  Future<bool> verifySignupAndLogin({
+    required String phone,
+    required String code,
+    required String password,
+  }) async {
+    if (backendEnabled) {
+      await (_repository as SupabaseRepository).verifyOtp(
+        phone: phone,
+        code: code,
+        purpose: 'signup',
+      );
+    }
+    return login(phone, password);
+  }
+
   Future<void> sendPasswordResetEmail(String phone) async {
     if (backendEnabled) {
       await (_repository as SupabaseRepository).sendPasswordResetOtp(

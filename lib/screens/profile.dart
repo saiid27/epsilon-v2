@@ -1553,3 +1553,298 @@ class _AssistantScreenState extends State<AssistantScreen> {
     );
   }
 }
+
+/// First-run study profile (Figma: setup).
+class ProfileSetupScreen extends StatefulWidget {
+  const ProfileSetupScreen({required this.onDone, super.key});
+
+  final VoidCallback onDone;
+
+  @override
+  State<ProfileSetupScreen> createState() => _ProfileSetupScreenState();
+}
+
+class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
+  static const universities = [
+    'جامعة نواكشوط',
+    'جامعة العلوم والتكنولوجيا والطب',
+    'الجامعة الإسلامية بلعيون',
+    'المدرسة العليا متعددة التقنيات',
+    'أخرى',
+  ];
+  static const faculties = ['FST', 'الاقتصاد', 'أخرى'];
+  static const tracks = ['MPI', 'PC', 'MPIC'];
+  static const levels = ['Bac', 'L1', 'L2', 'L3', 'M1', 'M2'];
+
+  String? university;
+  String faculty = 'FST';
+  String track = 'MPI';
+  late String level;
+  bool saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final p = LearnScope.read(context).profile;
+    level = levels.contains(p?.level) ? p!.level : 'L1';
+    if (universities.contains(p?.university)) {
+      university = p!.university;
+    }
+  }
+
+  Future<void> save() async {
+    setState(() => saving = true);
+    try {
+      await LearnScope.read(context).saveProfile({
+        'university': university ?? '',
+        'faculty': faculty,
+        'track': track,
+        'level': level,
+        'profile_completed': true,
+      });
+      widget.onDone();
+    } finally {
+      if (mounted) {
+        setState(() => saving = false);
+      }
+    }
+  }
+
+  Widget choices(
+    List<String> items,
+    String value,
+    ValueChanged<String> onPick, {
+    double height = 43,
+  }) => Row(
+    children: [
+      for (final item in items) ...[
+        Expanded(
+          child: GestureDetector(
+            onTap: () => onPick(item),
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 160),
+              height: height,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: item == value ? Eps.blueSoft : Colors.white,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: item == value ? Eps.blue2 : const Color(0xFFDFE4ED),
+                  width: item == value ? 1.5 : 1,
+                ),
+              ),
+              child: Text(
+                item,
+                style: TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w700,
+                  color: item == value ? Eps.blue : Eps.ink,
+                ),
+              ),
+            ),
+          ),
+        ),
+        if (item != items.last) const SizedBox(width: 7),
+      ],
+    ],
+  );
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Eps.bg,
+      body: SafeArea(
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(22, 22, 22, 32),
+          children: [
+            Center(
+              child: Container(
+                width: 58,
+                height: 58,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(18),
+                  gradient: const LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [Eps.blue, Color(0xFF5B83E6)],
+                  ),
+                  boxShadow: Eps.buttonShadow,
+                ),
+                child: const Icon(
+                  Icons.school_outlined,
+                  color: Colors.white,
+                  size: 26,
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            const Center(
+              child: EpsBadge('الخطوة الأخيرة', tone: EpsTone.orange),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'أخبرنا عن دراستك',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 21, color: Eps.ink),
+            ),
+            const Text(
+              'سنخصص المحتوى والمواد المقترحة بناءً على اختياراتك.',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 8, color: Eps.muted),
+            ),
+            const AuthLabel('الجامعة', top: 24),
+            Container(
+              height: 46,
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(13),
+                border: Border.all(color: const Color(0xFFDFE4ED)),
+              ),
+              child: DropdownButtonHideUnderline(
+                child: DropdownButton<String>(
+                  value: university,
+                  isExpanded: true,
+                  hint: const Text(
+                    'اختر الجامعة',
+                    style: TextStyle(fontSize: 10),
+                  ),
+                  style: const TextStyle(
+                    fontFamily: Eps.font,
+                    fontSize: 10,
+                    color: Eps.ink,
+                  ),
+                  items: [
+                    for (final u in universities)
+                      DropdownMenuItem(value: u, child: Text(u)),
+                  ],
+                  onChanged: (v) => setState(() => university = v),
+                ),
+              ),
+            ),
+            const AuthLabel('الكلية', top: 14),
+            choices(faculties, faculty, (v) => setState(() => faculty = v)),
+            const AuthLabel('المسار', top: 14),
+            choices(tracks, track, (v) => setState(() => track = v)),
+            const AuthLabel('المستوى', top: 14),
+            choices(
+              levels,
+              level,
+              (v) => setState(() => level = v),
+              height: 38,
+            ),
+            const SizedBox(height: 22),
+            EpsPrimaryButton(
+              label: 'إنهاء الإعداد',
+              icon: Icons.check_rounded,
+              loading: saving,
+              onPressed: university == null ? null : save,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Free account ready (Figma: welcome).
+class WelcomeScreen extends StatelessWidget {
+  const WelcomeScreen({required this.onStart, super.key});
+
+  final VoidCallback onStart;
+
+  @override
+  Widget build(BuildContext context) {
+    final name = StoreScope.of(context).currentUser?.name ?? '';
+    const features = [
+      (Icons.sensors_rounded, 'البث المباشر المجاني'),
+      (Icons.description_outlined, 'ملفات PDF مختارة'),
+      (Icons.receipt_long_outlined, 'تمارين وحلول خطوة بخطوة'),
+      (Icons.emoji_events_outlined, 'شروحات قصيرة والمسابقات'),
+    ];
+    return Scaffold(
+      backgroundColor: Eps.bg,
+      body: SafeArea(
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(22, 70, 22, 32),
+          children: [
+            Center(
+              child: Container(
+                width: 128,
+                height: 128,
+                decoration: const BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: Color(0xFFE8EFFC),
+                ),
+                child: const Center(child: EpsLogo(size: 92)),
+              ),
+            ),
+            const SizedBox(height: 18),
+            const Center(
+              child: EpsBadge('الخطة المجانية', tone: EpsTone.green),
+            ),
+            const SizedBox(height: 10),
+            Text(
+              'مرحباً $name! 🎉',
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 21, color: Eps.ink),
+            ),
+            const Text(
+              'حسابك المجاني جاهز',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 14, color: Eps.blue),
+            ),
+            const Text(
+              'يمكنك الآن البدء بالتعلم والوصول إلى المحتوى المجاني في جميع المواد.',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 8, color: Eps.muted),
+            ),
+            const SizedBox(height: 18),
+            for (final (icon, label) in features)
+              Container(
+                height: 50,
+                margin: const EdgeInsets.only(bottom: 8),
+                padding: const EdgeInsets.symmetric(horizontal: 11),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(13),
+                  border: Border.all(color: Eps.line),
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 32,
+                      height: 32,
+                      decoration: BoxDecoration(
+                        color: Eps.blueSoft,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Icon(icon, color: Eps.blue, size: 17),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        label,
+                        style: const TextStyle(
+                          fontSize: 9,
+                          fontWeight: FontWeight.w700,
+                          color: Eps.ink,
+                        ),
+                      ),
+                    ),
+                    const Icon(Icons.check_rounded, color: Eps.green, size: 17),
+                  ],
+                ),
+              ),
+            const SizedBox(height: 14),
+            EpsPrimaryButton(
+              label: 'ابدأ التعلم',
+              icon: Icons.chevron_right_rounded,
+              onPressed: onStart,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
