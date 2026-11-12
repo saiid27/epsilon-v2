@@ -35,3 +35,16 @@ flutter:
     - assets/onboarding/
     - assets/sounds/
     - assets/fonts/
+  fonts:
+    - family: Cairo
+      fonts:
+        - asset: assets/fonts/Cairo-Regular.ttf
+          weight: 400
+        - asset: assets/fonts/Cairo-Medium.ttf
+          weight: 500
+        - asset: assets/fonts/Cairo-SemiBold.ttf
+          weight: 600
+        - asset: assets/fonts/Cairo-Bold.ttf
+          weight: 700
+        - asset: assets/fonts/Cairo-ExtraBold.ttf
+          weight: 800

@@ -19,6 +19,6 @@ void main() {
     expect(find.text('Google'), findsNothing);
     expect(find.text('Facebook'), findsNothing);
     expect(find.text('Apple'), findsNothing);
-    expect(find.text('إنشاء حساب'), findsOneWidget);
+    expect(find.text('أنشئ حسابا'), findsOneWidget);
   });
 }
