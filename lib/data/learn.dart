@@ -866,6 +866,12 @@ class LearnStore extends ChangeNotifier {
   /// Last finished quiz, shown on the result screen.
   EpsQuizResult? lastResult;
 
+  /// Sample content used only when the backend is not connected (offline
+  /// preview builds): quiz questions, live chat and leaderboard.
+  final Map<String, List<EpsQuestion>> demoQuestions = {};
+  final Map<String, List<EpsLiveMessage>> demoMessages = {};
+  List<EpsLeader> demoLeaders = [];
+
   Future<void> load(String id) async {
     userId = id;
     if (!enabled) {
@@ -1048,6 +1054,28 @@ class LearnStore extends ChangeNotifier {
     required String transactionRef,
   }) async {
     final plan = planByCode(selectedPlanCode) ?? plans.first;
+    if (!enabled) {
+      lastRequest = [
+        for (final s in cartSubjects)
+          EpsSubscription.fromRow({
+            'id': 'local-${s.id}',
+            'request_ref':
+                'EPS-${DateTime.now().millisecondsSinceEpoch % 1000000}',
+            'subject_id': s.id,
+            'plan_code': plan.code,
+            'amount': plan.priceFor(s.monthlyPrice),
+            'status': 'pending',
+          }),
+      ];
+      subscriptions = [
+        ...lastRequest,
+        for (final s in subscriptions)
+          if (!cart.contains(s.subjectId)) s,
+      ];
+      cart.clear();
+      notifyListeners();
+      return;
+    }
     lastRequest = await repo.requestSubscriptions(
       studentId: userId!,
       subjects: cartSubjects,
@@ -1067,14 +1095,18 @@ class LearnStore extends ChangeNotifier {
         ? completedLessonIds.add(lesson.id)
         : completedLessonIds.remove(lesson.id);
     notifyListeners();
-    await repo.setLessonCompleted(userId!, lesson.id, done);
+    if (enabled) {
+      await repo.setLessonCompleted(userId!, lesson.id, done);
+    }
   }
 
   Future<void> toggleReminder(String sessionId) async {
     final on = !reminders.contains(sessionId);
     on ? reminders.add(sessionId) : reminders.remove(sessionId);
     notifyListeners();
-    await repo.setLiveReminder(userId!, sessionId, on);
+    if (enabled) {
+      await repo.setLiveReminder(userId!, sessionId, on);
+    }
   }
 
   Future<void> finishQuiz({
@@ -1092,15 +1124,24 @@ class LearnStore extends ChangeNotifier {
     final xp = questions.isEmpty
         ? 0
         : (quiz.xpReward * correct / questions.length).round() + correct * 10;
-    final attempt = await repo.recordAttempt(
-      quizId: quiz.id,
-      studentId: userId!,
-      correct: correct,
-      total: questions.length,
-      xp: xp,
-      seconds: seconds,
-      answers: answers,
-    );
+    final attempt = enabled
+        ? await repo.recordAttempt(
+            quizId: quiz.id,
+            studentId: userId!,
+            correct: correct,
+            total: questions.length,
+            xp: xp,
+            seconds: seconds,
+            answers: answers,
+          )
+        : EpsAttempt.fromRow({
+            'id': 'local-${attempts.length}',
+            'quiz_id': quiz.id,
+            'correct_count': correct,
+            'total': questions.length,
+            'xp_earned': xp,
+            'duration_seconds': seconds,
+          });
     attempts = [attempt, ...attempts];
     lastResult = EpsQuizResult(
       quiz: quiz,
@@ -1108,7 +1149,9 @@ class LearnStore extends ChangeNotifier {
       answers: answers,
       attempt: attempt,
     );
-    profile = await repo.profile(userId!);
+    if (enabled) {
+      profile = await repo.profile(userId!);
+    }
     notifyListeners();
   }
 
@@ -1121,10 +1164,15 @@ class LearnStore extends ChangeNotifier {
       n.read = true;
     }
     notifyListeners();
-    await repo.markNoticesRead(userId!, ids);
+    if (enabled) {
+      await repo.markNoticesRead(userId!, ids);
+    }
   }
 
   Future<void> saveProfile(Map<String, dynamic> values) async {
+    if (!enabled) {
+      return;
+    }
     await repo.updateProfile(userId!, values);
     profile = await repo.profile(userId!);
     notifyListeners();
