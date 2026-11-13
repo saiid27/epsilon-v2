@@ -700,6 +700,59 @@ class StudentNotificationsPage extends StatelessWidget {
                 ),
               ),
             ),
+            if (!learn.isSubscribed)
+              GestureDetector(
+                onTap: () => pushPage(context, const UpgradeScreen()),
+                child: Container(
+                  padding: const EdgeInsets.fromLTRB(18, 14, 18, 14),
+                  decoration: const BoxDecoration(
+                    color: Color(0xFFEFF4FF),
+                    border: Border(bottom: BorderSide(color: Eps.line)),
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 34,
+                        height: 34,
+                        decoration: BoxDecoration(
+                          color: Eps.orangeSoft,
+                          borderRadius: BorderRadius.circular(11),
+                        ),
+                        child: const Icon(
+                          Icons.star_rounded,
+                          color: Color(0xFFD78500),
+                          size: 18,
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      const Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'أنت على الخطة المجانية',
+                              style: TextStyle(
+                                fontSize: 9,
+                                fontWeight: FontWeight.w700,
+                                color: Eps.ink,
+                              ),
+                            ),
+                            Text(
+                              'رقِّ خطتك لتستفيد أكثر: كل الدروس والجلسات والاختبارات.',
+                              style: TextStyle(fontSize: 7, color: Eps.muted),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const Icon(
+                        Icons.chevron_right_rounded,
+                        color: Eps.faint,
+                        size: 17,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
             Expanded(
               child: learn.notices.isEmpty
                   ? const Center(child: EpsLogoLoader(label: 'لا توجد إشعارات'))
