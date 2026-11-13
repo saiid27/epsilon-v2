@@ -965,7 +965,7 @@ class _LiveRoomScreenState extends State<LiveRoomScreen> {
   @override
   void initState() {
     super.initState();
-    load();
+    WidgetsBinding.instance.addPostFrameCallback((_) => load());
     poll = Timer.periodic(const Duration(seconds: 4), (_) => load());
   }
 
@@ -979,6 +979,9 @@ class _LiveRoomScreenState extends State<LiveRoomScreen> {
   Future<void> load() async {
     final learn = LearnScope.read(context);
     if (!learn.enabled) {
+      if (mounted) {
+        setState(() => messages = [...?learn.demoMessages[widget.sessionId]]);
+      }
       return;
     }
     try {
@@ -999,6 +1002,22 @@ class _LiveRoomScreenState extends State<LiveRoomScreen> {
     final learn = LearnScope.read(context);
     final user = StoreScope.of(context).currentUser!;
     input.clear();
+    if (!learn.enabled) {
+      learn.demoMessages
+          .putIfAbsent(widget.sessionId, () => [])
+          .add(
+            EpsLiveMessage.fromRow({
+              'id': 'local-${DateTime.now().microsecondsSinceEpoch}',
+              'user_id': user.id,
+              'user_name': user.name,
+              'body': body,
+              'is_question': question || questionsTab,
+              'created_at': DateTime.now().toIso8601String(),
+            }),
+          );
+      await load();
+      return;
+    }
     await learn.repo.sendLiveMessage(
       sessionId: widget.sessionId,
       userId: user.id,

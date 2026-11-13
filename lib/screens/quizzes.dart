@@ -162,11 +162,13 @@ class _QuizzesTabState extends State<QuizzesTab> {
 
   Future<void> _loadRank() async {
     final learn = LearnScope.read(context);
-    if (!learn.enabled || learn.userId == null) {
+    if (learn.userId == null) {
       return;
     }
     try {
-      final board = await learn.repo.leaderboard();
+      final board = learn.enabled
+          ? await learn.repo.leaderboard()
+          : learn.demoLeaders;
       final i = board.indexWhere((e) => e.studentId == learn.userId);
       if (mounted) {
         setState(() => myRank = i < 0 ? null : i + 1);
@@ -572,9 +574,10 @@ class _QuestionScreenState extends State<QuestionScreen> {
 
   Future<void> load() async {
     try {
-      final items = await LearnScope.read(
-        context,
-      ).repo.questions(widget.quizId);
+      final learn = LearnScope.read(context);
+      final items = learn.enabled
+          ? await learn.repo.questions(widget.quizId)
+          : learn.demoQuestions[widget.quizId] ?? const <EpsQuestion>[];
       if (!mounted) {
         return;
       }
@@ -1179,10 +1182,12 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
     if (tab == 2) {
       subjectId ??= learn.subjects.firstOrNull?.id;
     }
-    final items = await learn.repo.leaderboard(
-      weekly: tab == 0,
-      subjectId: tab == 2 ? subjectId : null,
-    );
+    final items = learn.enabled
+        ? await learn.repo.leaderboard(
+            weekly: tab == 0,
+            subjectId: tab == 2 ? subjectId : null,
+          )
+        : learn.demoLeaders;
     if (mounted) {
       setState(() => board = items);
     }
