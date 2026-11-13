@@ -1140,7 +1140,7 @@ class UpgradeScreen extends StatelessWidget {
       bottom: EpsPrimaryButton(
         label: 'اختر المواد للترقية',
         icon: Icons.chevron_right_rounded,
-        onPressed: () => pushPage(context, const CatalogScreen()),
+        onPressed: () => pushPage(context, const SectionsScreen()),
       ),
       children: [
         Container(

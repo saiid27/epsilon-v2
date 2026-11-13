@@ -64,7 +64,7 @@ class MySubjectsTab extends StatelessWidget {
   Widget build(BuildContext context) {
     final learn = LearnScope.of(context);
     final active = learn.activeSubjects;
-    void openCatalog() => pushPage(context, const CatalogScreen());
+    void openCatalog() => pushPage(context, const SectionsScreen());
     return SafeArea(
       bottom: false,
       child: RefreshIndicator(

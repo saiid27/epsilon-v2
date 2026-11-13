@@ -397,7 +397,7 @@ class _StudentHomeTabState extends State<StudentHomeTab> {
             _FreeCta(onTap: () => pushPage(context, const FreePlanScreen())),
             const SizedBox(height: 12),
             _AddSubjectCard(
-              onTap: () => pushPage(context, const CatalogScreen()),
+              onTap: () => pushPage(context, const SectionsScreen()),
             ),
             for (final sub in pending)
               _StateCard(
@@ -440,7 +440,7 @@ class _StudentHomeTabState extends State<StudentHomeTab> {
               _ContinueCard(subject: active)
             else
               _EmptyContinueCard(
-                onTap: () => pushPage(context, const CatalogScreen()),
+                onTap: () => pushPage(context, const SectionsScreen()),
               ),
             if (daily != null) ...[
               const HomeSectionTitle('تحدي اليوم'),

@@ -10,8 +10,190 @@ part of '../main.dart';
     };
 
 /// Catalog of subjects with multi-select (Figma: catalog).
+/// First step of subscribing: choose a section, then its subjects.
+class SectionsScreen extends StatelessWidget {
+  const SectionsScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final learn = LearnScope.of(context);
+    final store = StoreScope.of(context);
+    final ids = <String>[
+      for (final s in learn.subjects)
+        if (s.courseId != null) s.courseId!,
+    ].toSet().toList();
+    final sections = [
+      for (final id in ids)
+        (
+          id,
+          store.courseById(id)?.title ?? 'قسم',
+          store.courseById(id)?.description ?? '',
+          learn.subjects.where((s) => s.courseId == id).toList(),
+        ),
+    ]..sort((a, b) => a.$2.compareTo(b.$2));
+    final other = learn.subjects.where((s) => s.courseId == null).toList();
+    return EpsPage(
+      title: 'اختر القسم',
+      children: [
+        const Text(
+          'اختر قسمك أولاً، ثم اختر المواد التي تريد الاشتراك فيها.',
+          style: TextStyle(fontSize: 9, color: Eps.muted),
+        ),
+        const SizedBox(height: 14),
+        for (final (id, title, description, subjects) in sections)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 10),
+            child: _SectionCard(
+              title: title,
+              description: description,
+              subjects: subjects,
+              onTap: () =>
+                  pushPage(context, CatalogScreen(courseId: id, title: title)),
+            ),
+          ),
+        if (other.isNotEmpty)
+          _SectionCard(
+            title: 'مواد أخرى',
+            description: '',
+            subjects: other,
+            onTap: () => pushPage(
+              context,
+              const CatalogScreen(courseId: '', title: 'مواد أخرى'),
+            ),
+          ),
+        if (sections.isEmpty && other.isEmpty)
+          const Padding(
+            padding: EdgeInsets.only(top: 40),
+            child: EpsLogoLoader(label: 'لا توجد أقسام متاحة حالياً'),
+          ),
+      ],
+    );
+  }
+}
+
+class _SectionCard extends StatelessWidget {
+  const _SectionCard({
+    required this.title,
+    required this.description,
+    required this.subjects,
+    required this.onTap,
+  });
+
+  final String title;
+  final String description;
+  final List<EpsSubject> subjects;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final from = subjects.isEmpty
+        ? 0
+        : subjects.map((s) => s.monthlyPrice).reduce(min);
+    return FlatCard(
+      onTap: onTap,
+      padding: const EdgeInsets.all(13),
+      child: Row(
+        children: [
+          Container(
+            width: 52,
+            height: 52,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(15),
+              gradient: const LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [Color(0xFF172F77), Eps.blue],
+              ),
+            ),
+            child: const Icon(
+              Icons.school_outlined,
+              color: Colors.white,
+              size: 24,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: Eps.ink,
+                  ),
+                ),
+                if (description.isNotEmpty)
+                  Text(
+                    description,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontSize: 8, color: Eps.muted),
+                  ),
+                const SizedBox(height: 6),
+                Wrap(
+                  spacing: 4,
+                  runSpacing: 4,
+                  children: [
+                    for (final s in subjects.take(4))
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 7,
+                          vertical: 2,
+                        ),
+                        decoration: BoxDecoration(
+                          color: s.color,
+                          borderRadius: BorderRadius.circular(7),
+                        ),
+                        child: Text(
+                          s.name,
+                          style: const TextStyle(fontSize: 7, color: Eps.ink),
+                        ),
+                      ),
+                    if (subjects.length > 4)
+                      Text(
+                        '+${subjects.length - 4}',
+                        style: const TextStyle(fontSize: 7, color: Eps.muted),
+                      ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text(
+                '${subjects.length} مواد',
+                style: const TextStyle(
+                  fontSize: 9,
+                  fontWeight: FontWeight.w700,
+                  color: Eps.blue,
+                ),
+              ),
+              if (from > 0)
+                Text(
+                  'من ${formatMru(from)} MRU',
+                  style: const TextStyle(fontSize: 7, color: Eps.muted),
+                ),
+              const SizedBox(height: 4),
+              const Icon(Icons.chevron_right_rounded, color: Eps.ink, size: 18),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class CatalogScreen extends StatefulWidget {
-  const CatalogScreen({super.key});
+  const CatalogScreen({this.courseId, this.title, super.key});
+
+  /// Section to list; `''` means subjects without a section, null means all.
+  final String? courseId;
+  final String? title;
 
   @override
   State<CatalogScreen> createState() => _CatalogScreenState();
@@ -27,7 +209,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
     super.initState();
     search.addListener(() => setState(() {}));
     final learn = LearnScope.read(context);
-    final profile = learn.profile;
+    final profile = widget.courseId == null ? learn.profile : null;
     final faculties = {for (final s in learn.subjects) s.faculty}..remove('');
     if (profile != null && faculties.contains(profile.faculty)) {
       faculty = profile.faculty;
@@ -47,10 +229,17 @@ class _CatalogScreenState extends State<CatalogScreen> {
   @override
   Widget build(BuildContext context) {
     final learn = LearnScope.of(context);
-    final faculties = {for (final s in learn.subjects) s.faculty}..remove('');
-    final levels = {for (final s in learn.subjects) s.level}..remove('');
+    final pool = widget.courseId == null
+        ? learn.subjects
+        : learn.subjects
+              .where((s) => (s.courseId ?? '') == widget.courseId)
+              .toList();
+    final faculties = widget.courseId == null
+        ? ({for (final s in pool) s.faculty}..remove(''))
+        : <String>{};
+    final levels = {for (final s in pool) s.level}..remove('');
     final q = search.text.trim();
-    final items = learn.subjects.where((s) {
+    final items = pool.where((s) {
       if (faculty != null && s.faculty != faculty) {
         return false;
       }
@@ -106,7 +295,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
             ListView(
               padding: const EdgeInsets.fromLTRB(18, 0, 18, 100),
               children: [
-                const EpsPageHeader(title: 'استكشف المواد'),
+                EpsPageHeader(title: widget.title ?? 'استكشف المواد'),
                 Container(
                   height: 48,
                   padding: const EdgeInsets.symmetric(horizontal: 14),
