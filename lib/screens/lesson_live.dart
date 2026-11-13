@@ -7,7 +7,7 @@ class FreeUpsell extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
-      onTap: () => pushPage(context, const CatalogScreen()),
+      onTap: () => pushPage(context, const SectionsScreen()),
       child: Container(
         height: 54,
         padding: const EdgeInsets.symmetric(horizontal: 12),

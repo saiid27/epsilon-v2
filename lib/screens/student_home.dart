@@ -355,7 +355,6 @@ class StudentHomeTab extends StatefulWidget {
 }
 
 class _StudentHomeTabState extends State<StudentHomeTab> {
-  bool bannerCollapsed = false;
   int heroIndex = 0;
 
   @override
@@ -387,17 +386,14 @@ class _StudentHomeTabState extends State<StudentHomeTab> {
               onProfile: () => shell?.goTab(4),
               onBell: () => pushPage(context, const StudentNotificationsPage()),
             ),
-            if (!learn.isSubscribed)
-              UpgradeBanner(
-                collapsed: bannerCollapsed,
-                onToggle: () =>
-                    setState(() => bannerCollapsed = !bannerCollapsed),
-                onUpgrade: () => pushPage(context, const UpgradeScreen()),
+            if (!learn.isSubscribed) ...[
+              _UpgradeCard(
+                onTap: () => pushPage(context, const UpgradeScreen()),
               ),
-            _FreeCta(onTap: () => pushPage(context, const FreePlanScreen())),
-            const SizedBox(height: 12),
+              const SizedBox(height: 12),
+            ],
             _AddSubjectCard(
-              onTap: () => pushPage(context, const CatalogScreen()),
+              onTap: () => pushPage(context, const SectionsScreen()),
             ),
             for (final sub in pending)
               _StateCard(
@@ -440,7 +436,7 @@ class _StudentHomeTabState extends State<StudentHomeTab> {
               _ContinueCard(subject: active)
             else
               _EmptyContinueCard(
-                onTap: () => pushPage(context, const CatalogScreen()),
+                onTap: () => pushPage(context, const SectionsScreen()),
               ),
             if (daily != null) ...[
               const HomeSectionTitle('تحدي اليوم'),
@@ -684,75 +680,95 @@ class UpgradeBanner extends StatelessWidget {
   }
 }
 
-class _FreeCta extends StatelessWidget {
-  const _FreeCta({required this.onTap});
+/// Upgrade entry on the home screen for students on the free plan.
+class _UpgradeCard extends StatelessWidget {
+  const _UpgradeCard({required this.onTap});
 
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    return FlatCard(
+    return GestureDetector(
       onTap: onTap,
-      padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 10),
-      gradient: const LinearGradient(
-        begin: Alignment(-1, -0.18),
-        end: Alignment(1, 0.18),
-        colors: [Color(0xFFEBFAF3), Color(0xFFF8FFFC)],
-      ),
-      border: const Color(0xFFCCE9DB),
-      child: Row(
-        children: [
-          Container(
-            width: 41,
-            height: 41,
-            decoration: BoxDecoration(
-              color: Eps.green,
-              borderRadius: BorderRadius.circular(13),
-              boxShadow: const [
-                BoxShadow(
-                  color: Color(0x3316A36A),
-                  blurRadius: 12,
-                  offset: Offset(0, 5),
-                ),
-              ],
-            ),
-            child: const Icon(
-              Icons.play_arrow_rounded,
-              color: Colors.white,
-              size: 22,
-            ),
+      child: Container(
+        height: 59,
+        padding: const EdgeInsets.symmetric(horizontal: 10),
+        decoration: BoxDecoration(
+          gradient: const LinearGradient(
+            begin: Alignment(1, -0.27),
+            end: Alignment(-1, 0.27),
+            colors: [Color(0xFF294FB7), Color(0xFF6E98EE)],
           ),
-          const SizedBox(width: 11),
-          const Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'محتوى مجاني للجميع',
-                  style: TextStyle(
-                    fontSize: 8,
-                    color: Color(0xFF5C8D79),
-                    height: 1.5,
+          borderRadius: BorderRadius.circular(15),
+          border: Border.all(color: const Color(0xFFADC4F6)),
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x2A1E3A8A),
+              blurRadius: 18,
+              offset: Offset(0, 8),
+            ),
+          ],
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 36,
+              height: 36,
+              decoration: BoxDecoration(
+                color: const Color(0x1BFFFFFF),
+                borderRadius: BorderRadius.circular(11),
+              ),
+              child: const Icon(
+                Icons.star_rounded,
+                color: Color(0xFFF9CE42),
+                size: 18,
+              ),
+            ),
+            const SizedBox(width: 9),
+            const Expanded(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'ترقية',
+                    style: TextStyle(
+                      fontSize: 9,
+                      fontWeight: FontWeight.w700,
+                      color: Colors.white,
+                      height: 1.5,
+                    ),
                   ),
-                ),
-                Text(
-                  'ابدأ مجاناً',
-                  style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w700,
-                    color: Color(0xFF0A7750),
-                    height: 1.5,
+                  Text(
+                    'افتح كل الدروس والجلسات والاختبارات',
+                    style: TextStyle(
+                      fontSize: 6.5,
+                      color: Color(0xFFDBE6FF),
+                      height: 1.5,
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
-          const Icon(
-            Icons.chevron_right_rounded,
-            color: Color(0xFF0A7750),
-            size: 20,
-          ),
-        ],
+            Container(
+              width: 49,
+              height: 31,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(9),
+              ),
+              child: const Text(
+                'ترقية',
+                style: TextStyle(
+                  fontSize: 7,
+                  fontWeight: FontWeight.w800,
+                  color: Eps.blue,
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
