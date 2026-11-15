@@ -28,7 +28,7 @@ class Eps {
   static const gray = Color(0xFFF0F2F6);
   static const grayInk = Color(0xFF687187);
 
-  static const font = 'Cairo';
+  static const font = 'ElMessiri';
 
   static const radius = 14.0;
   static const cardRadius = 17.0;
