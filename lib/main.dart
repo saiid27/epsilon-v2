@@ -38,6 +38,7 @@ part 'screens/quizzes.dart';
 part 'screens/checkout.dart';
 part 'screens/profile.dart';
 part 'screens/admin.dart';
+part 'screens/university_results.dart';
 
 const epsilonBlue = Eps.blue;
 const epsilonTeal = Eps.green;

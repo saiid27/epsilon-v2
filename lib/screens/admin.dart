@@ -232,6 +232,10 @@ class _AdminConsoleState extends State<AdminConsole> {
         c.from('announcements').select().order('created_at', ascending: false),
         c.from('courses').select().order('created_at'),
       ]);
+      universityResultsUrl = await repo.setting(
+        'universityResultsUrl',
+        fallback: LearnStore.defaultUniversityResultsUrl,
+      );
       setState(() {
         data
           ..['subjects'] = list(r[0])
@@ -256,6 +260,8 @@ class _AdminConsoleState extends State<AdminConsole> {
   }
 
   List<Map<String, dynamic>> rows(String key) => data[key] ?? const [];
+
+  String universityResultsUrl = LearnStore.defaultUniversityResultsUrl;
 
   Map<String, String> get subjectOptions => {
     for (final s in rows('subjects')) '${s['id']}': '${s['name']}',
@@ -1264,6 +1270,29 @@ class _AdminConsoleState extends State<AdminConsole> {
       _Field('active', 'ظاهر للطلاب', kind: _FieldKind.toggle),
     ];
     return [
+      rowTile(
+        leading: const Icon(Icons.fact_check_outlined, color: Eps.green),
+        title: 'رابط نتائج الجامعة',
+        subtitle: universityResultsUrl,
+        onEdit: () async {
+          final v = await _editDialog(
+            context,
+            title: 'رابط نتائج الجامعة',
+            fields: const [_Field('url', 'الرابط', required: true)],
+            initial: {'url': universityResultsUrl},
+          );
+          if (v != null) {
+            await run(
+              () => repo.saveSetting(
+                'universityResultsUrl',
+                '${v['url']}'.trim(),
+              ),
+              'تم حفظ الرابط',
+            );
+          }
+        },
+      ),
+      const SizedBox(height: 6),
       addButton(
         'إعلان جديد',
         () => edit(
