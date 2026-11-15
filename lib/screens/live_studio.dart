@@ -308,18 +308,52 @@ class LiveRoomConnection extends ChangeNotifier {
     await room?.localParticipant?.setCameraEnabled(cameraOn);
   }
 
+  /// Switches between the front and back camera. Browsers on phones do not
+  /// always honour the facing mode, so fall back to picking the next camera
+  /// device.
   Future<void> flipCamera() async {
-    frontCamera = !frontCamera;
-    _notify();
     final pub = room?.localParticipant?.videoTrackPublications
         .where((p) => p.source == lk.TrackSource.camera)
         .firstOrNull;
     final track = pub?.track;
-    if (track is lk.LocalVideoTrack) {
-      await track.setCameraPosition(
-        frontCamera ? lk.CameraPosition.front : lk.CameraPosition.back,
-      );
+    if (track is! lk.LocalVideoTrack) {
+      return;
     }
+    final next = !frontCamera;
+    try {
+      if (kIsWeb) {
+        final cameras = await lk.Hardware.instance.videoInputs();
+        if (cameras.length > 1) {
+          final wanted = cameras.where((c) {
+            final label = c.label.toLowerCase();
+            return next
+                ? label.contains('front') || label.contains('user')
+                : label.contains('back') ||
+                      label.contains('rear') ||
+                      label.contains('environment');
+          }).firstOrNull;
+          final current = track.currentOptions;
+          final currentId = current is lk.CameraCaptureOptions
+              ? current.deviceId
+              : null;
+          final target =
+              wanted ??
+              cameras[(cameras.indexWhere((c) => c.deviceId == currentId) + 1) %
+                  cameras.length];
+          await track.switchCamera(target.deviceId);
+          frontCamera = next;
+          _notify();
+          return;
+        }
+      }
+      await track.setCameraPosition(
+        next ? lk.CameraPosition.front : lk.CameraPosition.back,
+      );
+      frontCamera = next;
+    } on Object {
+      // Keep the current camera when the device has no other one.
+    }
+    _notify();
   }
 
   Future<void> toggleScreenShare() async {
@@ -1252,6 +1286,10 @@ class _LiveStudioScreenState extends State<LiveStudioScreen> {
         center = video != null
             ? lk.VideoTrackRenderer(
                 video,
+                key: ValueKey(conn.frontCamera),
+                mirrorMode: conn.frontCamera && !conn.mainIsScreen
+                    ? lk.VideoViewMirrorMode.mirror
+                    : lk.VideoViewMirrorMode.off,
                 fit: conn.mainIsScreen
                     ? lk.VideoViewFit.contain
                     : lk.VideoViewFit.cover,
@@ -1342,7 +1380,10 @@ class _LiveStudioScreenState extends State<LiveStudioScreen> {
         ),
       ),
     );
-    final mobile = !kIsWeb && (Platform.isAndroid || Platform.isIOS);
+    // Phones (app or browser) can switch camera; computers share the screen.
+    final mobile =
+        defaultTargetPlatform == TargetPlatform.android ||
+        defaultTargetPlatform == TargetPlatform.iOS;
     return Padding(
       padding: const EdgeInsets.fromLTRB(10, 12, 10, 4),
       child: Row(
