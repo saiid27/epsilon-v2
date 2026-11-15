@@ -1233,7 +1233,7 @@ class _VideoStageState extends State<_VideoStage> {
   void initState() {
     super.initState();
     final url = Uri.tryParse(widget.session.liveUrl);
-    if (url != null && url.hasScheme) {
+    if (url != null && url.hasScheme && !kIsWeb) {
       web = WebViewController()
         ..setJavaScriptMode(JavaScriptMode.unrestricted)
         ..setBackgroundColor(const Color(0xFF17213B))
@@ -1256,7 +1256,9 @@ class _VideoStageState extends State<_VideoStage> {
       ),
       child: Stack(
         children: [
-          if (web != null)
+          if (kIsWeb && Uri.tryParse(widget.session.liveUrl)?.hasScheme == true)
+            Positioned.fill(child: webIframe(widget.session.liveUrl))
+          else if (web != null)
             Positioned.fill(child: WebViewWidget(controller: web!))
           else ...[
             const Positioned(

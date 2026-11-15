@@ -5,6 +5,7 @@ import 'dart:math';
 import 'dart:ui' show ImageFilter;
 
 import 'package:audioplayers/audioplayers.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
@@ -21,6 +22,7 @@ import 'package:webview_flutter_android/webview_flutter_android.dart';
 import 'package:webview_flutter_wkwebview/webview_flutter_wkwebview.dart';
 
 import 'data/learn.dart';
+import 'platform/web_tools.dart';
 import 'supabase_repository.dart';
 import 'supabase_config.dart';
 import 'ui/eps_theme.dart';
@@ -62,7 +64,21 @@ class NativeFilePicker {
 
   static Future<PickedNativeFile?> pickExcel() => _pickFile('excel');
 
+  /// Contents of files picked in the browser, keyed by their virtual path.
+  static final Map<String, Uint8List> webFiles = {};
+
   static Future<PickedNativeFile?> _pickFile(String type) async {
+    if (kIsWeb) {
+      final picked = await pickWebFile(
+        type == 'image' ? 'image/*' : '.xlsx,.xls,.csv',
+      );
+      if (picked == null) {
+        return null;
+      }
+      final path = 'web://${webFiles.length}/${picked.name}';
+      webFiles[path] = picked.bytes;
+      return PickedNativeFile(path: path, name: picked.name);
+    }
     final result = await _channel.invokeMapMethod<String, Object?>(
       'pickFile',
       <String, Object?>{'type': type},
@@ -6317,7 +6333,8 @@ class InfoRow extends StatelessWidget {
 }
 
 Future<String> paymentProofDataUri(String path, String fileName) async {
-  final bytes = await File(path).readAsBytes();
+  final bytes =
+      NativeFilePicker.webFiles[path] ?? await File(path).readAsBytes();
   final extension = fileName.split('.').last.toLowerCase();
   final mimeType = switch (extension) {
     'png' => 'image/png',
@@ -6424,6 +6441,13 @@ class _PaymentProofImage extends StatelessWidget {
             height: double.infinity,
             errorBuilder: (_, _, _) => const PaymentProofLoadError(),
           )
+        : NativeFilePicker.webFiles[path] != null
+        ? Image.memory(
+            NativeFilePicker.webFiles[path]!,
+            fit: BoxFit.contain,
+            width: double.infinity,
+            height: double.infinity,
+          )
         : Image.file(
             File(path),
             fit: BoxFit.contain,
@@ -6489,6 +6513,15 @@ class PaymentProofDetailsImage extends StatelessWidget {
       );
     }
 
+    final webBytes = NativeFilePicker.webFiles[imagePath];
+    if (webBytes != null) {
+      return Image.memory(
+        webBytes,
+        fit: BoxFit.contain,
+        width: double.infinity,
+        height: double.infinity,
+      );
+    }
     return Image.file(
       File(imagePath),
       fit: BoxFit.contain,
@@ -12703,7 +12736,7 @@ class _SecureContentViewerPageState extends State<SecureContentViewerPage> {
     contentUrl = toVideoViewerUrl(widget.url);
     useNativeVideo =
         widget.kind == SecureContentKind.video && isDirectVideoUrl(contentUrl);
-    if (useNativeVideo) {
+    if (useNativeVideo || kIsWeb) {
       return;
     }
 
@@ -12768,6 +12801,8 @@ class _SecureContentViewerPageState extends State<SecureContentViewerPage> {
       ),
       body: useNativeVideo
           ? NativeVideoPlayer(url: contentUrl)
+          : kIsWeb
+          ? webIframe(contentUrl)
           : WebViewWidget(controller: controller!),
     );
   }
