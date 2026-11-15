@@ -267,6 +267,15 @@ class ProfileTab extends StatelessWidget {
               onTap: () => pushPage(context, const StudentNotificationsPage()),
             ),
             _MenuRow(
+              icon: Icons.fact_check_outlined,
+              title: 'نتائج الجامعة',
+              subtitle: 'موقع نتائج جامعة نواكشوط',
+              onTap: () => pushPage(
+                context,
+                UniversityResultsPage(url: learn.universityResultsUrl),
+              ),
+            ),
+            _MenuRow(
               icon: Icons.emoji_events_outlined,
               title: 'الشارات والإنجازات',
               subtitle: '${badges.where((b) => b.$3).length} شارات مكتسبة',

@@ -806,6 +806,21 @@ class LearnRepository {
     );
   }
 
+  Future<String> setting(String key, {required String fallback}) async {
+    final rows = _list(
+      await client.from('app_settings').select('value').eq('key', key),
+    );
+    final value = rows.isEmpty ? '' : _str(rows.first['value']).trim();
+    return value.isEmpty ? fallback : value;
+  }
+
+  Future<void> saveSetting(String key, String value) =>
+      client.from('app_settings').upsert({
+        'key': key,
+        'value': value,
+        'updated_at': DateTime.now().toUtc().toIso8601String(),
+      });
+
   // Admin helpers ---------------------------------------------------------
 
   Future<void> upsert(String table, Map<String, dynamic> values) =>
@@ -863,6 +878,12 @@ class LearnStore extends ChangeNotifier {
   /// Last submitted subscription batch, shown on the confirmation screen.
   List<EpsSubscription> lastRequest = [];
 
+  static const defaultUniversityResultsUrl =
+      'https://resultats.univ-nkc.mr/FST/pages/accueil.jsf';
+
+  /// University results site, editable by the admin (app_settings).
+  String universityResultsUrl = defaultUniversityResultsUrl;
+
   /// Last finished quiz, shown on the result screen.
   EpsQuizResult? lastResult;
 
@@ -917,6 +938,10 @@ class LearnStore extends ChangeNotifier {
       attempts = results[12]! as List<EpsAttempt>;
       announcements = results[13]! as List<EpsAnnouncement>;
       notices = results[14]! as List<EpsNotice>;
+      universityResultsUrl = await repo.setting(
+        'universityResultsUrl',
+        fallback: defaultUniversityResultsUrl,
+      );
     } on Object catch (e) {
       error = '$e';
     } finally {

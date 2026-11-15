@@ -395,6 +395,7 @@ class _StudentHomeTabState extends State<StudentHomeTab> {
             _AddSubjectCard(
               onTap: () => pushPage(context, const SectionsScreen()),
             ),
+            const UniversityResultsCard(),
             for (final sub in pending)
               _StateCard(
                 pending: true,
