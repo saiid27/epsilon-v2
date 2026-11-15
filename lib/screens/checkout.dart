@@ -18,10 +18,10 @@ class SectionsScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final learn = LearnScope.of(context);
     final store = StoreScope.of(context);
-    final ids = <String>[
+    final ids = <String>{
       for (final s in learn.subjects)
         if (s.courseId != null) s.courseId!,
-    ].toSet().toList();
+    }.toList();
     final sections = [
       for (final id in ids)
         (
@@ -1877,11 +1877,17 @@ class _ReceiptUploadScreenState extends State<ReceiptUploadScreen> {
                     )
                   : ClipRRect(
                       borderRadius: BorderRadius.circular(16),
-                      child: Image.file(
-                        File(file!.path),
-                        fit: BoxFit.cover,
-                        width: double.infinity,
-                      ),
+                      child: NativeFilePicker.webFiles[file!.path] != null
+                          ? Image.memory(
+                              NativeFilePicker.webFiles[file!.path]!,
+                              fit: BoxFit.cover,
+                              width: double.infinity,
+                            )
+                          : Image.file(
+                              File(file!.path),
+                              fit: BoxFit.cover,
+                              width: double.infinity,
+                            ),
                     ),
             ),
           ),
