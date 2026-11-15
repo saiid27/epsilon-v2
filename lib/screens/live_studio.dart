@@ -1546,10 +1546,24 @@ class _LiveStudioScreenState extends State<LiveStudioScreen> {
   }
 
   Widget _composer() {
-    void send() {
+    Future<void> send() async {
       final text = input.text;
+      if (text.trim().isEmpty) {
+        return;
+      }
       input.clear();
-      chat.send(me, text, teacher: true);
+      // The teacher's own messages are in the chat tab.
+      setState(() => questionsTab = false);
+      try {
+        await chat.send(me, text, teacher: true);
+      } on Object catch (e) {
+        input.text = text;
+        if (mounted) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text('لم تُرسل الرسالة: $e')));
+        }
+      }
     }
 
     return SafeArea(

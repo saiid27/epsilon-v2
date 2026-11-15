@@ -988,14 +988,23 @@ class _LiveRoomScreenState extends State<LiveRoomScreen> {
   List<EpsLiveMessage> get messages => chat.messages;
 
   Future<void> send(String text, {bool question = false}) async {
+    if (text.trim().isEmpty) {
+      return;
+    }
     final user = StoreScope.of(context).currentUser!;
+    final messenger = ScaffoldMessenger.of(context);
     input.clear();
-    await chat.send(
-      user,
-      text,
-      question: question || questionsTab,
-      teacher: user.role == UserRole.teacher,
-    );
+    try {
+      await chat.send(
+        user,
+        text,
+        question: question || questionsTab,
+        teacher: user.role != UserRole.student,
+      );
+    } on Object catch (e) {
+      input.text = text;
+      messenger.showSnackBar(SnackBar(content: Text('لم تُرسل الرسالة: $e')));
+    }
   }
 
   @override

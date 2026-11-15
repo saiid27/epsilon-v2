@@ -249,7 +249,7 @@ class Eps {
     return InputDecorationTheme(
       filled: true,
       fillColor: Colors.white,
-      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 15),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 15, vertical: 17),
       border: b(field),
       enabledBorder: b(field),
       focusedBorder: b(blue2, 1.5),

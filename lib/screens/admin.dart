@@ -1284,13 +1284,22 @@ class _AdminConsoleState extends State<AdminConsole> {
     return [
       rowTile(
         leading: const Icon(Icons.fact_check_outlined, color: Eps.green),
-        title: 'رابط نتائج الجامعة',
-        subtitle: universityResultsUrl,
+        title: 'روابط نتائج الكليات',
+        subtitle: parseResultsLinks(
+          universityResultsUrl,
+        ).map((l) => l.name).join(' • '),
         onEdit: () async {
           final v = await _editDialog(
             context,
-            title: 'رابط نتائج الجامعة',
-            fields: const [_Field('url', 'الرابط', required: true)],
+            title: 'روابط نتائج الكليات',
+            fields: const [
+              _Field(
+                'url',
+                'سطر لكل كلية: اسم الكلية | الرابط',
+                kind: _FieldKind.multiline,
+                required: true,
+              ),
+            ],
             initial: {'url': universityResultsUrl},
           );
           if (v != null) {

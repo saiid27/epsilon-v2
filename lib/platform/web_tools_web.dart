@@ -43,17 +43,25 @@ Future<WebPickedFile?> pickWebFile(String accept) {
 final _registered = <String>{};
 
 /// Shows [url] (YouTube, a PDF, a live stream page...) inside the app.
-Widget webIframe(String url) {
-  final viewType = 'epsilon-iframe-${url.hashCode}';
+/// A [zoom] below 1 shrinks a desktop-only site so it fits a phone screen.
+Widget webIframe(String url, {double zoom = 1}) {
+  final viewType = 'epsilon-iframe-${url.hashCode}-$zoom';
   if (_registered.add(viewType)) {
+    final size = '${(100 / zoom).toStringAsFixed(2)}%';
     ui_web.platformViewRegistry.registerViewFactory(viewType, (int _) {
-      return web.HTMLIFrameElement()
+      final frame = web.HTMLIFrameElement()
         ..src = url
         ..style.border = 'none'
-        ..style.width = '100%'
-        ..style.height = '100%'
+        ..style.width = size
+        ..style.height = size
         ..allow = 'autoplay; fullscreen; encrypted-media; picture-in-picture'
         ..allowFullscreen = true;
+      if (zoom != 1) {
+        frame.style
+          ..transform = 'scale($zoom)'
+          ..transformOrigin = 'top left';
+      }
+      return frame;
     });
   }
   return HtmlElementView(viewType: viewType);

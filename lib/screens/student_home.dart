@@ -41,7 +41,20 @@ class StudentShellState extends State<StudentShell> {
       );
     }
     if (showWelcome) {
-      return WelcomeScreen(onStart: () => setState(() => showWelcome = false));
+      // New students go straight to picking their section and subjects.
+      return WelcomeScreen(
+        onStart: () {
+          setState(() {
+            showWelcome = false;
+            tab = 1;
+          });
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) {
+              pushPage(context, const SectionsScreen());
+            }
+          });
+        },
+      );
     }
     final hasLive = learn.liveSessions.any((s) => s.state == LiveState.live);
     final pages = [

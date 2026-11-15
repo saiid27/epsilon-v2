@@ -163,14 +163,6 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
   @override
   Widget build(BuildContext context) {
     final store = StoreScope.of(context);
-    if (!store.currentAdminIsDeveloper) {
-      return const StatusScreen(
-        title: 'غير مسموح',
-        message: 'هذه الصفحة مخصصة لحساب الدفلوبر فقط.',
-        icon: Icons.lock_rounded,
-        color: Color(0xFFEF4444),
-      );
-    }
 
     const subStyle = TextStyle(fontSize: 9, color: Eps.muted, height: 1.8);
     final (IconData icon, String title, Widget subtitle) = switch (step) {

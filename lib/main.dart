@@ -2932,9 +2932,19 @@ class _EpsilonAppState extends State<EpsilonApp> {
               locale: Locale(store.languageCode),
               themeMode: store.themeMode,
               builder: (context, child) {
-                return Directionality(
-                  textDirection: TextDirection.rtl,
-                  child: child ?? const SizedBox.shrink(),
+                // The Figma sizes are small on real phones: show all text
+                // a little larger (on top of the phone's own setting).
+                final media = MediaQuery.of(context);
+                return MediaQuery(
+                  data: media.copyWith(
+                    textScaler: TextScaler.linear(
+                      media.textScaler.scale(100) / 100 * 1.25,
+                    ),
+                  ),
+                  child: Directionality(
+                    textDirection: TextDirection.rtl,
+                    child: child ?? const SizedBox.shrink(),
+                  ),
                 );
               },
               theme: Eps.lightTheme(),

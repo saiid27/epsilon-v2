@@ -153,11 +153,21 @@ class SupabaseRepository {
     final existing = _list(
       await client
           .from('users')
-          .select('id')
+          .select('id, status, role')
           .eq('phone', phone.trim())
           .limit(1),
     );
     if (existing.isNotEmpty) {
+      final row = existing.first;
+      // An earlier signup that never got its code verified: start again.
+      if (row['status'] == 'pending' && row['role'] == 'student') {
+        await client
+            .from('users')
+            .update({'name': name.trim(), 'password': password, 'level': level})
+            .eq('id', row['id'] as Object);
+        await requestOtp(phone: phone, purpose: 'signup');
+        return;
+      }
       throw const SupabaseAppException('رقم الهاتف مسجل مسبقاً.');
     }
     await client.from('users').insert({

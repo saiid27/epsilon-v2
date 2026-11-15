@@ -1995,7 +1995,7 @@ class WelcomeScreen extends StatelessWidget {
               ),
             const SizedBox(height: 14),
             EpsPrimaryButton(
-              label: 'ابدأ التعلم',
+              label: 'اختر موادي',
               icon: Icons.chevron_right_rounded,
               onPressed: onStart,
             ),

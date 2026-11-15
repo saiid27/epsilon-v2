@@ -1,10 +1,41 @@
 part of '../main.dart';
 
+/// One results website per faculty, from the admin setting: one line each,
+/// `name | url` (a bare url is accepted too).
+List<({String name, String url})> parseResultsLinks(String raw) {
+  final links = <({String name, String url})>[];
+  for (final line in raw.split(RegExp(r'[\r\n]+'))) {
+    final text = line.trim();
+    if (text.isEmpty) {
+      continue;
+    }
+    final bar = text.lastIndexOf('|');
+    final url = (bar < 0 ? text : text.substring(bar + 1)).trim();
+    var name = bar < 0 ? '' : text.substring(0, bar).trim();
+    if (!url.startsWith('http')) {
+      continue;
+    }
+    if (name.isEmpty) {
+      name = url.contains('/FST/') ? 'كلية العلوم والتقنيات' : 'نتائج الجامعة';
+    }
+    links.add((name: name, url: url));
+  }
+  return links.isEmpty
+      ? [
+          (
+            name: 'كلية العلوم والتقنيات',
+            url: LearnStore.defaultUniversityResultsUrl,
+          ),
+        ]
+      : links;
+}
+
 /// Opens the university results website inside the app. The student signs in
 /// on the university's own page; nothing they type passes through Epsilon.
 class UniversityResultsPage extends StatefulWidget {
   const UniversityResultsPage({required this.url, super.key});
 
+  /// The admin setting: one or more faculty links (see [parseResultsLinks]).
   final String url;
 
   @override
@@ -12,9 +43,23 @@ class UniversityResultsPage extends StatefulWidget {
 }
 
 class _UniversityResultsPageState extends State<UniversityResultsPage> {
+  late final links = parseResultsLinks(widget.url);
+  late String url = links.first.url;
   WebViewController? controller;
   int progress = 0;
   bool failed = false;
+
+  /// The university site is built for computers; on a phone it is shown
+  /// smaller so the whole page fits, with + / − to adjust.
+  double? zoom;
+
+  static const _fitPage = '''
+(function () {
+  var m = document.querySelector('meta[name=viewport]');
+  if (!m) { m = document.createElement('meta'); m.name = 'viewport'; document.head.appendChild(m); }
+  m.content = 'width=1000, initial-scale=' + (screen.width / 1000) + ', user-scalable=yes';
+})();
+''';
 
   @override
   void initState() {
@@ -37,6 +82,9 @@ class _UniversityResultsPageState extends State<UniversityResultsPage> {
               setState(() => failed = false);
             }
           },
+          onPageFinished: (_) {
+            controller?.runJavaScript(_fitPage).catchError((Object _) {});
+          },
           onWebResourceError: (error) {
             if (error.isForMainFrame ?? true) {
               if (mounted) {
@@ -46,11 +94,27 @@ class _UniversityResultsPageState extends State<UniversityResultsPage> {
           },
         ),
       )
-      ..loadRequest(Uri.parse(widget.url));
+      ..loadRequest(Uri.parse(url));
+    final platform = controller!.platform;
+    if (platform is AndroidWebViewController) {
+      unawaited(platform.enableZoom(true));
+    }
+  }
+
+  void choose(String next) {
+    if (next == url) {
+      return;
+    }
+    setState(() {
+      url = next;
+      failed = false;
+      progress = 0;
+    });
+    controller?.loadRequest(Uri.parse(next));
   }
 
   Future<void> openOutside() =>
-      launchUrl(Uri.parse(widget.url), mode: LaunchMode.externalApplication);
+      launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
 
   Future<bool> goBackInSite() async {
     final c = controller;
@@ -96,6 +160,35 @@ class _UniversityResultsPageState extends State<UniversityResultsPage> {
                         ),
                 ),
               ),
+              if (links.length > 1)
+                SizedBox(
+                  height: 40,
+                  child: ListView(
+                    scrollDirection: Axis.horizontal,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 18,
+                      vertical: 4,
+                    ),
+                    children: [
+                      for (final link in links)
+                        Padding(
+                          padding: const EdgeInsetsDirectional.only(end: 6),
+                          child: ChoiceChip(
+                            label: Text(
+                              link.name,
+                              style: TextStyle(
+                                fontSize: 10,
+                                color: link.url == url ? Colors.white : Eps.ink,
+                              ),
+                            ),
+                            selected: link.url == url,
+                            showCheckmark: false,
+                            onSelected: (_) => choose(link.url),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
               if (!kIsWeb && progress < 100)
                 LinearProgressIndicator(
                   value: progress / 100,
@@ -110,30 +203,75 @@ class _UniversityResultsPageState extends State<UniversityResultsPage> {
                         onOpen: openOutside,
                       )
                     : kIsWeb
-                    ? Column(
-                        children: [
-                          Container(
-                            width: double.infinity,
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 18,
-                              vertical: 8,
-                            ),
-                            color: Eps.blueSoft,
-                            child: GestureDetector(
-                              onTap: openOutside,
-                              child: const Text(
-                                'إذا لم تظهر صفحة الجامعة هنا، اضغط لفتحها في نافذة جديدة',
-                                textAlign: TextAlign.center,
-                                style: TextStyle(
-                                  fontSize: 9,
-                                  fontWeight: FontWeight.w700,
-                                  color: Eps.blue,
+                    ? LayoutBuilder(
+                        builder: (context, box) {
+                          final z =
+                              zoom ??
+                              (box.maxWidth < 700
+                                  ? (box.maxWidth / 1000).clamp(0.35, 1.0)
+                                  : 1.0);
+                          final shown = (z * 100).round() / 100;
+                          return Column(
+                            children: [
+                              Container(
+                                width: double.infinity,
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 4,
+                                ),
+                                color: Eps.blueSoft,
+                                child: Row(
+                                  children: [
+                                    Expanded(
+                                      child: GestureDetector(
+                                        onTap: openOutside,
+                                        child: const Text(
+                                          'إذا لم تظهر الصفحة، اضغط لفتحها في نافذة جديدة',
+                                          style: TextStyle(
+                                            fontSize: 9,
+                                            fontWeight: FontWeight.w700,
+                                            color: Eps.blue,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                    IconButton(
+                                      tooltip: 'تصغير',
+                                      icon: const Icon(
+                                        Icons.zoom_out_rounded,
+                                        color: Eps.blue,
+                                      ),
+                                      onPressed: () => setState(
+                                        () => zoom = (shown - 0.1).clamp(
+                                          0.3,
+                                          1.5,
+                                        ),
+                                      ),
+                                    ),
+                                    IconButton(
+                                      tooltip: 'تكبير',
+                                      icon: const Icon(
+                                        Icons.zoom_in_rounded,
+                                        color: Eps.blue,
+                                      ),
+                                      onPressed: () => setState(
+                                        () => zoom = (shown + 0.1).clamp(
+                                          0.3,
+                                          1.5,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ),
-                            ),
-                          ),
-                          Expanded(child: webIframe(widget.url)),
-                        ],
+                              Expanded(
+                                child: ClipRect(
+                                  child: webIframe(url, zoom: shown),
+                                ),
+                              ),
+                            ],
+                          );
+                        },
                       )
                     : WebViewWidget(controller: controller!),
               ),
