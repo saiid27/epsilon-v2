@@ -1194,6 +1194,21 @@ class LearnStore extends ChangeNotifier {
     }
   }
 
+  String? _localAvatar;
+
+  /// The student's photo as a data URI, or empty when none is set.
+  String get avatarUrl => _localAvatar ?? profile?.avatarUrl ?? '';
+
+  /// Saves (or clears, with an empty string) the student's photo.
+  Future<void> setAvatar(String dataUri) async {
+    if (!enabled) {
+      _localAvatar = dataUri;
+      notifyListeners();
+      return;
+    }
+    await saveProfile({'avatar_url': dataUri});
+  }
+
   Future<void> saveProfile(Map<String, dynamic> values) async {
     if (!enabled) {
       return;

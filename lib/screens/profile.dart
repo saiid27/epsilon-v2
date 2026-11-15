@@ -6,12 +6,73 @@ class ProfileTab extends StatelessWidget {
 
   Future<void> _changeAvatar(BuildContext context) async {
     final learn = LearnScope.read(context);
-    final picked = await NativeFilePicker.pickImage();
-    if (picked == null) {
+    final hasPhoto = learn.avatarUrl.isNotEmpty;
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      builder: (sheet) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Text(
+                'صورة الحساب',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800),
+              ),
+              const SizedBox(height: 10),
+              ListTile(
+                leading: const Icon(
+                  Icons.photo_library_outlined,
+                  color: Eps.blue,
+                ),
+                title: Text(hasPhoto ? 'تغيير الصورة' : 'إضافة صورة'),
+                onTap: () => Navigator.of(sheet).pop('pick'),
+              ),
+              if (hasPhoto)
+                ListTile(
+                  leading: const Icon(
+                    Icons.delete_outline_rounded,
+                    color: Eps.red,
+                  ),
+                  title: const Text(
+                    'حذف الصورة',
+                    style: TextStyle(color: Eps.red),
+                  ),
+                  onTap: () => Navigator.of(sheet).pop('remove'),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (action == null || !context.mounted) {
       return;
     }
-    final uri = await paymentProofDataUri(picked.path, picked.name);
-    await learn.saveProfile({'avatar_url': uri});
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      if (action == 'remove') {
+        await learn.setAvatar('');
+        messenger.showSnackBar(const SnackBar(content: Text('تم حذف الصورة')));
+        return;
+      }
+      final picked = await NativeFilePicker.pickImage();
+      if (picked == null) {
+        return;
+      }
+      final bytes =
+          NativeFilePicker.webFiles[picked.path] ??
+          await File(picked.path).readAsBytes();
+      await learn.setAvatar(await avatarDataUri(bytes));
+      messenger.showSnackBar(
+        const SnackBar(content: Text('تم تحديث صورة الحساب')),
+      );
+    } on Object {
+      messenger.showSnackBar(
+        const SnackBar(content: Text('تعذر حفظ الصورة، حاول مرة أخرى')),
+      );
+    }
   }
 
   @override
@@ -90,13 +151,9 @@ class ProfileTab extends StatelessWidget {
                               colors: [Color(0xFFF2C27C), Color(0xFFBD782A)],
                             ),
                           ),
-                          child:
-                              profile != null &&
-                                  profile.avatarUrl.isNotEmpty &&
-                                  imageBytesFromDataUri(profile.avatarUrl) !=
-                                      null
+                          child: imageBytesFromDataUri(learn.avatarUrl) != null
                               ? Image.memory(
-                                  imageBytesFromDataUri(profile.avatarUrl)!,
+                                  imageBytesFromDataUri(learn.avatarUrl)!,
                                   fit: BoxFit.cover,
                                   width: 66,
                                   height: 66,
@@ -114,17 +171,17 @@ class ProfileTab extends StatelessWidget {
                           left: -4,
                           bottom: -4,
                           child: Container(
-                            width: 22,
-                            height: 22,
+                            width: 24,
+                            height: 24,
                             decoration: BoxDecoration(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(7),
-                              border: Border.all(color: Eps.line),
+                              color: Eps.blue,
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(color: Colors.white, width: 2),
                             ),
                             child: const Icon(
                               Icons.photo_camera_outlined,
                               size: 12,
-                              color: Eps.blue,
+                              color: Colors.white,
                             ),
                           ),
                         ),
@@ -134,7 +191,21 @@ class ProfileTab extends StatelessWidget {
                 ),
               ],
             ),
-            const SizedBox(height: 10),
+            const SizedBox(height: 6),
+            Center(
+              child: GestureDetector(
+                onTap: () => _changeAvatar(context),
+                child: Text(
+                  learn.avatarUrl.isEmpty ? 'إضافة صورة' : 'تعديل الصورة',
+                  style: const TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w700,
+                    color: Eps.blue,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 4),
             Text(
               user.name,
               textAlign: TextAlign.center,
@@ -1933,4 +2004,14 @@ class WelcomeScreen extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Shrinks a picked photo to a 256px square-ish PNG so it stays small.
+Future<String> avatarDataUri(Uint8List bytes) async {
+  final codec = await ui.instantiateImageCodec(bytes, targetWidth: 256);
+  final frame = await codec.getNextFrame();
+  final data = await frame.image.toByteData(format: ui.ImageByteFormat.png);
+  frame.image.dispose();
+  final png = data!.buffer.asUint8List();
+  return 'data:image/png;base64,${base64Encode(png)}';
 }
