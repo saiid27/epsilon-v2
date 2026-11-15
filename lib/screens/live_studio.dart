@@ -158,7 +158,6 @@ class LiveRoomConnection extends ChangeNotifier {
   lk.EventsListener<lk.RoomEvent>? _events;
   LiveConnState state = LiveConnState.idle;
   String error = '';
-  bool recording = false;
   bool micOn = true;
   bool cameraOn = true;
   bool screenOn = false;
@@ -234,8 +233,8 @@ class LiveRoomConnection extends ChangeNotifier {
     await _connect(grant);
   });
 
-  /// Goes live as the host: camera, microphone and (when configured)
-  /// recording.
+  /// Goes live as the host with camera and microphone. Sessions are not
+  /// recorded.
   Future<void> startBroadcast() => _run(() async {
     if (demo) {
       liveSince = DateTime.now();
@@ -251,16 +250,6 @@ class LiveRoomConnection extends ChangeNotifier {
     await me.setMicrophoneEnabled(true);
     await me.setCameraEnabled(true);
     liveSince = DateTime.now();
-    try {
-      final rec = await learn.repo.liveKit(
-        'record',
-        userId: userId,
-        sessionId: sessionId,
-      );
-      recording = rec['recording'] == true;
-    } on Object {
-      recording = false;
-    }
   });
 
   Future<void> _run(Future<void> Function() body) async {
@@ -344,7 +333,7 @@ class LiveRoomConnection extends ChangeNotifier {
     _notify();
   }
 
-  /// Ends the broadcast for everyone and saves the recording.
+  /// Ends the broadcast for everyone.
   Future<void> endBroadcast() async {
     if (!demo) {
       try {
@@ -482,9 +471,7 @@ class _LiveKitViewerStageState extends State<LiveKitViewerStage> {
               ? message(
                   Icons.check_circle_outline_rounded,
                   'انتهت الجلسة',
-                  widget.session.recordingUrl.isEmpty
-                      ? 'شكراً لحضورك'
-                      : 'سيتوفر التسجيل في تبويب مباشر بعد معالجته',
+                  'شكراً لحضورك',
                 )
               : switch (conn.state) {
                   LiveConnState.idle || LiveConnState.connecting => message(
@@ -783,9 +770,7 @@ class _LiveHostPageState extends State<LiveHostPage> {
                   ),
                   if (s.state == LiveState.past)
                     Text(
-                      s.recordingUrl.isEmpty
-                          ? '${s.attendees} مشاهد • بدون تسجيل'
-                          : '${s.attendees} مشاهد • التسجيل متاح للطلاب',
+                      '${s.attendees} مشاهد',
                       style: const TextStyle(fontSize: 8, color: Eps.muted),
                     ),
                 ],
@@ -1108,9 +1093,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen> {
       context: context,
       builder: (dialog) => AlertDialog(
         title: const Text('إنهاء البث؟'),
-        content: const Text(
-          'سيخرج جميع الطلاب من الجلسة، ويُحفظ التسجيل إن كان مفعلاً.',
-        ),
+        content: const Text('سيخرج جميع الطلاب من الجلسة.'),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(dialog).pop(false),
@@ -1196,7 +1179,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen> {
                 Text(
                   conn.state == LiveConnState.failed
                       ? conn.error
-                      : 'سيتم إشعار الطلاب المشتركين فور بدء البث، وتسجيل الجلسة تلقائياً.',
+                      : 'سيتم إشعار الطلاب المشتركين فور بدء البث.',
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     fontSize: 9,
@@ -1259,7 +1242,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen> {
                 ),
               ),
               Text(
-                'سيظهر التسجيل للطلاب في تبويب مباشر بعد معالجته',
+                'شكراً لك، خرج الطلاب من الجلسة',
                 style: TextStyle(fontSize: 9, color: Colors.white70),
               ),
             ],
@@ -1317,14 +1300,6 @@ class _LiveStudioScreenState extends State<LiveStudioScreen> {
                     icon: Icons.circle,
                   ),
                 ),
-                if (conn.recording) ...[
-                  const SizedBox(width: 6),
-                  const EpsBadge(
-                    'يتم التسجيل',
-                    tone: EpsTone.gray,
-                    icon: Icons.fiber_manual_record_rounded,
-                  ),
-                ],
               ],
             ),
           ),

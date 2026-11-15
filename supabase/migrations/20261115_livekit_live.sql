@@ -1,8 +1,7 @@
--- Epsilon live classes on LiveKit: rooms, recordings, answered questions and
--- realtime chat. Run after 20261112_figma_redesign.sql.
+-- Epsilon live classes on LiveKit: rooms, answered questions and realtime
+-- chat. Sessions are not recorded. Run after 20261112_figma_redesign.sql.
 
 alter table public.live_sessions add column if not exists room_name text not null default '';
-alter table public.live_sessions add column if not exists egress_id text not null default '';
 alter table public.live_sessions add column if not exists started_at timestamptz;
 alter table public.live_sessions add column if not exists ended_at timestamptz;
 
@@ -27,8 +26,3 @@ begin
     alter publication supabase_realtime add table public.live_sessions;
   end if;
 end $$;
-
--- Recordings (MP4 written by LiveKit Egress through Supabase Storage's S3 API).
-insert into storage.buckets (id, name, public)
-values ('live-recordings', 'live-recordings', true)
-on conflict (id) do nothing;

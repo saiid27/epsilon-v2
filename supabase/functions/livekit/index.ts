@@ -1,16 +1,10 @@
-// Live classes on LiveKit: access tokens, start/end of a broadcast and
-// recordings.
+// Live classes on LiveKit: access tokens and start/end of a broadcast.
+// Sessions are not recorded.
 //
 // Secrets (Supabase dashboard → Edge Functions → Secrets):
 //   LIVEKIT_URL         wss://<project>.livekit.cloud
 //   LIVEKIT_API_KEY     LiveKit API key
 //   LIVEKIT_API_SECRET  LiveKit API secret
-// Optional, to record sessions into the "live-recordings" Storage bucket
-// (Supabase → Storage → S3 connection → create access keys):
-//   RECORDING_S3_ENDPOINT   https://<project-ref>.storage.supabase.co/storage/v1/s3
-//   RECORDING_S3_REGION     the project's region, e.g. eu-central-1
-//   RECORDING_S3_ACCESS_KEY
-//   RECORDING_S3_SECRET
 // Deploy: supabase functions deploy livekit --no-verify-jwt
 import { SignJWT } from 'npm:jose@5';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
@@ -19,8 +13,6 @@ const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
-
-const RECORDINGS_BUCKET = 'live-recordings';
 
 const env = (name: string) => (Deno.env.get(name) ?? '').trim();
 
@@ -37,7 +29,6 @@ type Session = {
   is_free: boolean;
   is_live: boolean;
   room_name: string;
-  egress_id: string;
   attendees_count: number;
 };
 
@@ -69,7 +60,7 @@ Deno.serve(async (req) => {
 
     const { data: session } = await supabase
       .from('live_sessions')
-      .select('id, subject_id, teacher_id, title, is_free, is_live, room_name, egress_id, attendees_count')
+      .select('id, subject_id, teacher_id, title, is_free, is_live, room_name, attendees_count')
       .eq('id', sessionId)
       .maybeSingle<Session>();
     if (!session) return json({ message: 'الجلسة غير موجودة' }, 404);
@@ -101,54 +92,15 @@ Deno.serve(async (req) => {
         started_at: new Date().toISOString(),
         ended_at: null,
       };
-      // Recording needs the room to exist, so it is started once the host
-      // has joined (action "record").
       await supabase.from('live_sessions').update(update).eq('id', session.id);
       if (!session.is_live) await notifyStudents(session);
       return json({ url: env('LIVEKIT_URL'), token, canPublish: true });
     }
 
-    if (action === 'record') {
-      if (!recordingConfigured()) return json({ recording: false });
-      if (session.egress_id) return json({ recording: true });
-      const path = `${session.id}/${Date.now()}.mp4`;
-      const info = await twirp('Egress/StartRoomCompositeEgress', {
-        room_name: room,
-        layout: 'speaker',
-        file_outputs: [{
-          file_type: 'MP4',
-          filepath: path,
-          s3: {
-            access_key: env('RECORDING_S3_ACCESS_KEY'),
-            secret: env('RECORDING_S3_SECRET'),
-            region: env('RECORDING_S3_REGION'),
-            endpoint: env('RECORDING_S3_ENDPOINT'),
-            bucket: RECORDINGS_BUCKET,
-            force_path_style: true,
-          },
-        }],
-      }, { roomRecord: true });
-      const egressId = String(info.egressId ?? info.egress_id ?? '');
-      await supabase.from('live_sessions').update({
-        egress_id: egressId,
-        recording_url:
-          `${env('SUPABASE_URL')}/storage/v1/object/public/${RECORDINGS_BUCKET}/${path}`,
-      }).eq('id', session.id);
-      return json({ recording: egressId.length > 0 });
-    }
-
     if (action === 'end') {
-      if (session.egress_id) {
-        try {
-          await twirp('Egress/StopEgress', { egress_id: session.egress_id }, { roomRecord: true });
-        } catch (_) {
-          // The recording may already have stopped when the room emptied.
-        }
-      }
       const peak = Number(body.peakViewers ?? 0);
       await supabase.from('live_sessions').update({
         is_live: false,
-        egress_id: '',
         ended_at: new Date().toISOString(),
         attendees_count: Math.max(session.attendees_count ?? 0, Number.isFinite(peak) ? peak : 0),
       }).eq('id', session.id);
@@ -207,11 +159,6 @@ async function notifyStudents(session: Session) {
       body: `${session.title} • انضم الآن من تبويب مباشر`,
     })),
   );
-}
-
-function recordingConfigured() {
-  return ['RECORDING_S3_ENDPOINT', 'RECORDING_S3_REGION', 'RECORDING_S3_ACCESS_KEY', 'RECORDING_S3_SECRET']
-    .every((name) => env(name).length > 0);
 }
 
 async function accessToken(identity: string, name: string, room: string, host: boolean) {
