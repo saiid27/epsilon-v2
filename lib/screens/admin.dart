@@ -956,7 +956,10 @@ class _AdminConsoleState extends State<AdminConsole> {
       required: true,
     ),
     const _Field('duration_minutes', 'المدة بالدقائق', kind: _FieldKind.number),
-    const _Field('live_url', 'رابط البث (YouTube / Zoom / Meet)'),
+    const _Field(
+      'live_url',
+      'رابط خارجي (اختياري، اتركه فارغاً للبث داخل التطبيق)',
+    ),
     const _Field('recording_url', 'رابط التسجيل بعد الجلسة'),
     const _Field('attendees_count', 'عدد المشاهدين', kind: _FieldKind.number),
     const _Field('is_free', 'جلسة مجانية', kind: _FieldKind.toggle),
@@ -964,6 +967,15 @@ class _AdminConsoleState extends State<AdminConsole> {
   ];
 
   List<Widget> live() => [
+    Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: EpsPrimaryButton(
+        label: 'استوديو البث المباشر',
+        icon: Icons.sensors_rounded,
+        color: Eps.red,
+        onPressed: () => pushPage(context, const LiveHostPage()),
+      ),
+    ),
     addButton(
       'جدولة جلسة',
       () => edit(

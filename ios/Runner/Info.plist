@@ -26,6 +26,10 @@
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>NSCameraUsageDescription</key>
+	<string>يستخدم Epsilon الكاميرا لبث الحصص المباشرة.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>يستخدم Epsilon الميكروفون لبث الحصص المباشرة والتحدث فيها.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>نحتاج الوصول إلى الصور لاختيار إثبات الدفع.</string>
 	<key>UIApplicationSceneManifest</key>
@@ -53,6 +57,7 @@
 	<true/>
 	<key>UIBackgroundModes</key>
 	<array>
+		<string>audio</string>
 		<string>remote-notification</string>
 	</array>
 	<key>UILaunchStoryboardName</key>

@@ -10,12 +10,15 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:livekit_client/livekit_client.dart' as lk;
 import 'package:path_provider/path_provider.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:share_plus/share_plus.dart' as share;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:timezone/data/latest.dart' as tzdata;
+import 'package:timezone/timezone.dart' as tz;
 import 'package:url_launcher/url_launcher.dart';
 import 'package:video_player/video_player.dart';
 import 'package:webview_flutter/webview_flutter.dart';
@@ -40,6 +43,7 @@ part 'screens/checkout.dart';
 part 'screens/profile.dart';
 part 'screens/admin.dart';
 part 'screens/university_results.dart';
+part 'screens/live_studio.dart';
 
 const epsilonBlue = Eps.blue;
 const epsilonTeal = Eps.green;
@@ -160,6 +164,15 @@ class PushNotifications {
       requestSoundPermission: false,
     );
 
+    tzdata.initializeTimeZones();
+    LearnStore.reminderScheduler = (session, on) {
+      unawaited(
+        scheduleLiveReminder(session, on).catchError((Object error) {
+          debugPrint('Live reminder not scheduled: $error');
+        }),
+      );
+    };
+
     await _localNotifications.initialize(
       settings: const InitializationSettings(
         android: androidSettings,
@@ -183,6 +196,62 @@ class PushNotifications {
       badge: true,
       sound: true,
     );
+  }
+
+  static NotificationDetails get _details => NotificationDetails(
+    android: AndroidNotificationDetails(
+      _androidChannel.id,
+      _androidChannel.name,
+      channelDescription: _androidChannel.description,
+      importance: Importance.high,
+      priority: Priority.high,
+      playSound: true,
+    ),
+    iOS: const DarwinNotificationDetails(
+      presentAlert: true,
+      presentBadge: true,
+      presentSound: true,
+    ),
+  );
+
+  /// Device notifications 10 minutes before a live session and when it
+  /// starts. Turning the reminder off cancels both.
+  static Future<void> scheduleLiveReminder(
+    EpsLiveSession session,
+    bool on,
+  ) async {
+    if (kIsWeb) {
+      return;
+    }
+    final soonId = 'live-soon-${session.id}'.hashCode;
+    final startId = 'live-start-${session.id}'.hashCode;
+    await _localNotifications.cancel(id: soonId);
+    await _localNotifications.cancel(id: startId);
+    if (!on) {
+      return;
+    }
+    final now = DateTime.now();
+    final soon = session.startsAt.subtract(const Duration(minutes: 10));
+    if (soon.isAfter(now)) {
+      await _localNotifications.zonedSchedule(
+        id: soonId,
+        scheduledDate: tz.TZDateTime.from(soon.toUtc(), tz.UTC),
+        notificationDetails: _details,
+        androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
+        title: 'جلستك تبدأ بعد 10 دقائق',
+        body: session.title,
+      );
+    }
+    if (session.startsAt.isAfter(now)) {
+      await _localNotifications.zonedSchedule(
+        id: startId,
+        scheduledDate: tz.TZDateTime.from(session.startsAt.toUtc(), tz.UTC),
+        notificationDetails: _details,
+        androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
+        title: 'بدأت الجلسة المباشرة',
+        body: '${session.title} • انضم الآن من تبويب مباشر',
+      );
+    }
   }
 
   static Future<void> showLocalNotification({
@@ -9693,6 +9762,38 @@ class TeacherDashboard extends StatelessWidget {
             subtitle:
                 '${teacher.subject ?? 'مادة عامة'} - ${teacherSection?.title ?? 'بدون قسم'}',
             icon: Icons.co_present_rounded,
+          ),
+          const SizedBox(height: 16),
+          FlatCard(
+            onTap: () => pushPage(context, const LiveHostPage()),
+            gradient: Eps.heroGradient,
+            border: Colors.transparent,
+            child: const Row(
+              children: [
+                Icon(Icons.sensors_rounded, color: Colors.white, size: 28),
+                SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'البث المباشر',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w800,
+                          color: Colors.white,
+                        ),
+                      ),
+                      Text(
+                        'جدول جلساتك، ابدأ البث وأجب عن أسئلة الطلاب',
+                        style: TextStyle(fontSize: 10, color: Colors.white70),
+                      ),
+                    ],
+                  ),
+                ),
+                Icon(Icons.chevron_right_rounded, color: Colors.white),
+              ],
+            ),
           ),
           const SizedBox(height: 16),
           SectionCard(

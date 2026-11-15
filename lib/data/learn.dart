@@ -266,7 +266,10 @@ class EpsLiveSession {
       recordingUrl = _str(r['recording_url']),
       isFree = _bool(r['is_free']),
       isLiveFlag = _bool(r['is_live']),
-      attendees = _int(r['attendees_count']);
+      attendees = _int(r['attendees_count']),
+      roomName = _str(r['room_name']),
+      startedAt = _date(r['started_at']),
+      endedAt = _date(r['ended_at']);
 
   final String id;
   final String subjectId;
@@ -279,12 +282,24 @@ class EpsLiveSession {
   final bool isFree;
   final bool isLiveFlag;
   final int attendees;
+  final String roomName;
+  final DateTime? startedAt;
+  final DateTime? endedAt;
+
+  /// Broadcast through LiveKit inside the app (no external link set).
+  bool get usesLiveKit => liveUrl.trim().isEmpty;
 
   DateTime get endsAt => startsAt.add(Duration(minutes: durationMinutes));
 
   LiveState get state {
     final now = DateTime.now();
-    if (isLiveFlag || (now.isAfter(startsAt) && now.isBefore(endsAt))) {
+    if (isLiveFlag) {
+      return LiveState.live;
+    }
+    if (endedAt != null) {
+      return LiveState.past;
+    }
+    if (now.isAfter(startsAt) && now.isBefore(endsAt)) {
       return LiveState.live;
     }
     return now.isBefore(startsAt) ? LiveState.upcoming : LiveState.past;
@@ -298,6 +313,7 @@ class EpsLiveMessage {
       userName = _str(r['user_name']),
       isTeacher = _bool(r['is_teacher']),
       isQuestion = _bool(r['is_question']),
+      answered = _bool(r['answered']),
       body = _str(r['body']),
       createdAt = _date(r['created_at']) ?? DateTime.now();
 
@@ -306,6 +322,7 @@ class EpsLiveMessage {
   final String userName;
   final bool isTeacher;
   final bool isQuestion;
+  final bool answered;
   final String body;
   final DateTime createdAt;
 }
@@ -780,6 +797,89 @@ class LearnRepository {
     return rows.isEmpty ? 0 : _int(rows.first['questions']);
   }
 
+  /// Calls the `livekit` edge function: `token`, `start`, `record`, `end`.
+  Future<Map<String, dynamic>> liveKit(
+    String action, {
+    required String userId,
+    required String sessionId,
+    int? peakViewers,
+  }) async {
+    try {
+      final response = await client.functions.invoke(
+        'livekit',
+        body: {
+          'action': action,
+          'userId': userId,
+          'sessionId': sessionId,
+          'peakViewers': ?peakViewers,
+        },
+      );
+      final data = response.data;
+      return data is Map ? Map<String, dynamic>.from(data) : {};
+    } on FunctionException catch (e) {
+      final details = e.details;
+      throw Exception(
+        details is Map && details['message'] != null
+            ? '${details['message']}'
+            : 'تعذر الاتصال بخدمة البث.',
+      );
+    }
+  }
+
+  Future<EpsLiveSession?> liveSession(String id) async {
+    final rows = _list(
+      await client.from('live_sessions').select().eq('id', id).limit(1),
+    );
+    return rows.isEmpty ? null : EpsLiveSession.fromRow(rows.first);
+  }
+
+  /// Sessions a teacher hosts (or every session for an admin).
+  Future<List<EpsLiveSession>> hostedSessions(String? teacherId) async {
+    var query = client.from('live_sessions').select();
+    if (teacherId != null) {
+      query = query.or('teacher_id.eq.$teacherId,teacher_id.is.null');
+    }
+    return _list(
+      await query.order('starts_at', ascending: false).limit(60),
+    ).map(EpsLiveSession.fromRow).toList();
+  }
+
+  Future<void> createLiveSession(Map<String, dynamic> values) =>
+      client.from('live_sessions').insert(values);
+
+  Future<void> setQuestionAnswered(String messageId, bool answered) => client
+      .from('live_messages')
+      .update({'answered': answered})
+      .eq('id', messageId);
+
+  /// Pushes chat changes of one session as they happen.
+  RealtimeChannel watchLiveMessages(String sessionId, VoidCallback onChange) =>
+      client
+          .channel('live-messages-$sessionId')
+          .onPostgresChanges(
+            event: PostgresChangeEvent.all,
+            schema: 'public',
+            table: 'live_messages',
+            filter: PostgresChangeFilter(
+              type: PostgresChangeFilterType.eq,
+              column: 'session_id',
+              value: sessionId,
+            ),
+            callback: (_) => onChange(),
+          )
+          .onPostgresChanges(
+            event: PostgresChangeEvent.update,
+            schema: 'public',
+            table: 'live_sessions',
+            filter: PostgresChangeFilter(
+              type: PostgresChangeFilterType.eq,
+              column: 'id',
+              value: sessionId,
+            ),
+            callback: (_) => onChange(),
+          )
+          .subscribe();
+
   Future<String> askAssistant({
     required String userId,
     required List<Map<String, String>> messages,
@@ -934,6 +1034,7 @@ class LearnStore extends ChangeNotifier {
       pdfs = results[8]! as List<EpsPdf>;
       liveSessions = results[9]! as List<EpsLiveSession>;
       reminders = results[10]! as Set<String>;
+      _syncReminders();
       quizzes = results[11]! as List<EpsQuiz>;
       attempts = results[12]! as List<EpsAttempt>;
       announcements = results[13]! as List<EpsAnnouncement>;
@@ -1125,10 +1226,41 @@ class LearnStore extends ChangeNotifier {
     }
   }
 
+  /// Set by the app to schedule (or cancel) device notifications for a
+  /// session reminder.
+  static void Function(EpsLiveSession session, bool on)? reminderScheduler;
+
+  void _syncReminders() {
+    final schedule = reminderScheduler;
+    if (schedule == null) {
+      return;
+    }
+    for (final s in liveSessions) {
+      if (reminders.contains(s.id) && s.state == LiveState.upcoming) {
+        schedule(s, true);
+      }
+    }
+  }
+
+  /// Replaces a session with fresher data (e.g. after a realtime update).
+  void replaceLiveSession(EpsLiveSession session) {
+    final i = liveSessions.indexWhere((s) => s.id == session.id);
+    if (i < 0) {
+      liveSessions = [...liveSessions, session];
+    } else {
+      liveSessions = [...liveSessions]..[i] = session;
+    }
+    notifyListeners();
+  }
+
   Future<void> toggleReminder(String sessionId) async {
     final on = !reminders.contains(sessionId);
     on ? reminders.add(sessionId) : reminders.remove(sessionId);
     notifyListeners();
+    final session = liveSessions.where((s) => s.id == sessionId).firstOrNull;
+    if (session != null) {
+      reminderScheduler?.call(session, on);
+    }
     if (enabled) {
       await repo.setLiveReminder(userId!, sessionId, on);
     }
