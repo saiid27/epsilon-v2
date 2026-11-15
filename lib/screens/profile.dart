@@ -21,7 +21,18 @@ class ProfileTab extends StatelessWidget {
     final user = store.currentUser!;
     final profile = learn.profile;
     final xpLevel = profile?.xpLevel ?? 1;
-    final subs = learn.subscriptions.take(3).toList();
+    final waiting = [
+      ...learn.withStatus(SubscriptionStatus.pending),
+      ...learn.withStatus(SubscriptionStatus.rejected),
+    ];
+    final settled = learn.subscriptions
+        .where(
+          (s) =>
+              s.status != SubscriptionStatus.pending &&
+              s.status != SubscriptionStatus.rejected,
+        )
+        .take(3)
+        .toList();
     final unread = learn.unreadNotices;
     final badges = studentBadges(learn);
     Widget stat(IconData icon, String value, String label) => Expanded(
@@ -238,11 +249,24 @@ class ProfileTab extends StatelessWidget {
               ),
             ),
             HomeSectionTitle(
-              'حالة الدفع',
+              'اشتراكاتي ووضعيتها',
               link: 'عرض الكل',
               onTap: () => pushPage(context, const PaymentsStatusPage()),
             ),
-            for (final s in subs)
+            if (waiting.isEmpty && settled.isEmpty)
+              const Padding(
+                padding: EdgeInsets.only(bottom: 7),
+                child: Text(
+                  'لا توجد اشتراكات بعد. أضف مادة من تبويب موادي.',
+                  style: TextStyle(fontSize: 9, color: Eps.muted),
+                ),
+              ),
+            for (final s in waiting)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 7),
+                child: SubscriptionStateRow(subscription: s),
+              ),
+            for (final s in settled)
               Padding(
                 padding: const EdgeInsets.only(bottom: 7),
                 child: _PaymentLine(subscription: s),
@@ -250,7 +274,7 @@ class ProfileTab extends StatelessWidget {
             const SizedBox(height: 6),
             _MenuRow(
               icon: Icons.menu_book_outlined,
-              title: 'اشتراكاتي',
+              title: 'موادي النشطة',
               subtitle: '${learn.activeSubjects.length} مواد نشطة',
               onTap: () => StudentShellState.of(context)?.goTab(1),
             ),
@@ -268,7 +292,7 @@ class ProfileTab extends StatelessWidget {
             ),
             _MenuRow(
               icon: Icons.fact_check_outlined,
-              title: 'نتائج الجامعة',
+              title: 'نتائجي الجامعية',
               subtitle: 'موقع نتائج جامعة نواكشوط',
               onTap: () => pushPage(
                 context,

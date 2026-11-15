@@ -363,8 +363,6 @@ class _StudentHomeTabState extends State<StudentHomeTab> {
     final learn = LearnScope.of(context);
     final user = store.currentUser!;
     final shell = StudentShellState.of(context);
-    final pending = learn.withStatus(SubscriptionStatus.pending);
-    final rejected = learn.withStatus(SubscriptionStatus.rejected);
     final heroes = [
       ...learn.liveSessions.where((s) => s.state == LiveState.live),
       ...learn.liveSessions.where((s) => s.state == LiveState.upcoming),
@@ -390,32 +388,10 @@ class _StudentHomeTabState extends State<StudentHomeTab> {
               _UpgradeCard(
                 onTap: () => pushPage(context, const UpgradeScreen()),
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 3),
             ],
-            _AddSubjectCard(
-              onTap: () => pushPage(context, const SectionsScreen()),
-            ),
             const UniversityResultsCard(),
-            for (final sub in pending)
-              _StateCard(
-                pending: true,
-                title: learn.subjectById(sub.subjectId)?.name ?? '',
-                note: 'سيظهر في موادي بعد موافقة الإدارة',
-                onTap: () => pushPage(context, const PaymentsStatusPage()),
-              ),
-            for (final sub in rejected)
-              _StateCard(
-                pending: false,
-                title: learn.subjectById(sub.subjectId)?.name ?? '',
-                note:
-                    '${sub.rejectionReason.isEmpty ? 'الوصل غير واضح' : sub.rejectionReason} • إعادة رفع الوصل',
-                onTap: () {
-                  learn.cart
-                    ..clear()
-                    ..add(sub.subjectId);
-                  pushPage(context, const ReceiptUploadScreen());
-                },
-              ),
+            const SizedBox(height: 4),
             if (heroes.isNotEmpty) ...[
               const SizedBox(height: 8),
               SizedBox(
@@ -775,65 +751,6 @@ class _UpgradeCard extends StatelessWidget {
   }
 }
 
-class _AddSubjectCard extends StatelessWidget {
-  const _AddSubjectCard({required this.onTap});
-
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: CustomPaint(
-        foregroundPainter: const DashedRRectPainter(
-          color: Color(0xFFAEBDE2),
-          radius: 14,
-        ),
-        child: Container(
-          height: 46,
-          padding: const EdgeInsets.symmetric(horizontal: 12),
-          decoration: BoxDecoration(
-            color: const Color(0xFFF5F8FF),
-            borderRadius: BorderRadius.circular(14),
-          ),
-          child: const Row(
-            children: [
-              Icon(Icons.add_rounded, color: Eps.blue, size: 18),
-              SizedBox(width: 9),
-              Expanded(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'أضف مادة جديدة',
-                      style: TextStyle(
-                        fontSize: 9,
-                        fontWeight: FontWeight.w700,
-                        color: Eps.blue,
-                        height: 1.5,
-                      ),
-                    ),
-                    Text(
-                      'اختر عدة مواد وادفع مرة واحدة',
-                      style: TextStyle(
-                        fontSize: 7,
-                        color: Eps.muted,
-                        height: 1.5,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              Icon(Icons.chevron_right_rounded, color: Eps.blue, size: 17),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 /// Dashed rounded border.
 class DashedRRectPainter extends CustomPainter {
   const DashedRRectPainter({
@@ -873,86 +790,6 @@ class DashedRRectPainter extends CustomPainter {
   @override
   bool shouldRepaint(DashedRRectPainter oldDelegate) =>
       oldDelegate.color != color;
-}
-
-class _StateCard extends StatelessWidget {
-  const _StateCard({
-    required this.pending,
-    required this.title,
-    required this.note,
-    required this.onTap,
-  });
-
-  final bool pending;
-  final String title;
-  final String note;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final accent = pending ? const Color(0xFFA96C00) : Eps.red;
-    return Padding(
-      padding: const EdgeInsets.only(top: 9),
-      child: GestureDetector(
-        onTap: onTap,
-        child: Container(
-          height: 66,
-          padding: const EdgeInsets.symmetric(horizontal: 12),
-          decoration: BoxDecoration(
-            color: pending ? const Color(0xFFFFF9E9) : const Color(0xFFFFF4F5),
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(
-              color: pending
-                  ? const Color(0xFFF0D18F)
-                  : const Color(0xFFEFC0C5),
-            ),
-          ),
-          child: Row(
-            children: [
-              Icon(
-                pending ? Icons.schedule_rounded : Icons.close_rounded,
-                color: pending ? const Color(0xFFB96D00) : Eps.red,
-                size: 24,
-              ),
-              const SizedBox(width: 9),
-              Expanded(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    EpsBadge(
-                      pending ? 'قيد المراجعة' : 'مرفوض',
-                      tone: pending ? EpsTone.orange : EpsTone.red,
-                    ),
-                    Text(
-                      title,
-                      style: TextStyle(
-                        fontSize: 9,
-                        fontWeight: FontWeight.w700,
-                        color: accent,
-                        height: 1.5,
-                      ),
-                    ),
-                    Text(
-                      note,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontSize: 7,
-                        color: Eps.muted,
-                        height: 1.5,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              Icon(Icons.chevron_right_rounded, color: accent, size: 17),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
 }
 
 class _LiveHero extends StatelessWidget {

@@ -196,10 +196,6 @@ class MySubjectsTab extends StatelessWidget {
                 ),
               ),
             ),
-            for (final sub in learn.withStatus(SubscriptionStatus.pending))
-              SubscriptionStateRow(subscription: sub),
-            for (final sub in learn.withStatus(SubscriptionStatus.rejected))
-              SubscriptionStateRow(subscription: sub),
             const SizedBox(height: 8),
             if (active.isEmpty)
               Container(

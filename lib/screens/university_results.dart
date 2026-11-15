@@ -81,7 +81,7 @@ class _UniversityResultsPageState extends State<UniversityResultsPage> {
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 18),
                 child: EpsPageHeader(
-                  title: 'نتائج الجامعة',
+                  title: 'نتائجي الجامعية',
                   onBack: () => Navigator.of(context).maybePop(),
                   action: kIsWeb
                       ? EpsIconButton(
@@ -215,7 +215,7 @@ class UniversityResultsCard extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'نتائج الجامعة',
+                    'نتائجي الجامعية',
                     style: TextStyle(
                       fontSize: 11,
                       fontWeight: FontWeight.w700,
