@@ -27,6 +27,7 @@ dependencies:
   livekit_client: ^2.13.2
   timezone: ^0.11.2
   speech_to_text: ^7.5.0
+  val_latex_flutter: ^0.1.4
 
 dev_dependencies:
   flutter_test:

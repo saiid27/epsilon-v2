@@ -901,6 +901,9 @@ class LearnRepository {
     String? lessonTitle,
     String? subjectName,
     String? image,
+    String mode = 'solve',
+    String? studentLevel,
+    String? lessonSummary,
   }) async {
     Object? data;
     try {
@@ -912,6 +915,9 @@ class LearnRepository {
           'lessonTitle': lessonTitle,
           'subjectName': subjectName,
           'image': ?image,
+          'mode': mode,
+          'studentLevel': ?studentLevel,
+          'lessonSummary': ?lessonSummary,
         },
       );
       data = response.data;

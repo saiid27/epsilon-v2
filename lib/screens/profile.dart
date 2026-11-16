@@ -1470,6 +1470,17 @@ class _AssistantScreenState extends State<AssistantScreen> {
   ({Uint8List bytes, String dataUri})? photo;
   bool preparingPhoto = false;
 
+  /// How the assistant answers: full solution, hint, explanation, check of
+  /// the student's own work, or practice exercises.
+  static const modes = [
+    ('solve', 'حل كامل', Icons.calculate_outlined),
+    ('hint', 'تلميح فقط', Icons.lightbulb_outline_rounded),
+    ('explain', 'اشرح المفهوم', Icons.menu_book_outlined),
+    ('check', 'صحّح حلي', Icons.fact_check_outlined),
+    ('practice', 'تمارين مشابهة', Icons.repeat_rounded),
+  ];
+  String mode = 'solve';
+
   /// Voice questions: speech is turned into text on the phone.
   final speech = stt.SpeechToText();
   bool listening = false;
@@ -1591,7 +1602,13 @@ class _AssistantScreenState extends State<AssistantScreen> {
     final sending = photo;
     var q = text.trim();
     if (q.isEmpty && sending != null) {
-      q = 'حل هذا التمرين خطوة بخطوة';
+      q = switch (mode) {
+        'hint' => 'أعطني تلميحاً لحل هذا التمرين',
+        'check' => 'صحّح حلي في الصورة',
+        'explain' => 'اشرح المفهوم المستعمل في هذا التمرين',
+        'practice' => 'أعطني تمارين مشابهة لهذا التمرين',
+        _ => 'حل هذا التمرين خطوة بخطوة',
+      };
     }
     if (q.isEmpty || thinking) {
       return;
@@ -1620,15 +1637,48 @@ class _AssistantScreenState extends State<AssistantScreen> {
       if (!learn.enabled) {
         await Future<void>.delayed(const Duration(milliseconds: 600));
         say(
-          'وضع المعاينة: هنا يظهر حل المساعد خطوة بخطوة${sending == null ? '' : ' بعد قراءة الصورة'}.',
+          '### المعطيات\n'
+          r'نريد حساب $I = \int_0^1 x e^{x}\,dx$.'
+          '\n### الطريقة\n'
+          'نستعمل l\'intégration par parties.\n'
+          '### الحل\n'
+          r'1. نضع $u = x$ و $dv = e^{x}dx$، إذن $du = dx$ و $v = e^{x}$.'
+          '\n'
+          r'2. $I = [x e^{x}]_0^1 - \int_0^1 e^{x}\,dx = e - (e - 1)$.'
+          '\n### النتيجة\n'
+          r'$$I = 1$$'
+          '\n### التحقق\n'
+          r"المشتقة $(x e^{x} - e^{x})' = x e^{x}$ ✓ (وضع المعاينة)",
         );
         return;
       }
+      final lesson = widget.lessonTitle == null
+          ? null
+          : learn.lessons
+                .where((l) => l.title == widget.lessonTitle)
+                .firstOrNull;
+      final profile = learn.profile;
       final answer = await learn.repo.askAssistant(
         userId: learn.userId ?? '',
         lessonTitle: widget.lessonTitle,
         subjectName: widget.subjectName,
         image: sending?.dataUri,
+        mode: mode,
+        studentLevel: profile == null
+            ? null
+            : [
+                profile.level,
+                profile.track,
+                profile.faculty,
+                profile.university,
+              ].where((x) => x.isNotEmpty).join(' • '),
+        lessonSummary: lesson == null
+            ? null
+            : [
+                if (lesson.description.isNotEmpty) lesson.description,
+                if (lesson.keyIdea.isNotEmpty) 'الفكرة: ${lesson.keyIdea}',
+                if (lesson.example.isNotEmpty) 'مثال: ${lesson.example}',
+              ].join('\n'),
         messages: [
           for (final m in messages.skip(1))
             {
@@ -1664,12 +1714,6 @@ class _AssistantScreenState extends State<AssistantScreen> {
         message: 'مساعد الذكاء الاصطناعي متاح للمشتركين فقط.',
       );
     }
-    const chips = [
-      'اشرح لي هذا الدرس',
-      'حل هذا التمرين خطوة بخطوة',
-      'أعطني مثالاً',
-      'أين أخطأت في حلي؟',
-    ];
     Widget roundButton(
       IconData icon,
       VoidCallback? onTap, {
@@ -1747,7 +1791,7 @@ class _AssistantScreenState extends State<AssistantScreen> {
                           ? AlignmentDirectional.centerStart
                           : AlignmentDirectional.centerEnd,
                       child: Container(
-                        constraints: const BoxConstraints(maxWidth: 290),
+                        constraints: BoxConstraints(maxWidth: m.me ? 290 : 340),
                         margin: const EdgeInsets.only(bottom: 9),
                         padding: const EdgeInsets.all(10),
                         decoration: BoxDecoration(
@@ -1770,14 +1814,17 @@ class _AssistantScreenState extends State<AssistantScreen> {
                                   ),
                                 ),
                               ),
-                            SelectableText(
-                              m.text,
-                              style: TextStyle(
-                                fontSize: 9,
-                                height: 1.7,
-                                color: m.me ? Colors.white : Eps.ink,
-                              ),
-                            ),
+                            if (m.me)
+                              SelectableText(
+                                m.text,
+                                style: const TextStyle(
+                                  fontSize: 9,
+                                  height: 1.7,
+                                  color: Colors.white,
+                                ),
+                              )
+                            else
+                              MathAnswer(text: m.text),
                           ],
                         ),
                       ),
@@ -1857,27 +1904,44 @@ class _AssistantScreenState extends State<AssistantScreen> {
                 ),
               ),
             SizedBox(
-              height: 30,
+              height: 32,
               child: ListView(
                 padding: const EdgeInsets.symmetric(horizontal: 18),
                 scrollDirection: Axis.horizontal,
                 children: [
-                  for (final c in chips)
+                  for (final (code, label, icon) in modes)
                     Padding(
                       padding: const EdgeInsetsDirectional.only(end: 6),
                       child: GestureDetector(
-                        onTap: () => ask(c),
-                        child: Container(
+                        onTap: () => setState(() => mode = code),
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 150),
                           padding: const EdgeInsets.symmetric(horizontal: 10),
                           alignment: Alignment.center,
                           decoration: BoxDecoration(
-                            color: Colors.white,
+                            color: mode == code ? Eps.blue : Colors.white,
                             borderRadius: BorderRadius.circular(999),
-                            border: Border.all(color: Eps.line),
+                            border: Border.all(
+                              color: mode == code ? Eps.blue : Eps.line,
+                            ),
                           ),
-                          child: Text(
-                            c,
-                            style: const TextStyle(fontSize: 7, color: Eps.ink),
+                          child: Row(
+                            children: [
+                              Icon(
+                                icon,
+                                size: 13,
+                                color: mode == code ? Colors.white : Eps.blue,
+                              ),
+                              const SizedBox(width: 4),
+                              Text(
+                                label,
+                                style: TextStyle(
+                                  fontSize: 8,
+                                  fontWeight: FontWeight.w700,
+                                  color: mode == code ? Colors.white : Eps.ink,
+                                ),
+                              ),
+                            ],
                           ),
                         ),
                       ),
@@ -1954,6 +2018,95 @@ class _AssistantScreenState extends State<AssistantScreen> {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// An assistant answer: short Markdown (### titles, numbered and bulleted
+/// lines, **bold**) with LaTeX maths in $...$ and $$...$$.
+class MathAnswer extends StatelessWidget {
+  const MathAnswer({required this.text, super.key});
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    const base = TextStyle(fontSize: 10, height: 1.7, color: Eps.ink);
+    final source = text
+        .replaceAll(r'\[', r'$$')
+        .replaceAll(r'\]', r'$$')
+        .replaceAll(r'\(', r'$')
+        .replaceAll(r'\)', r'$');
+    // Keep $$...$$ blocks whole, even when they span several lines.
+    final blocks = <String>[];
+    final buffer = StringBuffer();
+    var inDisplay = false;
+    for (final line in source.split('\n')) {
+      final marks = r'$$'.allMatches(line).length;
+      if (inDisplay) {
+        buffer.write('\n$line');
+        if (marks.isOdd) {
+          blocks.add(buffer.toString());
+          buffer.clear();
+          inDisplay = false;
+        }
+      } else if (marks.isOdd) {
+        buffer.write(line);
+        inDisplay = true;
+      } else {
+        blocks.add(line);
+      }
+    }
+    if (buffer.isNotEmpty) {
+      blocks.add(buffer.toString());
+    }
+    final heading = RegExp(r'^\s*#{1,6}\s+');
+    final bullet = RegExp(r'^\s*[-*•]\s+');
+    final boldLine = RegExp(r'^\s*\*\*[^*]+\*\*\s*:?\s*$');
+    final children = <Widget>[];
+    for (final raw in blocks) {
+      final line = raw.trimRight();
+      if (line.trim().isEmpty) {
+        children.add(const SizedBox(height: 4));
+        continue;
+      }
+      final h = heading.firstMatch(line);
+      if (h != null) {
+        children.add(
+          Padding(
+            padding: const EdgeInsets.only(top: 6, bottom: 2),
+            child: MathText(
+              line.substring(h.end).replaceAll('**', ''),
+              // Whole formulas, so right-to-left text never reorders
+              // their parts.
+              wrap: false,
+              style: base.copyWith(
+                fontSize: 11,
+                fontWeight: FontWeight.w800,
+                color: Eps.blue,
+              ),
+            ),
+          ),
+        );
+        continue;
+      }
+      final b = bullet.firstMatch(line);
+      final body = b == null ? line : '•  ${line.substring(b.end)}';
+      children.add(
+        MathText(
+          body.replaceAll('**', ''),
+          wrap: false,
+          style: boldLine.hasMatch(body)
+              ? base.copyWith(fontWeight: FontWeight.w800)
+              : base,
+        ),
+      );
+    }
+    return SelectionArea(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: children,
       ),
     );
   }
