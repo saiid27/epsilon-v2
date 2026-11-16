@@ -1502,12 +1502,11 @@ class _AssistantScreenState extends State<AssistantScreen> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       final learn = LearnScope.read(context);
-      final name = firstName(StoreScope.of(context).currentUser?.name ?? '');
       setState(
         () => messages.add((
           me: false,
           text:
-              'مرحباً $name! أنا مساعد إبسيلون. أحل وأشرح تمارينك${widget.lessonTitle == null ? '' : ' في درس «${widget.lessonTitle}»'}، وأشرح ملفات PDF، وأكتب سيرتك الذاتية ورسائلك وتقاريرك. اكتب، أو صوّر، أو أرفق ملفاً، أو تكلم.',
+              'أحل وأشرح تمارينك${widget.lessonTitle == null ? '' : ' في درس «${widget.lessonTitle}»'} 📚، وأشرح ملفات PDF 📄، وأكتب سيرتك الذاتية ورسائلك وتقاريرك ✍️.\nاكتب، أو صوّر 📷، أو أرفق ملفاً 📎، أو تكلم 🎙️.',
           image: null,
           file: null,
         )),
@@ -1871,6 +1870,11 @@ class _AssistantScreenState extends State<AssistantScreen> {
               child: ListView(
                 padding: const EdgeInsets.fromLTRB(18, 14, 18, 8),
                 children: [
+                  AssistantWelcome(
+                    name: firstName(
+                      StoreScope.of(context).currentUser?.name ?? '',
+                    ),
+                  ),
                   for (final m in messages)
                     Align(
                       alignment: m.me
@@ -2196,6 +2200,84 @@ class _AssistantScreenState extends State<AssistantScreen> {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// Greeting at the top of the assistant: a waving hand and "welcome back,
+/// your assistant is with you".
+class AssistantWelcome extends StatefulWidget {
+  const AssistantWelcome({required this.name, super.key});
+
+  final String name;
+
+  @override
+  State<AssistantWelcome> createState() => _AssistantWelcomeState();
+}
+
+class _AssistantWelcomeState extends State<AssistantWelcome>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController wave = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1400),
+  )..forward();
+
+  @override
+  void dispose() {
+    wave.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(18),
+        gradient: const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Color(0xFFEAF1FF), Color(0xFFF6F9FF)],
+        ),
+        border: Border.all(color: const Color(0xFFD6E2FB)),
+      ),
+      child: Column(
+        children: [
+          AnimatedBuilder(
+            animation: wave,
+            builder: (context, child) => Transform.rotate(
+              // Three quick waves, then still.
+              angle: sin(wave.value * pi * 6) * 0.35 * (1 - wave.value),
+              alignment: Alignment.bottomCenter,
+              child: child,
+            ),
+            child: const Text('👋', style: TextStyle(fontSize: 40)),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            widget.name.isEmpty
+                ? 'مرحباً بعودتك'
+                : 'مرحباً بعودتك يا ${widget.name}',
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.w800,
+              color: Eps.ink,
+            ),
+          ),
+          const SizedBox(height: 2),
+          const Text(
+            'مساعدك معك 🤖✨',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+              color: Eps.blue,
+            ),
+          ),
+        ],
       ),
     );
   }
