@@ -186,6 +186,7 @@ class _AdminConsoleState extends State<AdminConsole> {
     ('الاختبارات', Icons.sports_esports_outlined),
     ('الملفات', Icons.description_outlined),
     ('الإعلانات', Icons.campaign_outlined),
+    ('الخطط والأسعار', Icons.sell_outlined),
   ];
 
   LearnRepository get repo => LearnScope.read(context).repo;
@@ -231,6 +232,7 @@ class _AdminConsoleState extends State<AdminConsole> {
         c.from('pdf_resources').select().order('created_at', ascending: false),
         c.from('announcements').select().order('created_at', ascending: false),
         c.from('courses').select().order('created_at'),
+        c.from('plans').select().order('sort_order'),
       ]);
       universityResultsUrl = await repo.setting(
         'universityResultsUrl',
@@ -247,7 +249,8 @@ class _AdminConsoleState extends State<AdminConsole> {
           ..['quizzes'] = list(r[6])
           ..['pdfs'] = list(r[7])
           ..['announcements'] = list(r[8])
-          ..['courses'] = list(r[9]);
+          ..['courses'] = list(r[9])
+          ..['plans'] = list(r[10]);
         loading = false;
         error = null;
       });
@@ -450,7 +453,8 @@ class _AdminConsoleState extends State<AdminConsole> {
                       6 => students(),
                       7 => quizzes(),
                       8 => pdfs(),
-                      _ => announcements(),
+                      9 => announcements(),
+                      _ => plans(),
                     },
                   ),
                 ),
@@ -965,6 +969,98 @@ class _AdminConsoleState extends State<AdminConsole> {
     const _Field('is_free', 'جلسة مجانية', kind: _FieldKind.toggle),
     const _Field('is_live', 'البث مباشر الآن', kind: _FieldKind.toggle),
   ];
+
+  /// Plans offered to students. Price = the subjects' price, paid once; the
+  /// months set how long the subscription lasts.
+  List<Widget> plans() {
+    const fields = [
+      _Field('title', 'اسم الخطة', required: true),
+      _Field('subtitle', 'وصف قصير (مثال: سنة دراسية كاملة)'),
+      _Field('badge', 'شارة (مثال: سنوي)'),
+      _Field('months', 'مدة الاشتراك بالأشهر', kind: _FieldKind.number),
+      _Field('discount_percent', 'تخفيض %', kind: _FieldKind.number),
+      _Field('active', 'معروضة للطلاب', kind: _FieldKind.toggle),
+    ];
+    Future<void> save(Map<String, dynamic>? row) async {
+      final values = await _editDialog(
+        context,
+        title: row == null ? 'خطة جديدة' : 'تعديل الخطة',
+        fields: fields,
+        initial: row ?? {'months': 12, 'discount_percent': 0, 'active': true},
+      );
+      if (values == null) {
+        return;
+      }
+      final payload = {for (final f in fields) f.key: values[f.key]};
+      await run(() async {
+        final table = repo.client.from('plans');
+        if (row == null) {
+          await table.insert({
+            ...payload,
+            'code': 'plan-${DateTime.now().millisecondsSinceEpoch}',
+            'sort_order': rows('plans').length + 1,
+          });
+        } else {
+          await table.update(payload).eq('code', '${row['code']}');
+        }
+      }, 'تم حفظ الخطة');
+    }
+
+    final paid = rows('plans').where((p) => p['is_free'] != true).toList();
+    final hasActiveColumn = paid.any((p) => p.containsKey('active'));
+    return [
+      FlatCard(
+        shadow: false,
+        radius: 14,
+        color: Eps.blueSoft,
+        border: Colors.transparent,
+        child: const Text(
+          'سعر أي خطة = سعر المواد التي يختارها الطالب، يدفعه مرة واحدة. مدة الخطة بالأشهر تحدد متى ينتهي الاشتراك. إذا كانت هناك خطة واحدة معروضة ينتقل الطالب مباشرة إلى الدفع.',
+          style: TextStyle(fontSize: 10, color: Eps.ink, height: 1.6),
+        ),
+      ),
+      const SizedBox(height: 10),
+      if (!hasActiveColumn)
+        const Padding(
+          padding: EdgeInsets.only(bottom: 10),
+          child: Text(
+            'لتفعيل إظهار/إخفاء الخطط شغّل كود SQL الخاص بالخطط مرة واحدة في Supabase.',
+            style: TextStyle(fontSize: 10, color: Eps.red),
+          ),
+        ),
+      addButton('خطة جديدة', () => save(null)),
+      for (final p in paid)
+        rowTile(
+          title: '${p['title']}',
+          subtitle: [
+            '${p['months'] ?? 0} شهر',
+            if (((p['discount_percent'] as num?) ?? 0) > 0)
+              'تخفيض ${p['discount_percent']}%',
+            if ('${p['subtitle'] ?? ''}'.isNotEmpty) '${p['subtitle']}',
+          ].join(' • '),
+          badges: [
+            if (p['active'] == false)
+              const EpsBadge('مخفية', tone: EpsTone.gray)
+            else
+              const EpsBadge('معروضة', tone: EpsTone.green),
+          ],
+          extra: [
+            if (hasActiveColumn)
+              Switch(
+                value: p['active'] != false,
+                onChanged: (v) => run(
+                  () => repo.client
+                      .from('plans')
+                      .update({'active': v})
+                      .eq('code', '${p['code']}'),
+                  v ? 'الخطة معروضة للطلاب' : 'تم إخفاء الخطة',
+                ),
+              ),
+          ],
+          onEdit: () => save(p),
+        ),
+    ];
+  }
 
   List<Widget> live() => [
     Padding(

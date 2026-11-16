@@ -132,13 +132,14 @@ class EpsPlan {
   final bool active;
   final List<String> features;
 
-  /// A subject's price is its yearly subscription price.
-  int priceFor(int yearlyTotal) {
+  /// The plan costs the subjects' price, paid once (less the plan's
+  /// discount, if the admin set one). Its months only set how long the
+  /// subscription lasts.
+  int priceFor(int subjectsTotal) {
     if (isFree) {
       return 0;
     }
-    final full = yearlyTotal * (months <= 0 ? 12 : months) / 12;
-    return (full * (100 - discountPercent) / 100).round();
+    return (subjectsTotal * (100 - discountPercent) / 100).round();
   }
 }
 
