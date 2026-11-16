@@ -1126,6 +1126,15 @@ class PlansScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final learn = LearnScope.of(context);
     final monthly = learn.cartMonthlyTotal;
+    if (learn.signupDraft != null &&
+        (learn.planByCode(learn.selectedPlanCode)?.isFree ?? false)) {
+      final paid = learn.plans.where((p) => !p.isFree).firstOrNull;
+      if (paid != null) {
+        WidgetsBinding.instance.addPostFrameCallback(
+          (_) => learn.selectPlan(paid.code),
+        );
+      }
+    }
     return Scaffold(
       backgroundColor: Eps.bg,
       body: SafeArea(
@@ -1175,16 +1184,18 @@ class PlansScreen extends StatelessWidget {
                   ],
                 ),
                 const SizedBox(height: 16),
+                // A paid signup goes on to payment: no free plan here.
                 for (final plan in learn.plans)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 10),
-                    child: _PlanCard(
-                      plan: plan,
-                      price: plan.priceFor(monthly),
-                      selected: learn.selectedPlanCode == plan.code,
-                      onTap: () => learn.selectPlan(plan.code),
+                  if (learn.signupDraft == null || !plan.isFree)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 10),
+                      child: _PlanCard(
+                        plan: plan,
+                        price: plan.priceFor(monthly),
+                        selected: learn.selectedPlanCode == plan.code,
+                        onTap: () => learn.selectPlan(plan.code),
+                      ),
                     ),
-                  ),
               ],
             ),
             Positioned(
@@ -1757,9 +1768,8 @@ class _ReceiptUploadScreenState extends State<ReceiptUploadScreen> {
 
   Future<void> submit() async {
     final learn = LearnScope.read(context);
-    final fallbackMethod = StoreScope.of(
-      context,
-    ).paymentMethods.firstOrNull?.id;
+    final store = StoreScope.of(context);
+    final fallbackMethod = store.paymentMethods.firstOrNull?.id;
     final picked = file;
     if (picked == null) {
       return;
@@ -1770,6 +1780,44 @@ class _ReceiptUploadScreenState extends State<ReceiptUploadScreen> {
     });
     try {
       final dataUri = await paymentProofDataUri(picked.path, picked.name);
+      final draft = learn.signupDraft;
+      if (draft != null && learn.userId == null) {
+        // Paid signup: the account is created now, verified by SMS code,
+        // then the request is sent with this receipt.
+        await store.registerFreeStudent(
+          name: draft.name,
+          phone: draft.phone,
+          password: draft.password,
+        );
+        if (!mounted) {
+          return;
+        }
+        final methodId = widget.paymentMethodId ?? fallbackMethod;
+        final ref = refController.text.trim();
+        final cart = {...learn.cart};
+        await Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) => SignupOtpScreen(
+              phone: draft.phone,
+              password: draft.password,
+              afterLogin: () async {
+                final user = store.currentUser!;
+                await learn.load(user.id);
+                learn.cart
+                  ..clear()
+                  ..addAll(cart);
+                await learn.submitPayment(
+                  paymentMethodId: methodId,
+                  receiptUrl: dataUri,
+                  transactionRef: ref,
+                );
+                learn.signupDraft = null;
+              },
+            ),
+          ),
+        );
+        return;
+      }
       await learn.submitPayment(
         paymentMethodId: widget.paymentMethodId ?? fallbackMethod,
         receiptUrl: dataUri,

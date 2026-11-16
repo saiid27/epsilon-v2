@@ -1057,6 +1057,33 @@ class LearnStore extends ChangeNotifier {
     }
   }
 
+  /// Paid signup in progress: the details typed in the signup form. The
+  /// account itself is created when the payment receipt is sent.
+  ({String name, String phone, String password})? signupDraft;
+
+  /// Subjects, teachers and plans for someone not signed in yet (paid
+  /// signup goes through the catalog before the account exists).
+  Future<void> loadCatalog() async {
+    if (!enabled || subjects.isNotEmpty) {
+      return;
+    }
+    try {
+      final results = await Future.wait<Object>([
+        repo.subjects(),
+        repo.teachers(),
+        repo.plans(),
+      ]);
+      subjects = (results[0] as List<EpsSubject>)
+          .where((s) => s.isActive)
+          .toList();
+      teachers = results[1] as List<EpsTeacher>;
+      plans = results[2] as List<EpsPlan>;
+      notifyListeners();
+    } on Object {
+      // The catalog screens show their empty state.
+    }
+  }
+
   void clear() {
     userId = null;
     profile = null;

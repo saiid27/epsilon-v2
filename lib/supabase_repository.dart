@@ -142,6 +142,23 @@ class SupabaseRepository {
     }
   }
 
+  /// True when [phone] already belongs to an account (an unverified signup
+  /// does not count: the student may start again).
+  Future<bool> phoneTaken(String phone) async {
+    final rows = _list(
+      await client
+          .from('users')
+          .select('status, role')
+          .eq('phone', phone.trim())
+          .limit(1),
+    );
+    if (rows.isEmpty) {
+      return false;
+    }
+    final row = rows.first;
+    return !(row['status'] == 'pending' && row['role'] == 'student');
+  }
+
   /// Free account from the redesigned signup: starts `pending` and becomes
   /// `active` when the phone code is verified (otp function, purpose signup).
   Future<void> registerFreeStudent({

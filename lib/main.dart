@@ -1609,6 +1609,14 @@ class SchoolStore extends ChangeNotifier {
     return true;
   }
 
+  /// Whether [phone] is already registered (shown under the signup form).
+  Future<bool> phoneTaken(String phone) async {
+    if (backendEnabled) {
+      return (_repository as SupabaseRepository).phoneTaken(phone);
+    }
+    return [...users, ?currentUser].any((u) => u.phone == phone.trim());
+  }
+
   /// Redesigned signup: free account, verified by SMS code.
   Future<void> registerFreeStudent({
     required String name,
