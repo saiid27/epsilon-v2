@@ -75,8 +75,9 @@ class _AuthScreenState extends State<AuthScreen> {
                       action: registerMode ? 'تسجيل الدخول' : 'أنشئ حساباً',
                       onTap: () => setMode(!registerMode),
                     ),
-                    if (!freeSignup) ...[
-                      SizedBox(height: registerMode ? 11 : 17),
+                    // The free signup card is for the login page only.
+                    if (!registerMode) ...[
+                      const SizedBox(height: 17),
                       AuthFreeCard(onCreate: () => setMode(true, free: true)),
                     ],
                   ],
