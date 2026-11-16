@@ -41,3 +41,6 @@ values ('yearly', 'الاشتراك السنوي', 'سنة دراسية كامل
         '["جميع الدروس والشروحات","البث المباشر للمادة","التمارين والاختبارات"]'::jsonb, 1)
 on conflict (code) do update set active = true, months = 12;
 update public.plans set active = false where code in ('monthly', 'semester');
+
+-- Assistant: photo questions are counted apart from text questions.
+alter table public.assistant_usage add column if not exists images int not null default 0;

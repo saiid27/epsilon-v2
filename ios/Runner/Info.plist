@@ -30,6 +30,8 @@
 	<string>يستخدم Epsilon الكاميرا لبث الحصص المباشرة.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>يستخدم Epsilon الميكروفون لبث الحصص المباشرة والتحدث فيها.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>يحوّل Epsilon سؤالك الصوتي إلى نص لإرساله إلى المساعد.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>نحتاج الوصول إلى الصور لاختيار إثبات الدفع.</string>
 	<key>UIApplicationSceneManifest</key>

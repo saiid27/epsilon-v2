@@ -1458,11 +1458,22 @@ class AssistantScreen extends StatefulWidget {
 }
 
 class _AssistantScreenState extends State<AssistantScreen> {
-  static const dailyLimit = 5;
+  static const dailyQuestions = 10;
+  static const dailyImages = 6;
   final input = TextEditingController();
-  final messages = <({bool me, String text})>[];
-  int used = 0;
+  final messages = <({bool me, String text, Uint8List? image})>[];
+  int questionsLeft = dailyQuestions;
+  int imagesLeft = dailyImages;
   bool thinking = false;
+
+  /// Photo of an exercise waiting to be sent with the next question.
+  ({Uint8List bytes, String dataUri})? photo;
+  bool preparingPhoto = false;
+
+  /// Voice questions: speech is turned into text on the phone.
+  final speech = stt.SpeechToText();
+  bool listening = false;
+  bool french = false;
 
   @override
   void initState() {
@@ -1474,14 +1485,21 @@ class _AssistantScreenState extends State<AssistantScreen> {
         () => messages.add((
           me: false,
           text:
-              'مرحباً $name! أنا مساعد إبسيلون. كيف يمكنني مساعدتك${widget.lessonTitle == null ? '' : ' في درس «${widget.lessonTitle}»'}؟',
+              'مرحباً $name! أنا مساعد إبسيلون. اكتب سؤالك، أو صوّر التمرين، أو اسألني بصوتك${widget.lessonTitle == null ? '' : ' عن درس «${widget.lessonTitle}»'}.',
+          image: null,
         )),
       );
       if (learn.enabled && learn.userId != null) {
         try {
-          final n = await learn.repo.assistantQuestionsToday(learn.userId!);
+          final used = await learn.repo.assistantUsageToday(learn.userId!);
           if (mounted) {
-            setState(() => used = n);
+            setState(() {
+              questionsLeft = (dailyQuestions - used.questions).clamp(
+                0,
+                dailyQuestions,
+              );
+              imagesLeft = (dailyImages - used.images).clamp(0, dailyImages);
+            });
           }
         } on Object {
           // Counter is informative only.
@@ -1492,52 +1510,144 @@ class _AssistantScreenState extends State<AssistantScreen> {
 
   @override
   void dispose() {
+    speech.cancel();
     input.dispose();
     super.dispose();
   }
 
-  bool get limited => !LearnScope.read(context).isSubscribed;
+  void say(String text) =>
+      setState(() => messages.add((me: false, text: text, image: null)));
+
+  Future<void> pickPhoto() async {
+    if (imagesLeft <= 0) {
+      say('وصلت إلى الحد اليومي للصور ($dailyImages). يمكنك كتابة السؤال.');
+      return;
+    }
+    final picked = await NativeFilePicker.pickImage();
+    if (picked == null) {
+      return;
+    }
+    setState(() => preparingPhoto = true);
+    try {
+      final bytes =
+          NativeFilePicker.webFiles[picked.path] ??
+          await File(picked.path).readAsBytes();
+      final dataUri = await shrinkImageDataUri(bytes, width: 1100);
+      if (mounted) {
+        setState(() => photo = (bytes: bytes, dataUri: dataUri));
+      }
+    } on Object {
+      say('تعذر قراءة الصورة، جرّب صورة أخرى.');
+    } finally {
+      if (mounted) {
+        setState(() => preparingPhoto = false);
+      }
+    }
+  }
+
+  Future<void> toggleVoice() async {
+    if (listening) {
+      await speech.stop();
+      setState(() => listening = false);
+      return;
+    }
+    final ready = await speech.initialize(
+      onStatus: (status) {
+        if ((status == 'done' || status == 'notListening') && mounted) {
+          setState(() => listening = false);
+        }
+      },
+      onError: (_) {
+        if (mounted) {
+          setState(() => listening = false);
+        }
+      },
+    );
+    if (!ready) {
+      say(
+        'لا يمكن استعمال الميكروفون هنا. اسمح للتطبيق بالميكروفون، أو استعمل متصفح Chrome.',
+      );
+      return;
+    }
+    setState(() => listening = true);
+    await speech.listen(
+      onResult: (result) {
+        input.text = result.recognizedWords;
+        input.selection = TextSelection.collapsed(offset: input.text.length);
+        if (result.finalResult && mounted) {
+          setState(() => listening = false);
+        }
+      },
+      listenOptions: stt.SpeechListenOptions(
+        localeId: french ? 'fr_FR' : 'ar_SA',
+        partialResults: true,
+        listenFor: const Duration(seconds: 60),
+        pauseFor: const Duration(seconds: 4),
+      ),
+    );
+  }
 
   Future<void> ask(String text) async {
-    final q = text.trim();
+    final sending = photo;
+    var q = text.trim();
+    if (q.isEmpty && sending != null) {
+      q = 'حل هذا التمرين خطوة بخطوة';
+    }
     if (q.isEmpty || thinking) {
       return;
     }
-    if (limited && used >= dailyLimit) {
-      setState(
-        () => messages.add((
-          me: false,
-          text:
-              'وصلت إلى الحد اليومي للأسئلة في الخطة المجانية. رقِّ اشتراكك لمزيد من الأسئلة.',
-        )),
+    if (sending == null && questionsLeft <= 0) {
+      say(
+        'وصلت إلى الحد اليومي للأسئلة ($dailyQuestions). عد غداً، أو صوّر تمريناً إن بقيت لك صور.',
       );
+      return;
+    }
+    if (listening) {
+      await speech.stop();
+    }
+    if (!mounted) {
       return;
     }
     final learn = LearnScope.read(context);
     input.clear();
     setState(() {
-      messages.add((me: true, text: q));
+      messages.add((me: true, text: q, image: sending?.bytes));
+      photo = null;
+      listening = false;
       thinking = true;
     });
     try {
-      final reply = await learn.repo.askAssistant(
+      if (!learn.enabled) {
+        await Future<void>.delayed(const Duration(milliseconds: 600));
+        say(
+          'وضع المعاينة: هنا يظهر حل المساعد خطوة بخطوة${sending == null ? '' : ' بعد قراءة الصورة'}.',
+        );
+        return;
+      }
+      final answer = await learn.repo.askAssistant(
         userId: learn.userId ?? '',
         lessonTitle: widget.lessonTitle,
         subjectName: widget.subjectName,
+        image: sending?.dataUri,
         messages: [
           for (final m in messages.skip(1))
-            {'role': m.me ? 'user' : 'assistant', 'content': m.text},
+            {
+              'role': m.me ? 'user' : 'assistant',
+              'content': m.image == null ? m.text : '[صورة تمرين] ${m.text}',
+            },
         ],
       );
       setState(() {
-        messages.add((me: false, text: reply));
-        used++;
+        messages.add((me: false, text: answer.reply, image: null));
+        questionsLeft =
+            answer.questionsLeft ??
+            (sending == null ? questionsLeft - 1 : questionsLeft);
+        imagesLeft =
+            answer.imagesLeft ??
+            (sending == null ? imagesLeft : imagesLeft - 1);
       });
     } on Object catch (e) {
-      setState(
-        () =>
-            messages.add((me: false, text: 'تعذر الوصول إلى المساعد الآن. $e')),
-      );
+      say(e.toString().replaceFirst('Exception: ', ''));
     } finally {
       if (mounted) {
         setState(() => thinking = false);
@@ -1554,14 +1664,33 @@ class _AssistantScreenState extends State<AssistantScreen> {
         message: 'مساعد الذكاء الاصطناعي متاح للمشتركين فقط.',
       );
     }
-    final left = (dailyLimit - used).clamp(0, dailyLimit);
     const chips = [
       'اشرح لي هذا الدرس',
       'حل هذا التمرين خطوة بخطوة',
       'أعطني مثالاً',
-      'كيف أشترك؟',
-      'كيف أرفع الوصل؟',
+      'أين أخطأت في حلي؟',
     ];
+    Widget roundButton(
+      IconData icon,
+      VoidCallback? onTap, {
+      Color color = Eps.blueSoft,
+      Color ink = Eps.blue,
+      String? tooltip,
+    }) => Tooltip(
+      message: tooltip ?? '',
+      child: GestureDetector(
+        onTap: onTap,
+        child: Container(
+          width: 34,
+          height: 34,
+          decoration: BoxDecoration(
+            color: color,
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Icon(icon, color: ink, size: 17),
+        ),
+      ),
+    );
     return Scaffold(
       backgroundColor: Eps.bg,
       body: SafeArea(
@@ -1604,8 +1733,7 @@ class _AssistantScreenState extends State<AssistantScreen> {
                       ],
                     ),
                   ),
-                  if (!learn.isSubscribed)
-                    EpsBadge('متبقي لك $left أسئلة اليوم'),
+                  EpsBadge('اليوم: $questionsLeft أسئلة • $imagesLeft صور'),
                 ],
               ),
             ),
@@ -1619,20 +1747,38 @@ class _AssistantScreenState extends State<AssistantScreen> {
                           ? AlignmentDirectional.centerStart
                           : AlignmentDirectional.centerEnd,
                       child: Container(
-                        constraints: const BoxConstraints(maxWidth: 280),
+                        constraints: const BoxConstraints(maxWidth: 290),
                         margin: const EdgeInsets.only(bottom: 9),
                         padding: const EdgeInsets.all(10),
                         decoration: BoxDecoration(
                           color: m.me ? Eps.blue : const Color(0xFFE9EEF9),
                           borderRadius: BorderRadius.circular(13),
                         ),
-                        child: Text(
-                          m.text,
-                          style: TextStyle(
-                            fontSize: 9,
-                            height: 1.7,
-                            color: m.me ? Colors.white : Eps.ink,
-                          ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            if (m.image != null)
+                              Padding(
+                                padding: const EdgeInsets.only(bottom: 6),
+                                child: ClipRRect(
+                                  borderRadius: BorderRadius.circular(9),
+                                  child: Image.memory(
+                                    m.image!,
+                                    height: 150,
+                                    fit: BoxFit.cover,
+                                  ),
+                                ),
+                              ),
+                            SelectableText(
+                              m.text,
+                              style: TextStyle(
+                                fontSize: 9,
+                                height: 1.7,
+                                color: m.me ? Colors.white : Eps.ink,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                     ),
@@ -1651,6 +1797,65 @@ class _AssistantScreenState extends State<AssistantScreen> {
                 ],
               ),
             ),
+            if (photo != null || preparingPhoto)
+              Container(
+                margin: const EdgeInsets.fromLTRB(18, 0, 18, 6),
+                padding: const EdgeInsets.all(6),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Eps.line),
+                ),
+                child: Row(
+                  children: [
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(8),
+                      child: photo == null
+                          ? const SizedBox(
+                              width: 44,
+                              height: 44,
+                              child: Center(
+                                child: SizedBox(
+                                  width: 16,
+                                  height: 16,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                ),
+                              ),
+                            )
+                          : Image.memory(
+                              photo!.bytes,
+                              width: 44,
+                              height: 44,
+                              fit: BoxFit.cover,
+                            ),
+                    ),
+                    const SizedBox(width: 8),
+                    const Expanded(
+                      child: Text(
+                        'صورة التمرين جاهزة. اكتب سؤالك أو اضغط إرسال مباشرة.',
+                        style: TextStyle(fontSize: 8, color: Eps.muted),
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: 'إزالة الصورة',
+                      icon: const Icon(Icons.close_rounded, size: 18),
+                      onPressed: () => setState(() => photo = null),
+                    ),
+                  ],
+                ),
+              ),
+            if (listening)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 4),
+                child: Text(
+                  french
+                      ? '● Parlez maintenant… (اضغط الميكروفون للإيقاف)'
+                      : '● تكلم الآن… (اضغط الميكروفون للإيقاف)',
+                  style: const TextStyle(fontSize: 9, color: Eps.red),
+                ),
+              ),
             SizedBox(
               height: 30,
               child: ListView(
@@ -1681,21 +1886,50 @@ class _AssistantScreenState extends State<AssistantScreen> {
               ),
             ),
             Container(
-              height: 46,
               margin: const EdgeInsets.fromLTRB(18, 8, 18, 10),
-              padding: const EdgeInsets.symmetric(horizontal: 6),
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
               decoration: BoxDecoration(
                 color: Colors.white,
                 borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: Eps.line),
+                border: Border.all(color: listening ? Eps.red : Eps.line),
               ),
               child: Row(
                 children: [
-                  const SizedBox(width: 6),
+                  roundButton(
+                    Icons.photo_camera_outlined,
+                    thinking ? null : pickPhoto,
+                    tooltip: 'صوّر التمرين',
+                  ),
+                  const SizedBox(width: 5),
+                  roundButton(
+                    listening ? Icons.stop_rounded : Icons.mic_none_rounded,
+                    thinking ? null : toggleVoice,
+                    color: listening ? Eps.red : Eps.blueSoft,
+                    ink: listening ? Colors.white : Eps.blue,
+                    tooltip: 'اسأل بصوتك',
+                  ),
+                  GestureDetector(
+                    onTap: listening
+                        ? null
+                        : () => setState(() => french = !french),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 6),
+                      child: Text(
+                        french ? 'FR' : 'ع',
+                        style: const TextStyle(
+                          fontSize: 9,
+                          fontWeight: FontWeight.w800,
+                          color: Eps.muted,
+                        ),
+                      ),
+                    ),
+                  ),
                   Expanded(
                     child: TextField(
                       controller: input,
                       onSubmitted: ask,
+                      minLines: 1,
+                      maxLines: 4,
                       style: const TextStyle(fontSize: 9),
                       decoration: const InputDecoration(
                         isCollapsed: true,
@@ -1708,21 +1942,12 @@ class _AssistantScreenState extends State<AssistantScreen> {
                       ),
                     ),
                   ),
-                  GestureDetector(
-                    onTap: () => ask(input.text),
-                    child: Container(
-                      width: 34,
-                      height: 34,
-                      decoration: BoxDecoration(
-                        color: Eps.blue,
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: const Icon(
-                        Icons.send_rounded,
-                        color: Colors.white,
-                        size: 16,
-                      ),
-                    ),
+                  roundButton(
+                    Icons.send_rounded,
+                    thinking ? null : () => ask(input.text),
+                    color: Eps.blue,
+                    ink: Colors.white,
+                    tooltip: 'إرسال',
                   ),
                 ],
               ),
@@ -2017,8 +2242,19 @@ class WelcomeScreen extends StatelessWidget {
 }
 
 /// Shrinks a picked photo to a 256px square-ish PNG so it stays small.
-Future<String> avatarDataUri(Uint8List bytes) async {
-  final codec = await ui.instantiateImageCodec(bytes, targetWidth: 256);
+Future<String> avatarDataUri(Uint8List bytes) =>
+    shrinkImageDataUri(bytes, width: 256);
+
+/// Re-encodes a photo at most [width] pixels wide, as a PNG data URI.
+Future<String> shrinkImageDataUri(Uint8List bytes, {required int width}) async {
+  final probe = await ui.instantiateImageCodec(bytes);
+  final first = await probe.getNextFrame();
+  final original = first.image.width;
+  first.image.dispose();
+  final codec = await ui.instantiateImageCodec(
+    bytes,
+    targetWidth: original > width ? width : null,
+  );
   final frame = await codec.getNextFrame();
   final data = await frame.image.toByteData(format: ui.ImageByteFormat.png);
   frame.image.dispose();

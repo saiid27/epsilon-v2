@@ -792,15 +792,23 @@ class LearnRepository {
     ]);
   }
 
-  Future<int> assistantQuestionsToday(String userId) async {
+  /// Today's assistant use: text questions and photo questions.
+  Future<({int questions, int images})> assistantUsageToday(
+    String userId,
+  ) async {
     final rows = _list(
       await client
           .from('assistant_usage')
-          .select('questions')
+          .select()
           .eq('user_id', userId)
-          .eq('day', DateTime.now().toIso8601String().substring(0, 10)),
+          .eq('day', DateTime.now().toUtc().toIso8601String().substring(0, 10)),
     );
-    return rows.isEmpty ? 0 : _int(rows.first['questions']);
+    return rows.isEmpty
+        ? (questions: 0, images: 0)
+        : (
+            questions: _int(rows.first['questions']),
+            images: _int(rows.first['images']),
+          );
   }
 
   /// Calls the `livekit` edge function: `token`, `start`, `record`, `end`.
@@ -886,24 +894,37 @@ class LearnRepository {
           )
           .subscribe();
 
-  Future<String> askAssistant({
+  /// Asks the assistant. [image] (a data URI) goes with the last question.
+  Future<({String reply, int? questionsLeft, int? imagesLeft})> askAssistant({
     required String userId,
     required List<Map<String, String>> messages,
     String? lessonTitle,
     String? subjectName,
+    String? image,
   }) async {
-    final response = await client.functions.invoke(
-      'assistant',
-      body: {
-        'userId': userId,
-        'messages': messages,
-        'lessonTitle': lessonTitle,
-        'subjectName': subjectName,
-      },
-    );
-    final data = response.data;
+    Object? data;
+    try {
+      final response = await client.functions.invoke(
+        'assistant',
+        body: {
+          'userId': userId,
+          'messages': messages,
+          'lessonTitle': lessonTitle,
+          'subjectName': subjectName,
+          'image': ?image,
+        },
+      );
+      data = response.data;
+    } on FunctionException catch (e) {
+      data = e.details;
+    }
     if (data is Map && data['reply'] != null) {
-      return '${data['reply']}';
+      int? n(Object? v) => v is num ? v.toInt() : null;
+      return (
+        reply: '${data['reply']}',
+        questionsLeft: n(data['questionsLeft']),
+        imagesLeft: n(data['imagesLeft']),
+      );
     }
     throw Exception(
       data is Map && data['message'] != null

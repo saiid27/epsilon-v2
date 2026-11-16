@@ -26,6 +26,7 @@ dependencies:
   web: ^1.1.1
   livekit_client: ^2.13.2
   timezone: ^0.11.2
+  speech_to_text: ^7.5.0
 
 dev_dependencies:
   flutter_test:
