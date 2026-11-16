@@ -31,3 +31,13 @@ end $$;
 update public.plans
    set features = '["البث المباشر المجاني","ملفات PDF مختارة"]'::jsonb
  where code = 'free';
+
+-- Subscriptions are yearly only. A subject's price (subjects.monthly_price)
+-- is its yearly price. The other plans stay for existing subscriptions but
+-- are no longer offered.
+alter table public.plans add column if not exists active boolean not null default true;
+insert into public.plans(code, title, subtitle, badge, months, discount_percent, is_free, features, sort_order)
+values ('yearly', 'الاشتراك السنوي', 'سنة دراسية كاملة', 'سنوي', 12, 0, false,
+        '["جميع الدروس والشروحات","البث المباشر للمادة","التمارين والاختبارات"]'::jsonb, 1)
+on conflict (code) do update set active = true, months = 12;
+update public.plans set active = false where code in ('monthly', 'semester');

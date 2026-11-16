@@ -423,7 +423,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
                 child: _SelectionBar(
                   count: learn.cart.length,
                   total: learn.cartMonthlyTotal,
-                  onCheckout: () => pushPage(context, const PlansScreen()),
+                  onCheckout: () => openPlansOrCheckout(context),
                 ),
               ),
           ],
@@ -445,10 +445,12 @@ class _CatalogCard extends StatelessWidget {
     final sub = learn.subscriptionFor(subject.id);
     final badge = subscriptionBadge(sub);
     final teacher = learn.teacherById(subject.teacherId);
+    final available = learn.isAvailable(subject.id);
     final canSelect =
-        sub == null ||
-        sub.status == SubscriptionStatus.expired ||
-        sub.status == SubscriptionStatus.rejected;
+        available &&
+        (sub == null ||
+            sub.status == SubscriptionStatus.expired ||
+            sub.status == SubscriptionStatus.rejected);
     return GestureDetector(
       onTap: () {
         learn.openSubject(subject.id);
@@ -473,15 +475,12 @@ class _CatalogCard extends StatelessWidget {
               ),
               child: Stack(
                 children: [
-                  Center(
-                    child: Text(
-                      subject.icon,
-                      textDirection: TextDirection.ltr,
-                      style: const TextStyle(
-                        fontFamily: Eps.fontNum,
-                        fontSize: 28,
-                        fontWeight: FontWeight.w800,
+                  Positioned.fill(
+                    child: Center(
+                      child: SubjectName(
+                        subject: subject,
                         color: Eps.blue,
+                        fontSize: 15,
                       ),
                     ),
                   ),
@@ -517,7 +516,13 @@ class _CatalogCard extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  if (badge != null) EpsBadge(badge.$1, tone: badge.$2),
+                  if (badge != null)
+                    EpsBadge(badge.$1, tone: badge.$2)
+                  else if (!available)
+                    const EpsBadge(
+                      'الاشتراك غير متوفر حالياً',
+                      tone: EpsTone.gray,
+                    ),
                   const SizedBox(height: 3),
                   Text(
                     subject.name,
@@ -539,7 +544,7 @@ class _CatalogCard extends StatelessWidget {
                       ),
                       const Spacer(),
                       Text(
-                        '${formatMru(subject.monthlyPrice)} أوقية / شهر',
+                        '${formatMru(subject.monthlyPrice)} أوقية / سنة',
                         style: const TextStyle(
                           fontSize: 10,
                           fontWeight: FontWeight.w700,
@@ -628,7 +633,7 @@ class _SelectionBar extends StatelessWidget {
                   ),
                 ),
                 Text(
-                  '${formatMru(total)} MRU / شهر',
+                  '${formatMru(total)} MRU / سنة',
                   style: const TextStyle(
                     fontSize: 7,
                     fontWeight: FontWeight.w500,
@@ -768,15 +773,10 @@ class _SubjectDetailScreenState extends State<SubjectDetailScreen> {
                                 color: const Color(0x30FFFFFF),
                               ),
                             ),
-                            child: Text(
-                              s.icon,
-                              textDirection: TextDirection.ltr,
-                              style: const TextStyle(
-                                fontFamily: Eps.fontNum,
-                                fontSize: 30,
-                                fontWeight: FontWeight.w800,
-                                color: Colors.white,
-                              ),
+                            child: SubjectName(
+                              subject: s,
+                              color: Colors.white,
+                              fontSize: 12,
                             ),
                           ),
                           const SizedBox(height: 14),
@@ -1046,7 +1046,7 @@ class _SubjectDetailScreenState extends State<SubjectDetailScreen> {
                           children: [
                             const Expanded(
                               child: Text(
-                                'الاشتراك الشهري',
+                                'الاشتراك السنوي',
                                 style: TextStyle(fontSize: 9, color: Eps.blue),
                               ),
                             ),
@@ -1061,7 +1061,7 @@ class _SubjectDetailScreenState extends State<SubjectDetailScreen> {
                             ),
                             const SizedBox(width: 4),
                             const Text(
-                              'أوقية / شهر',
+                              'أوقية / سنة',
                               style: TextStyle(
                                 fontSize: 7,
                                 fontWeight: FontWeight.w800,
@@ -1091,18 +1091,24 @@ class _SubjectDetailScreenState extends State<SubjectDetailScreen> {
                   ),
                 ),
                 child: EpsPrimaryButton(
-                  label: subscribed ? 'افتح المادة' : 'متابعة للدفع',
+                  label: subscribed
+                      ? 'افتح المادة'
+                      : learn.isAvailable(s.id)
+                      ? 'متابعة للدفع'
+                      : 'الاشتراك غير متوفر حالياً',
                   icon: Icons.chevron_right_rounded,
-                  onPressed: () {
-                    if (subscribed) {
-                      pushPage(context, CourseScreen(subjectId: s.id));
-                      return;
-                    }
-                    if (!learn.cart.contains(s.id)) {
-                      learn.toggleCart(s.id);
-                    }
-                    pushPage(context, const PlansScreen());
-                  },
+                  onPressed: !subscribed && !learn.isAvailable(s.id)
+                      ? null
+                      : () {
+                          if (subscribed) {
+                            pushPage(context, CourseScreen(subjectId: s.id));
+                            return;
+                          }
+                          if (!learn.cart.contains(s.id)) {
+                            learn.toggleCart(s.id);
+                          }
+                          openPlansOrCheckout(context);
+                        },
                 ),
               ),
             ),
@@ -1119,6 +1125,19 @@ class _SubjectDetailScreenState extends State<SubjectDetailScreen> {
 }
 
 /// Plan picker (Figma: plans).
+/// With a single paid plan (yearly) go straight to payment; otherwise let the
+/// student choose the plan.
+void openPlansOrCheckout(BuildContext context) {
+  final learn = LearnScope.read(context);
+  final paid = learn.plans.where((p) => !p.isFree).toList();
+  if (paid.length == 1) {
+    learn.selectPlan(paid.first.code);
+    pushPage(context, const CheckoutScreen());
+    return;
+  }
+  pushPage(context, const PlansScreen());
+}
+
 class PlansScreen extends StatelessWidget {
   const PlansScreen({super.key});
 
@@ -1424,8 +1443,8 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                     Text(
                       plan == null
                           ? ''
-                          : plan.months <= 1
-                          ? 'اشتراك شهري قابل للتجديد'
+                          : plan.months >= 12
+                          ? 'اشتراك سنوي'
                           : 'اشتراك ${plan.months} أشهر',
                       style: const TextStyle(
                         fontSize: 7,

@@ -225,15 +225,47 @@ class SubjectMark extends StatelessWidget {
         color: subject.color,
         borderRadius: BorderRadius.circular(radius),
       ),
-      child: Text(
-        subject.icon,
-        textDirection: TextDirection.ltr,
-        style: TextStyle(
-          fontFamily: Eps.fontNum,
-          fontSize: fontSize,
-          fontWeight: FontWeight.w800,
-          color: subjectInk(subject.color),
-          height: 1,
+      child: SubjectName(
+        subject: subject,
+        color: subjectInk(subject.color),
+        fontSize: fontSize * 0.6,
+      ),
+    );
+  }
+}
+
+/// The subject's name written inside its logo, shrunk to fit.
+class SubjectName extends StatelessWidget {
+  const SubjectName({
+    required this.subject,
+    required this.color,
+    this.fontSize = 14,
+    super.key,
+  });
+
+  final EpsSubject subject;
+  final Color color;
+  final double fontSize;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.all(5),
+      child: FittedBox(
+        fit: BoxFit.scaleDown,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(maxWidth: fontSize * 7),
+          child: Text(
+            subject.name,
+            textAlign: TextAlign.center,
+            maxLines: 3,
+            style: TextStyle(
+              fontSize: fontSize,
+              fontWeight: FontWeight.w800,
+              color: color,
+              height: 1.15,
+            ),
+          ),
         ),
       ),
     );

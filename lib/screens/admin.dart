@@ -713,7 +713,7 @@ class _AdminConsoleState extends State<AdminConsole> {
     const _Field('level', 'المستوى (L1، L2…)'),
     const _Field(
       'monthly_price',
-      'السعر الشهري (MRU)',
+      'سعر الاشتراك السنوي (MRU)',
       kind: _FieldKind.number,
     ),
     const _Field('discount', 'الخصم %', kind: _FieldKind.number),
@@ -755,7 +755,7 @@ class _AdminConsoleState extends State<AdminConsole> {
         subtitle: [
           if ('${s['level']}'.isNotEmpty) '${s['level']}',
           if ('${s['faculty']}'.isNotEmpty) '${s['faculty']}',
-          'MRU ${formatMru((s['monthly_price'] as num?)?.toInt() ?? 0)} / شهر',
+          'MRU ${formatMru((s['monthly_price'] as num?)?.toInt() ?? 0)} / سنة',
           teacherOptions['${s['teacher_id']}'] ?? 'بدون أستاذ',
         ].join(' • '),
         badges: [

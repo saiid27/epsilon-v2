@@ -117,6 +117,7 @@ class EpsPlan {
       months = _int(r['months']),
       discountPercent = _int(r['discount_percent']),
       isFree = _bool(r['is_free']),
+      active = r['active'] == null || _bool(r['active']),
       features = _strings(r['features']);
 
   final String code;
@@ -126,13 +127,17 @@ class EpsPlan {
   final int months;
   final int discountPercent;
   final bool isFree;
+
+  /// Plans switched off by the admin (only the yearly plan is offered).
+  final bool active;
   final List<String> features;
 
-  int priceFor(int monthlyTotal) {
+  /// A subject's price is its yearly subscription price.
+  int priceFor(int yearlyTotal) {
     if (isFree) {
       return 0;
     }
-    final full = monthlyTotal * months;
+    final full = yearlyTotal * (months <= 0 ? 12 : months) / 12;
     return (full * (100 - discountPercent) / 100).round();
   }
 }
@@ -970,7 +975,22 @@ class LearnStore extends ChangeNotifier {
 
   /// Subjects chosen in the catalog before checkout.
   final Set<String> cart = {};
-  String selectedPlanCode = 'monthly';
+  String selectedPlanCode = 'yearly';
+
+  /// Offered plans, and the selected one kept among them.
+  void _setPlans(List<EpsPlan> all) {
+    plans = all.where((p) => p.active).toList();
+    if (!plans.any((p) => p.code == selectedPlanCode)) {
+      final paid = plans.where((p) => !p.isFree).firstOrNull;
+      if (paid != null) {
+        selectedPlanCode = paid.code;
+      }
+    }
+  }
+
+  /// Subjects open for subscription: those with at least one lesson. The
+  /// status changes on its own as soon as lessons are uploaded.
+  bool isAvailable(String subjectId) => lessonsFor(subjectId).isNotEmpty;
 
   /// Subject the student is currently browsing.
   String? currentSubjectId;
@@ -1024,7 +1044,7 @@ class LearnStore extends ChangeNotifier {
           .where((s) => s.isActive)
           .toList();
       teachers = results[2]! as List<EpsTeacher>;
-      plans = results[3]! as List<EpsPlan>;
+      _setPlans(results[3]! as List<EpsPlan>);
       subscriptions = results[4]! as List<EpsSubscription>;
       lessons = (results[5]! as List<EpsLesson>)
           .where((l) => l.isPublished)
@@ -1072,12 +1092,16 @@ class LearnStore extends ChangeNotifier {
         repo.subjects(),
         repo.teachers(),
         repo.plans(),
+        repo.lessons(),
       ]);
       subjects = (results[0] as List<EpsSubject>)
           .where((s) => s.isActive)
           .toList();
       teachers = results[1] as List<EpsTeacher>;
-      plans = results[2] as List<EpsPlan>;
+      _setPlans(results[2] as List<EpsPlan>);
+      lessons = (results[3] as List<EpsLesson>)
+          .where((l) => l.isPublished)
+          .toList();
       notifyListeners();
     } on Object {
       // The catalog screens show their empty state.
@@ -1179,6 +1203,9 @@ class LearnStore extends ChangeNotifier {
   // Actions ---------------------------------------------------------------
 
   void toggleCart(String subjectId) {
+    if (!cart.contains(subjectId) && !isAvailable(subjectId)) {
+      return;
+    }
     cart.contains(subjectId) ? cart.remove(subjectId) : cart.add(subjectId);
     notifyListeners();
   }
