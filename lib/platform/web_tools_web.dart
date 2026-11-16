@@ -40,6 +40,17 @@ Future<WebPickedFile?> pickWebFile(String accept) {
   return completer.future;
 }
 
+/// Saves [bytes] as a download named [name] in the browser.
+void downloadWebFile(Uint8List bytes, String name, String mimeType) {
+  final blob = web.Blob([bytes.toJS].toJS, web.BlobPropertyBag(type: mimeType));
+  final url = web.URL.createObjectURL(blob);
+  web.HTMLAnchorElement()
+    ..href = url
+    ..download = name
+    ..click();
+  web.URL.revokeObjectURL(url);
+}
+
 final _registered = <String>{};
 
 /// Shows [url] (YouTube, a PDF, a live stream page...) inside the app.

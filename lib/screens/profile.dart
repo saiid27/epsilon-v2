@@ -1459,16 +1459,24 @@ class AssistantScreen extends StatefulWidget {
 
 class _AssistantScreenState extends State<AssistantScreen> {
   static const dailyQuestions = 10;
-  static const dailyImages = 6;
+  static const dailyFiles = 6;
   final input = TextEditingController();
-  final messages = <({bool me, String text, Uint8List? image})>[];
+  final messages = <({bool me, String text, Uint8List? image, String? file})>[];
+
+  /// Credit left (daily allowance; unused credit carries over).
   int questionsLeft = dailyQuestions;
-  int imagesLeft = dailyImages;
+  int filesLeft = dailyFiles;
   bool thinking = false;
 
   /// Photo of an exercise waiting to be sent with the next question.
   ({Uint8List bytes, String dataUri})? photo;
   bool preparingPhoto = false;
+
+  /// PDF file (course, exam...) waiting to be sent with the next question.
+  ({String name, String dataUri})? pdf;
+
+  /// Largest PDF accepted, in bytes.
+  static const maxPdfBytes = 7 * 1024 * 1024;
 
   /// How the assistant answers: full solution, hint, explanation, check of
   /// the student's own work, or practice exercises.
@@ -1478,6 +1486,9 @@ class _AssistantScreenState extends State<AssistantScreen> {
     ('explain', 'اشرح المفهوم', Icons.menu_book_outlined),
     ('check', 'صحّح حلي', Icons.fact_check_outlined),
     ('practice', 'تمارين مشابهة', Icons.repeat_rounded),
+    ('pdf', 'اشرح ملف PDF', Icons.picture_as_pdf_outlined),
+    ('cv', 'سيرتي الذاتية CV', Icons.badge_outlined),
+    ('write', 'رسالة أو تقرير', Icons.edit_note_rounded),
   ];
   String mode = 'solve';
 
@@ -1496,24 +1507,18 @@ class _AssistantScreenState extends State<AssistantScreen> {
         () => messages.add((
           me: false,
           text:
-              'مرحباً $name! أنا مساعد إبسيلون. اكتب سؤالك، أو صوّر التمرين، أو اسألني بصوتك${widget.lessonTitle == null ? '' : ' عن درس «${widget.lessonTitle}»'}.',
+              'مرحباً $name! أنا مساعد إبسيلون. أحل وأشرح تمارينك${widget.lessonTitle == null ? '' : ' في درس «${widget.lessonTitle}»'}، وأشرح ملفات PDF، وأكتب سيرتك الذاتية ورسائلك وتقاريرك. اكتب، أو صوّر، أو أرفق ملفاً، أو تكلم.',
           image: null,
+          file: null,
         )),
       );
       if (learn.enabled && learn.userId != null) {
-        try {
-          final used = await learn.repo.assistantUsageToday(learn.userId!);
-          if (mounted) {
-            setState(() {
-              questionsLeft = (dailyQuestions - used.questions).clamp(
-                0,
-                dailyQuestions,
-              );
-              imagesLeft = (dailyImages - used.images).clamp(0, dailyImages);
-            });
-          }
-        } on Object {
-          // Counter is informative only.
+        final balance = await learn.repo.assistantBalance(learn.userId!);
+        if (balance != null && mounted) {
+          setState(() {
+            questionsLeft = balance.questions;
+            filesLeft = balance.files;
+          });
         }
       }
     });
@@ -1526,12 +1531,76 @@ class _AssistantScreenState extends State<AssistantScreen> {
     super.dispose();
   }
 
-  void say(String text) =>
-      setState(() => messages.add((me: false, text: text, image: null)));
+  void say(String text) => setState(
+    () => messages.add((me: false, text: text, image: null, file: null)),
+  );
+
+  Future<void> pickPdf() async {
+    if (filesLeft <= 0) {
+      say('نفد رصيد الصور والملفات. يتجدد غداً.');
+      return;
+    }
+    final picked = await NativeFilePicker.pickPdf();
+    if (picked == null) {
+      return;
+    }
+    try {
+      final bytes =
+          NativeFilePicker.webFiles[picked.path] ??
+          await File(picked.path).readAsBytes();
+      if (bytes.length > maxPdfBytes) {
+        say('الملف كبير جداً (الحد 7 ميغابايت). أرسل جزءاً منه.');
+        return;
+      }
+      if (mounted) {
+        setState(() {
+          photo = null;
+          pdf = (
+            name: picked.name,
+            dataUri: 'data:application/pdf;base64,${base64Encode(bytes)}',
+          );
+        });
+      }
+    } on Object {
+      say('تعذر قراءة الملف، جرّب ملفاً آخر.');
+    }
+  }
+
+  /// Saves an answer (a CV, a letter, a solution...) as a PDF file.
+  Future<void> savePdf(String text) async {
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final cv = mode == 'cv';
+      final bytes = await answerPdfBytes(
+        text,
+        title: cv ? null : 'مساعد إبسيلون',
+      );
+      final name = cv
+          ? 'CV.pdf'
+          : 'epsilon-${DateTime.now().millisecondsSinceEpoch}.pdf';
+      if (kIsWeb) {
+        downloadWebFile(bytes, name, 'application/pdf');
+        return;
+      }
+      final dir = await getTemporaryDirectory();
+      final file = File('${dir.path}/$name');
+      await file.writeAsBytes(bytes);
+      await share.SharePlus.instance.share(
+        share.ShareParams(
+          files: [
+            share.XFile(file.path, mimeType: 'application/pdf', name: name),
+          ],
+          fileNameOverrides: [name],
+        ),
+      );
+    } on Object catch (e) {
+      messenger.showSnackBar(SnackBar(content: Text('تعذر إنشاء PDF: $e')));
+    }
+  }
 
   Future<void> pickPhoto() async {
-    if (imagesLeft <= 0) {
-      say('وصلت إلى الحد اليومي للصور ($dailyImages). يمكنك كتابة السؤال.');
+    if (filesLeft <= 0) {
+      say('نفد رصيد الصور والملفات. يتجدد غداً.');
       return;
     }
     final picked = await NativeFilePicker.pickImage();
@@ -1545,7 +1614,10 @@ class _AssistantScreenState extends State<AssistantScreen> {
           await File(picked.path).readAsBytes();
       final dataUri = await shrinkImageDataUri(bytes, width: 1100);
       if (mounted) {
-        setState(() => photo = (bytes: bytes, dataUri: dataUri));
+        setState(() {
+          pdf = null;
+          photo = (bytes: bytes, dataUri: dataUri);
+        });
       }
     } on Object {
       say('تعذر قراءة الصورة، جرّب صورة أخرى.');
@@ -1600,7 +1672,11 @@ class _AssistantScreenState extends State<AssistantScreen> {
 
   Future<void> ask(String text) async {
     final sending = photo;
+    final sendingPdf = pdf;
     var q = text.trim();
+    if (q.isEmpty && sendingPdf != null) {
+      q = 'اشرح هذا الملف وعلّق عليه';
+    }
     if (q.isEmpty && sending != null) {
       q = switch (mode) {
         'hint' => 'أعطني تلميحاً لحل هذا التمرين',
@@ -1613,10 +1689,9 @@ class _AssistantScreenState extends State<AssistantScreen> {
     if (q.isEmpty || thinking) {
       return;
     }
-    if (sending == null && questionsLeft <= 0) {
-      say(
-        'وصلت إلى الحد اليومي للأسئلة ($dailyQuestions). عد غداً، أو صوّر تمريناً إن بقيت لك صور.',
-      );
+    final hasFile = sending != null || sendingPdf != null;
+    if (!hasFile && questionsLeft <= 0) {
+      say('نفد رصيد الأسئلة. يتجدد غداً، وما لا تستعمله يُضاف لرصيدك.');
       return;
     }
     if (listening) {
@@ -1628,8 +1703,14 @@ class _AssistantScreenState extends State<AssistantScreen> {
     final learn = LearnScope.read(context);
     input.clear();
     setState(() {
-      messages.add((me: true, text: q, image: sending?.bytes));
+      messages.add((
+        me: true,
+        text: q,
+        image: sending?.bytes,
+        file: sendingPdf?.name,
+      ));
       photo = null;
+      pdf = null;
       listening = false;
       thinking = true;
     });
@@ -1663,6 +1744,9 @@ class _AssistantScreenState extends State<AssistantScreen> {
         lessonTitle: widget.lessonTitle,
         subjectName: widget.subjectName,
         image: sending?.dataUri,
+        document: sendingPdf?.dataUri,
+        documentName: sendingPdf?.name,
+        studentName: StoreScope.of(context).currentUser?.name,
         mode: mode,
         studentLevel: profile == null
             ? null
@@ -1683,18 +1767,20 @@ class _AssistantScreenState extends State<AssistantScreen> {
           for (final m in messages.skip(1))
             {
               'role': m.me ? 'user' : 'assistant',
-              'content': m.image == null ? m.text : '[صورة تمرين] ${m.text}',
+              'content': m.file != null
+                  ? '[ملف PDF: ${m.file}] ${m.text}'
+                  : m.image != null
+                  ? '[صورة] ${m.text}'
+                  : m.text,
             },
         ],
       );
       setState(() {
-        messages.add((me: false, text: answer.reply, image: null));
+        messages.add((me: false, text: answer.reply, image: null, file: null));
         questionsLeft =
             answer.questionsLeft ??
-            (sending == null ? questionsLeft - 1 : questionsLeft);
-        imagesLeft =
-            answer.imagesLeft ??
-            (sending == null ? imagesLeft : imagesLeft - 1);
+            (hasFile ? questionsLeft : questionsLeft - 1);
+        filesLeft = answer.filesLeft ?? (hasFile ? filesLeft - 1 : filesLeft);
       });
     } on Object catch (e) {
       say(e.toString().replaceFirst('Exception: ', ''));
@@ -1777,7 +1863,7 @@ class _AssistantScreenState extends State<AssistantScreen> {
                       ],
                     ),
                   ),
-                  EpsBadge('اليوم: $questionsLeft أسئلة • $imagesLeft صور'),
+                  EpsBadge('رصيدك: $questionsLeft سؤال • $filesLeft ملف'),
                 ],
               ),
             ),
@@ -1814,6 +1900,32 @@ class _AssistantScreenState extends State<AssistantScreen> {
                                   ),
                                 ),
                               ),
+                            if (m.file != null)
+                              Padding(
+                                padding: const EdgeInsets.only(bottom: 6),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    const Icon(
+                                      Icons.picture_as_pdf_rounded,
+                                      color: Colors.white,
+                                      size: 16,
+                                    ),
+                                    const SizedBox(width: 4),
+                                    Flexible(
+                                      child: Text(
+                                        m.file!,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(
+                                          fontSize: 8,
+                                          color: Colors.white,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
                             if (m.me)
                               SelectableText(
                                 m.text,
@@ -1823,8 +1935,30 @@ class _AssistantScreenState extends State<AssistantScreen> {
                                   color: Colors.white,
                                 ),
                               )
-                            else
+                            else ...[
                               MathAnswer(text: m.text),
+                              if (m != messages.first)
+                                Align(
+                                  alignment: AlignmentDirectional.centerEnd,
+                                  child: TextButton.icon(
+                                    onPressed: () => savePdf(m.text),
+                                    style: TextButton.styleFrom(
+                                      visualDensity: VisualDensity.compact,
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 6,
+                                      ),
+                                    ),
+                                    icon: const Icon(
+                                      Icons.picture_as_pdf_outlined,
+                                      size: 15,
+                                    ),
+                                    label: const Text(
+                                      'حفظ PDF',
+                                      style: TextStyle(fontSize: 9),
+                                    ),
+                                  ),
+                                ),
+                            ],
                           ],
                         ),
                       ),
@@ -1844,6 +1978,39 @@ class _AssistantScreenState extends State<AssistantScreen> {
                 ],
               ),
             ),
+            if (pdf != null)
+              Container(
+                margin: const EdgeInsets.fromLTRB(18, 0, 18, 6),
+                padding: const EdgeInsets.all(6),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Eps.line),
+                ),
+                child: Row(
+                  children: [
+                    const EpsMark(
+                      icon: Icons.picture_as_pdf_rounded,
+                      tone: EpsTone.red,
+                      size: 44,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        '${pdf!.name}\nاكتب سؤالك عن الملف أو اضغط إرسال مباشرة.',
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontSize: 8, color: Eps.muted),
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: 'إزالة الملف',
+                      icon: const Icon(Icons.close_rounded, size: 18),
+                      onPressed: () => setState(() => pdf = null),
+                    ),
+                  ],
+                ),
+              ),
             if (photo != null || preparingPhoto)
               Container(
                 margin: const EdgeInsets.fromLTRB(18, 0, 18, 6),
@@ -1913,7 +2080,12 @@ class _AssistantScreenState extends State<AssistantScreen> {
                     Padding(
                       padding: const EdgeInsetsDirectional.only(end: 6),
                       child: GestureDetector(
-                        onTap: () => setState(() => mode = code),
+                        onTap: () {
+                          setState(() => mode = code);
+                          if (code == 'pdf' && pdf == null) {
+                            pickPdf();
+                          }
+                        },
                         child: AnimatedContainer(
                           duration: const Duration(milliseconds: 150),
                           padding: const EdgeInsets.symmetric(horizontal: 10),
@@ -1963,6 +2135,12 @@ class _AssistantScreenState extends State<AssistantScreen> {
                     Icons.photo_camera_outlined,
                     thinking ? null : pickPhoto,
                     tooltip: 'صوّر التمرين',
+                  ),
+                  const SizedBox(width: 5),
+                  roundButton(
+                    Icons.attach_file_rounded,
+                    thinking ? null : pickPdf,
+                    tooltip: 'أرفق ملف PDF',
                   ),
                   const SizedBox(width: 5),
                   roundButton(
@@ -2021,6 +2199,208 @@ class _AssistantScreenState extends State<AssistantScreen> {
       ),
     );
   }
+}
+
+/// LaTeX written as plain text for the PDF export (\frac{a}{b} → (a)/(b)...).
+String plainMaths(String text) {
+  var t = text.replaceAll(r'$$', '').replaceAll(r'$', '');
+  final frac = RegExp(r'\\[dt]?frac\{([^{}]*)\}\{([^{}]*)\}');
+  for (var i = 0; i < 3 && frac.hasMatch(t); i++) {
+    t = t.replaceAllMapped(frac, (m) => '(${m[1]})/(${m[2]})');
+  }
+  const symbols = {
+    r'\sqrt': '√',
+    r'\int': '∫',
+    r'\sum': 'Σ',
+    r'\prod': 'Π',
+    r'\infty': '∞',
+    r'\leq': '≤',
+    r'\geq': '≥',
+    r'\le': '≤',
+    r'\ge': '≥',
+    r'\neq': '≠',
+    r'\approx': '≈',
+    r'\times': '×',
+    r'\cdot': '·',
+    r'\pm': '±',
+    r'\to': '→',
+    r'\Rightarrow': '⇒',
+    r'\iff': '⇔',
+    r'\in': ' dans ',
+    r'\forall': 'pour tout ',
+    r'\exists': 'il existe ',
+    r'\partial': '∂',
+    r'\alpha': 'α',
+    r'\beta': 'β',
+    r'\gamma': 'γ',
+    r'\delta': 'δ',
+    r'\Delta': 'Δ',
+    r'\varepsilon': 'ε',
+    r'\epsilon': 'ε',
+    r'\lambda': 'λ',
+    r'\mu': 'μ',
+    r'\pi': 'π',
+    r'\sigma': 'σ',
+    r'\theta': 'θ',
+    r'\omega': 'ω',
+    r'\left': '',
+    r'\right': '',
+    r'\,': ' ',
+    r'\;': ' ',
+    r'\quad': '  ',
+  };
+  final keys = symbols.keys.toList()
+    ..sort((a, b) => b.length.compareTo(a.length));
+  for (final k in keys) {
+    t = t.replaceAll(k, symbols[k]!);
+  }
+  return t
+      .replaceAll(RegExp(r'\\[a-zA-Z]+'), '')
+      .replaceAll('{', '')
+      .replaceAll('}', '')
+      .replaceAll(RegExp('[✓✔✅]'), '');
+}
+
+/// Builds a printable PDF from an assistant answer (### titles, lists,
+/// paragraphs; Arabic lines right-to-left, French lines left-to-right).
+Future<Uint8List> answerPdfBytes(String text, {String? title}) async {
+  final arabic = pw.Font.ttf(
+    await rootBundle.load('assets/fonts/SFArabic.ttf'),
+  );
+  // Inter covers French accents and the maths symbols used above.
+  final latin = pw.Font.ttf(
+    await rootBundle.load('assets/fonts/Inter-Regular.ttf'),
+  );
+  final latinBold = pw.Font.ttf(
+    await rootBundle.load('assets/fonts/Inter-SemiBold.ttf'),
+  );
+  final doc = pw.Document();
+  final arabicChar = RegExp(r'[\u0600-\u06FF]');
+  // Arabic is only joined in right-to-left runs: any Arabic word makes the
+  // line right-to-left.
+  pw.TextDirection dirOf(String line) =>
+      arabicChar.hasMatch(line) ? pw.TextDirection.rtl : pw.TextDirection.ltr;
+
+  pw.TextStyle style(bool heading) => pw.TextStyle(
+    fontSize: heading ? 13 : 11,
+    fontWeight: heading ? pw.FontWeight.bold : pw.FontWeight.normal,
+    color: heading ? PdfColor.fromInt(0xFF2F5BD3) : PdfColors.black,
+    lineSpacing: 3,
+  );
+
+  // The PDF library reverses French and maths inside right-to-left text, so
+  // a mixed line is laid out as runs: consecutive Arabic words in one
+  // right-to-left run, consecutive other words in one left-to-right run.
+  List<({String text, bool rtl})> scriptRuns(String line) {
+    final runs = <({String text, bool rtl})>[];
+    final latinLetter = RegExp(r'[A-Za-zÀ-ÿ]');
+    // Arabic letters only: a word ending in an Arabic comma stays French.
+    final arabicLetter = RegExp(r'[\u0621-\u064A\u0671-\u06D3]');
+    var words = <String>[];
+    bool? rtl;
+    for (final word in line.split(' ')) {
+      if (word.isEmpty) {
+        continue;
+      }
+      final kind = arabicLetter.hasMatch(word)
+          ? true
+          : latinLetter.hasMatch(word)
+          ? false
+          : rtl ?? false;
+      if (rtl != null && kind != rtl && words.isNotEmpty) {
+        runs.add((text: words.join(' '), rtl: rtl));
+        words = [];
+      }
+      rtl = kind;
+      words.add(word);
+    }
+    if (words.isNotEmpty) {
+      runs.add((text: words.join(' '), rtl: rtl ?? true));
+    }
+    return runs;
+  }
+
+  final heading = RegExp(r'^\s*#{1,6}\s+');
+  final bullet = RegExp(r'^\s*[-*•]\s+');
+  final widgets = <pw.Widget>[];
+  if (title != null) {
+    widgets
+      ..add(
+        pw.Text(
+          title,
+          textDirection: pw.TextDirection.rtl,
+          style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey600),
+        ),
+      )
+      ..add(pw.SizedBox(height: 8));
+  }
+  for (final raw in plainMaths(text).split('\n')) {
+    final line = raw.trimRight().replaceAll('**', '');
+    if (line.trim().isEmpty) {
+      widgets.add(pw.SizedBox(height: 5));
+      continue;
+    }
+    final h = heading.firstMatch(line);
+    final b = bullet.firstMatch(line);
+    final body = h != null
+        ? line.substring(h.end)
+        : b != null
+        ? '•  ${line.substring(b.end)}'
+        : line;
+    final dir = dirOf(body);
+    widgets.add(
+      pw.Container(
+        width: double.infinity,
+        padding: pw.EdgeInsets.only(top: h != null ? 10 : 2, bottom: 2),
+        decoration: h != null
+            ? const pw.BoxDecoration(
+                border: pw.Border(
+                  bottom: pw.BorderSide(color: PdfColors.blue200, width: 0.6),
+                ),
+              )
+            : null,
+        child: dir == pw.TextDirection.ltr
+            ? pw.Text(body, style: style(h != null))
+            : pw.Directionality(
+                textDirection: pw.TextDirection.rtl,
+                child: pw.Wrap(
+                  spacing: 3,
+                  runSpacing: 3,
+                  children: [
+                    for (final run in scriptRuns(body))
+                      pw.Text(
+                        run.text,
+                        textDirection: run.rtl
+                            ? pw.TextDirection.rtl
+                            : pw.TextDirection.ltr,
+                        style: style(h != null),
+                      ),
+                  ],
+                ),
+              ),
+      ),
+    );
+  }
+  doc.addPage(
+    pw.MultiPage(
+      pageFormat: PdfPageFormat.a4,
+      margin: const pw.EdgeInsets.fromLTRB(40, 36, 40, 36),
+      theme: pw.ThemeData.withFont(
+        base: arabic,
+        bold: arabic,
+        fontFallback: [latin, latinBold],
+      ),
+      footer: (context) => pw.Align(
+        alignment: pw.Alignment.center,
+        child: pw.Text(
+          'Epsilon Education  -  ${context.pageNumber}/${context.pagesCount}',
+          style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey500),
+        ),
+      ),
+      build: (context) => widgets,
+    ),
+  );
+  return doc.save();
 }
 
 /// An assistant answer: short Markdown (### titles, numbered and bulleted

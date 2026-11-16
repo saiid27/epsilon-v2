@@ -792,23 +792,25 @@ class LearnRepository {
     ]);
   }
 
-  /// Today's assistant use: text questions and photo questions.
-  Future<({int questions, int images})> assistantUsageToday(
-    String userId,
-  ) async {
-    final rows = _list(
-      await client
-          .from('assistant_usage')
-          .select()
-          .eq('user_id', userId)
-          .eq('day', DateTime.now().toUtc().toIso8601String().substring(0, 10)),
-    );
-    return rows.isEmpty
-        ? (questions: 0, images: 0)
-        : (
-            questions: _int(rows.first['questions']),
-            images: _int(rows.first['images']),
-          );
+  /// The student's assistant credit: questions and files (photos, PDF)
+  /// left. Unused daily credit carries over (see the assistant function).
+  Future<({int questions, int files})?> assistantBalance(String userId) async {
+    try {
+      final response = await client.functions.invoke(
+        'assistant',
+        body: {'userId': userId, 'action': 'balance'},
+      );
+      final data = response.data;
+      if (data is Map && data['questionsLeft'] is num) {
+        return (
+          questions: (data['questionsLeft'] as num).toInt(),
+          files: ((data['filesLeft'] as num?) ?? 0).toInt(),
+        );
+      }
+    } on Object {
+      // Shown as unknown until the next answer.
+    }
+    return null;
   }
 
   /// Calls the `livekit` edge function: `token`, `start`, `record`, `end`.
@@ -895,14 +897,17 @@ class LearnRepository {
           .subscribe();
 
   /// Asks the assistant. [image] (a data URI) goes with the last question.
-  Future<({String reply, int? questionsLeft, int? imagesLeft})> askAssistant({
+  Future<({String reply, int? questionsLeft, int? filesLeft})> askAssistant({
     required String userId,
     required List<Map<String, String>> messages,
     String? lessonTitle,
     String? subjectName,
     String? image,
+    String? document,
+    String? documentName,
     String mode = 'solve',
     String? studentLevel,
+    String? studentName,
     String? lessonSummary,
   }) async {
     Object? data;
@@ -915,8 +920,11 @@ class LearnRepository {
           'lessonTitle': lessonTitle,
           'subjectName': subjectName,
           'image': ?image,
+          'document': ?document,
+          'documentName': ?documentName,
           'mode': mode,
           'studentLevel': ?studentLevel,
+          'studentName': ?studentName,
           'lessonSummary': ?lessonSummary,
         },
       );
@@ -929,7 +937,7 @@ class LearnRepository {
       return (
         reply: '${data['reply']}',
         questionsLeft: n(data['questionsLeft']),
-        imagesLeft: n(data['imagesLeft']),
+        filesLeft: n(data['filesLeft']),
       );
     }
     throw Exception(

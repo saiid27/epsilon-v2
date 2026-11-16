@@ -44,3 +44,13 @@ update public.plans set active = false where code in ('monthly', 'semester');
 
 -- Assistant: photo questions are counted apart from text questions.
 alter table public.assistant_usage add column if not exists images int not null default 0;
+
+-- Assistant credit: a daily allowance of questions and files (photos, PDF);
+-- what is not used carries over to the next days (up to 7 days' worth).
+create table if not exists public.assistant_credits (
+  user_id uuid primary key references public.users(id) on delete cascade,
+  questions int not null default 10,
+  files int not null default 6,
+  refreshed_on date not null default current_date
+);
+alter table public.assistant_credits enable row level security;

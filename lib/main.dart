@@ -73,14 +73,18 @@ class NativeFilePicker {
 
   static Future<PickedNativeFile?> pickExcel() => _pickFile('excel');
 
+  static Future<PickedNativeFile?> pickPdf() => _pickFile('pdf');
+
   /// Contents of files picked in the browser, keyed by their virtual path.
   static final Map<String, Uint8List> webFiles = {};
 
   static Future<PickedNativeFile?> _pickFile(String type) async {
     if (kIsWeb) {
-      final picked = await pickWebFile(
-        type == 'image' ? 'image/*' : '.xlsx,.xls,.csv',
-      );
+      final picked = await pickWebFile(switch (type) {
+        'image' => 'image/*',
+        'pdf' => '.pdf,application/pdf',
+        _ => '.xlsx,.xls,.csv',
+      });
       if (picked == null) {
         return null;
       }

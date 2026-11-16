@@ -1,5 +1,9 @@
-// "مساعد إبسيلون" - tutoring assistant for subscribed students. Reads photos
-// of exercises and solves them step by step.
+// "مساعد إبسيلون" - assistant for subscribed students of Mauritanian higher
+// education: solves and explains exercises, reads photos and PDF files,
+// writes CVs, letters and reports (the app saves any answer as a PDF).
+//
+// Each student has a daily allowance of questions and files; what is not
+// used carries over to the next days, up to CARRY_DAYS days' worth.
 //
 // Secrets (Supabase dashboard → Edge Functions → Secrets):
 //   ANTHROPIC_API_KEY   Claude API key (console.anthropic.com)
@@ -12,15 +16,15 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-// Per subscribed student and day. The free plan (live sessions and PDF
-// files) has no assistant.
+// Daily allowance per subscribed student. Photos and PDF files share the
+// "files" allowance. Unused credit rolls over, up to CARRY_DAYS days.
 const DAILY_QUESTIONS = 10;
-const DAILY_IMAGES = 6;
+const DAILY_FILES = 6;
+const CARRY_DAYS = 7;
 const MAX_HISTORY = 20;
-// Base64 length of the largest photo accepted (~5 MB once decoded).
-const MAX_IMAGE_CHARS = 7_000_000;
-const IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'] as const;
-type ImageType = typeof IMAGE_TYPES[number];
+// Base64 length of the largest attachment accepted (~7.5 MB once decoded).
+const MAX_FILE_CHARS = 10_000_000;
+const IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'];
 
 const anthropic = new Anthropic({ apiKey: Deno.env.get('ANTHROPIC_API_KEY') });
 
@@ -42,8 +46,13 @@ Rigueur
 - Si tu n'es pas sûr d'un résultat ou d'une information (règlement d'une université, date, texte de loi), dis-le franchement et conseille de vérifier auprès de l'enseignant ou de l'administration, plutôt que d'inventer.
 - Quand c'est utile, donne un conseil de méthode pour l'examen (présentation de la copie, erreurs qui coûtent des points).
 
-Images
+Ce que tu fais pour l'étudiant
+- Résoudre et expliquer les exercices et les cours, corriger ses copies, l'entraîner.
+- Ses démarches d'étudiant : CV, lettre de motivation, demande de stage, e-mail à un enseignant, rapport ou mémoire (plan, rédaction, relecture), exposé. L'application peut enregistrer chacune de tes réponses en PDF : rédige-les donc propres et complètes, prêtes à être imprimées.
+
+Photos et PDF
 - Si une photo est jointe (énoncé, copie, tableau, cours manuscrit), recopie d'abord brièvement ce que tu lis, puis réponds. Si la photo est floue, coupée ou illisible, demande une photo plus nette au lieu de deviner.
+- Si un PDF est joint (cours, TD, examen, article), base ta réponse sur son contenu et cite les pages ou sections utiles. Ne prétends pas avoir lu ce qui n'y est pas.
 
 Mise en forme (affichée sur téléphone)
 - Mathématiques en LaTeX : $...$ dans le texte, $$...$$ pour une formule sur sa propre ligne. N'utilise pas \( \) ni \[ \].
@@ -63,7 +72,14 @@ Structure : ### المعطيات (données et ce qui est demandé) → ### ال�
   explain: `Mode : expliquer la notion. Définition précise, intuition (ce que ça veut dire), un exemple simple résolu, puis les pièges fréquents. Termine par une petite question pour vérifier la compréhension.`,
   check: `Mode : corriger la solution de l'étudiant. Repère précisément chaque erreur (ligne/étape), explique pourquoi c'est faux, donne la correction, puis une note indicative sur 20 et ce qu'il faut revoir. Valorise aussi ce qui est juste.`,
   practice: `Mode : exercices d'entraînement. Propose 3 exercices du même type et de difficulté croissante, sans les solutions. Ajoute à la fin seulement les résultats finaux (sans détail) sous ### الأجوبة النهائية pour qu'il puisse vérifier.`,
+  cv: `Mode : CV. Construis le CV de l'étudiant pas à pas. S'il manque des informations, pose-lui au plus 5 questions courtes et précises (formation, stages, projets, compétences, langues, coordonnées) sans rien inventer. Quand tu as assez d'éléments, rédige le CV complet, en français par défaut (ou dans la langue demandée), adapté à un étudiant mauritanien qui cherche un stage ou un premier emploi : ### Nom et titre, coordonnées, ### Profil (2-3 lignes), ### Formation, ### Expériences et stages, ### Projets, ### Compétences, ### Langues, ### Centres d'intérêt. Phrases courtes, verbes d'action, dates au format MM/AAAA. Termine par une ligne : « اضغط "حفظ PDF" تحت هذه الرسالة لتنزيل سيرتك الذاتية ».`,
+  write: `Mode : rédaction. Rédige le document demandé (lettre de motivation, demande de stage, demande administrative, e-mail à un enseignant, rapport, plan de mémoire, exposé) dans la langue et le registre attendus en Mauritanie (français administratif ou arabe soutenu). S'il manque des informations essentielles (destinataire, objet, dates), demande-les d'abord en une seule question. Produis un texte complet, prêt à imprimer, sans commentaires autour.`,
+  pdf: `Mode : commenter un PDF. Sur le document joint : ### ملخص (résumé fidèle en quelques points), ### الأفكار الأساسية (notions clés, définitions et formules importantes avec la page), ### شرح الأجزاء الصعبة, ### أسئلة امتحان محتملة (4-6 questions avec indications de réponse). Si l'étudiant pose une question précise sur le PDF, réponds plutôt directement à sa question.`,
 };
+
+type Attachment =
+  | { kind: 'image'; type: 'image/png' | 'image/jpeg' | 'image/webp' | 'image/gif'; data: string }
+  | { kind: 'pdf'; data: string; name: string };
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -73,14 +89,7 @@ Deno.serve(async (req) => {
   try {
     const body = await req.json();
     const userId = String(body.userId ?? '').trim();
-    const messages = Array.isArray(body.messages) ? body.messages : [];
     if (!userId) return json({ message: 'المستخدم غير معروف' }, 401);
-
-    // Optional photo for the last question, as a data URI.
-    const image = parseImage(body.image);
-    if (body.image && !image) {
-      return json({ message: 'الصورة غير صالحة أو كبيرة جداً.' }, 422);
-    }
 
     const supabase = createClient(
       Deno.env.get('SUPABASE_URL')!,
@@ -105,23 +114,24 @@ Deno.serve(async (req) => {
       return json({ message: 'مساعد إبسيلون متاح للمشتركين فقط.' }, 403);
     }
 
-    const today = new Date().toISOString().slice(0, 10);
-    const { data: usage } = await supabase
-      .from('assistant_usage')
-      .select('questions, images')
-      .eq('user_id', userId)
-      .eq('day', today)
-      .maybeSingle();
-    const usedQuestions = usage?.questions ?? 0;
-    const usedImages = usage?.images ?? 0;
-    if (image && usedImages >= DAILY_IMAGES) {
-      return json({ message: `وصلت إلى الحد اليومي للصور (${DAILY_IMAGES}).` }, 429);
+    const credit = await currentCredit(supabase, userId);
+    if (body.action === 'balance') {
+      return json({ questionsLeft: credit.questions, filesLeft: credit.files });
     }
-    if (!image && usedQuestions >= DAILY_QUESTIONS) {
-      return json({ message: `وصلت إلى الحد اليومي للأسئلة (${DAILY_QUESTIONS}).` }, 429);
+
+    const attachment = parseAttachment(body.image, body.document, body.documentName);
+    if ((body.image || body.document) && !attachment) {
+      return json({ message: 'الملف غير صالح أو كبير جداً (الحد 7 ميغابايت).' }, 422);
+    }
+    if (attachment && credit.files <= 0) {
+      return json({ message: 'نفد رصيد الصور والملفات. يتجدد غداً.' }, 429);
+    }
+    if (!attachment && credit.questions <= 0) {
+      return json({ message: 'نفد رصيد الأسئلة. يتجدد غداً.' }, 429);
     }
 
     // Keep only well-formed turns, starting with a user turn.
+    const messages = Array.isArray(body.messages) ? body.messages : [];
     const history: Anthropic.MessageParam[] = messages
       .filter((m: { role?: string; content?: unknown }) =>
         (m.role === 'user' || m.role === 'assistant') &&
@@ -130,18 +140,22 @@ Deno.serve(async (req) => {
       .slice(-MAX_HISTORY)
       .map((m: { role: 'user' | 'assistant'; content: string }) => ({
         role: m.role,
-        content: m.content.slice(0, 4000),
+        content: m.content.slice(0, 6000),
       }));
     while (history.length > 0 && history[0].role !== 'user') history.shift();
     if (history.length === 0) return json({ message: 'اكتب سؤالك أولاً' }, 422);
 
-    // The photo goes with the last question, before its text.
+    // The attachment goes with the last question, before its text.
     const last = history[history.length - 1];
-    if (image && last.role === 'user') {
-      last.content = [
-        { type: 'image', source: { type: 'base64', media_type: image.type, data: image.data } },
-        { type: 'text', text: String(last.content) },
-      ];
+    if (attachment && last.role === 'user') {
+      const text = { type: 'text' as const, text: String(last.content) };
+      last.content = attachment.kind === 'image'
+        ? [{ type: 'image', source: { type: 'base64', media_type: attachment.type, data: attachment.data } }, text]
+        : [{
+          type: 'document',
+          source: { type: 'base64', media_type: 'application/pdf', data: attachment.data },
+          title: attachment.name,
+        }, text];
     }
 
     const mode = MODES[String(body.mode ?? '')] ? String(body.mode) : 'solve';
@@ -150,6 +164,7 @@ Deno.serve(async (req) => {
     // lesson says, so answers follow the teacher's notation and method.
     const context = [
       field(body.studentLevel) && `Étudiant : ${field(body.studentLevel, 200)}`,
+      field(body.studentName) && `Nom de l'étudiant : ${field(body.studentName, 120)}`,
       field(body.subjectName) && `Matière : ${field(body.subjectName, 200)}`,
       field(body.lessonTitle) && `Leçon : ${field(body.lessonTitle, 200)}`,
       field(body.lessonSummary) && `Contenu de la leçon (suis ses notations) :\n${field(body.lessonSummary)}`,
@@ -165,7 +180,7 @@ Deno.serve(async (req) => {
     });
 
     if (response.stop_reason === 'refusal') {
-      return json({ reply: 'عذراً، لا أستطيع المساعدة في هذا الطلب. اسألني عن دروسك أو تمارينك.' });
+      return json({ reply: 'عذراً، لا أستطيع المساعدة في هذا الطلب. اسألني عن دروسك أو أمورك الدراسية.' });
     }
 
     const reply = response.content
@@ -174,19 +189,21 @@ Deno.serve(async (req) => {
       .join('\n')
       .trim();
 
-    const questions = usedQuestions + (image ? 0 : 1);
-    const images = usedImages + (image ? 1 : 0);
-    await supabase.from('assistant_usage').upsert({
+    const left = {
+      questions: credit.questions - (attachment ? 0 : 1),
+      files: credit.files - (attachment ? 1 : 0),
+    };
+    await supabase.from('assistant_credits').upsert({
       user_id: userId,
-      day: today,
-      questions,
-      images,
+      questions: left.questions,
+      files: left.files,
+      refreshed_on: today(),
     });
 
     return json({
       reply: reply || 'لم أتمكن من صياغة إجابة، حاول إعادة صياغة سؤالك.',
-      questionsLeft: Math.max(0, DAILY_QUESTIONS - questions),
-      imagesLeft: Math.max(0, DAILY_IMAGES - images),
+      questionsLeft: left.questions,
+      filesLeft: left.files,
     });
   } catch (error) {
     if (error instanceof Anthropic.RateLimitError) {
@@ -199,13 +216,46 @@ Deno.serve(async (req) => {
   }
 });
 
-function parseImage(value: unknown): { type: ImageType; data: string } | null {
-  if (typeof value !== 'string' || value.length === 0) return null;
-  const match = /^data:(image\/[a-z]+);base64,(.+)$/s.exec(value);
-  if (!match) return null;
-  const type = match[1] as ImageType;
-  if (!IMAGE_TYPES.includes(type) || match[2].length > MAX_IMAGE_CHARS) return null;
-  return { type, data: match[2] };
+function today() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+/// The student's credit now: what was left, plus one daily allowance per day
+/// since the last refresh, capped at CARRY_DAYS days' worth.
+async function currentCredit(
+  supabase: ReturnType<typeof createClient>,
+  userId: string,
+): Promise<{ questions: number; files: number }> {
+  const { data } = await supabase
+    .from('assistant_credits')
+    .select('questions, files, refreshed_on')
+    .eq('user_id', userId)
+    .maybeSingle();
+  if (!data) return { questions: DAILY_QUESTIONS, files: DAILY_FILES };
+  const days = Math.max(
+    0,
+    Math.round((Date.parse(today()) - Date.parse(String(data.refreshed_on))) / 86_400_000),
+  );
+  return {
+    questions: Math.min(DAILY_QUESTIONS * CARRY_DAYS, (data.questions ?? 0) + days * DAILY_QUESTIONS),
+    files: Math.min(DAILY_FILES * CARRY_DAYS, (data.files ?? 0) + days * DAILY_FILES),
+  };
+}
+
+function parseAttachment(image: unknown, document: unknown, name: unknown): Attachment | null {
+  for (const value of [image, document]) {
+    if (typeof value !== 'string' || value.length === 0) continue;
+    const match = /^data:([a-z]+\/[a-z0-9.+-]+);base64,(.+)$/s.exec(value);
+    if (!match || match[2].length > MAX_FILE_CHARS) return null;
+    if (IMAGE_TYPES.includes(match[1])) {
+      return { kind: 'image', type: match[1] as 'image/png', data: match[2] };
+    }
+    if (match[1] === 'application/pdf') {
+      return { kind: 'pdf', data: match[2], name: String(name ?? 'document.pdf').slice(0, 120) };
+    }
+    return null;
+  }
+  return null;
 }
 
 function json(body: unknown, status = 200) {
