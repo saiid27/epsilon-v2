@@ -148,7 +148,6 @@ class SupabaseRepository {
     required String name,
     required String phone,
     required String password,
-    required String level,
   }) async {
     final existing = _list(
       await client
@@ -163,7 +162,7 @@ class SupabaseRepository {
       if (row['status'] == 'pending' && row['role'] == 'student') {
         await client
             .from('users')
-            .update({'name': name.trim(), 'password': password, 'level': level})
+            .update({'name': name.trim(), 'password': password})
             .eq('id', row['id'] as Object);
         await requestOtp(phone: phone, purpose: 'signup');
         return;
@@ -176,7 +175,6 @@ class SupabaseRepository {
       'password': password,
       'role': 'student',
       'status': 'pending',
-      'level': level,
     });
     await requestOtp(phone: phone, purpose: 'signup');
   }

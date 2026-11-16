@@ -1127,8 +1127,8 @@ class LearnStore extends ChangeNotifier {
     return (done * 100 / items.length).round();
   }
 
-  bool canOpenLesson(EpsLesson lesson) =>
-      lesson.isFree || hasAccess(lesson.subjectId);
+  /// The free plan covers live sessions and PDF files only.
+  bool canOpenLesson(EpsLesson lesson) => hasAccess(lesson.subjectId);
 
   EpsQuiz? get dailyQuiz {
     final today = DateUtils.dateOnly(DateTime.now());

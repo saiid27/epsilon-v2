@@ -69,7 +69,7 @@ class StudentShellState extends State<StudentShell> {
       body: Stack(
         children: [
           IndexedStack(index: tab, children: pages),
-          if (tab == 0)
+          if (tab == 0 && learn.isSubscribed)
             const Positioned(left: 14, bottom: 11, child: AssistantFab()),
         ],
       ),
@@ -428,7 +428,7 @@ class _StudentHomeTabState extends State<StudentHomeTab> {
               _EmptyContinueCard(
                 onTap: () => pushPage(context, const SectionsScreen()),
               ),
-            if (daily != null) ...[
+            if (daily != null && learn.isSubscribed) ...[
               const HomeSectionTitle('تحدي اليوم'),
               _ChallengeCard(
                 quiz: daily,

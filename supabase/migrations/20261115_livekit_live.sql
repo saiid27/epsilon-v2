@@ -26,3 +26,8 @@ begin
     alter publication supabase_realtime add table public.live_sessions;
   end if;
 end $$;
+
+-- The free plan is live sessions and PDF files only.
+update public.plans
+   set features = '["البث المباشر المجاني","ملفات PDF مختارة"]'::jsonb
+ where code = 'free';

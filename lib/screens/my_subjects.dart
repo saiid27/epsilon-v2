@@ -798,7 +798,6 @@ class LessonRow extends StatelessWidget {
     final meta = [
       if (lesson.url.isNotEmpty) 'فيديو' else 'درس',
       if (lesson.duration.isNotEmpty) lesson.duration,
-      if (lesson.isFree) 'مجاني',
     ].join(' • ');
     return GestureDetector(
       onTap: () => open

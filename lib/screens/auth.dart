@@ -743,13 +743,10 @@ class RegisterCard extends StatefulWidget {
 }
 
 class _RegisterCardState extends State<RegisterCard> {
-  static const levels = ['Bac', 'L1', 'L2', 'L3', 'M1', 'M2'];
-
   final nameController = TextEditingController();
   final phoneController = TextEditingController();
   final passwordController = TextEditingController();
   final confirmPasswordController = TextEditingController();
-  String level = 'L1';
   bool submitted = false;
   String? error;
 
@@ -785,7 +782,6 @@ class _RegisterCardState extends State<RegisterCard> {
         name: nameController.text.trim(),
         phone: phoneController.text.trim(),
         password: passwordController.text,
-        level: level,
       );
       if (!mounted) {
         return;
@@ -828,42 +824,6 @@ class _RegisterCardState extends State<RegisterCard> {
           textInputAction: TextInputAction.next,
           errorText: submitted && phoneInvalid ? 'رقم الهاتف غير مكتمل' : null,
         ),
-        const AuthLabel('المستوى الدراسي', top: 7),
-        Row(
-          children: [
-            for (final item in levels) ...[
-              Expanded(
-                child: GestureDetector(
-                  onTap: () => setState(() => level = item),
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 180),
-                    height: 34,
-                    alignment: Alignment.center,
-                    decoration: BoxDecoration(
-                      color: level == item ? Eps.blue : Colors.white,
-                      borderRadius: BorderRadius.circular(9),
-                      border: Border.all(
-                        color: level == item ? Eps.blue : _authFieldBorder,
-                      ),
-                    ),
-                    child: Text(
-                      item,
-                      style: TextStyle(
-                        fontFamily: Eps.fontNum,
-                        fontSize: 7,
-                        fontWeight: FontWeight.w700,
-                        color: level == item
-                            ? Colors.white
-                            : const Color(0xFF70798B),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-              if (item != levels.last) const SizedBox(width: 4),
-            ],
-          ],
-        ),
         const AuthLabel('كلمة المرور', top: 11),
         EpsPasswordField(
           controller: passwordController,
@@ -905,9 +865,6 @@ class AuthFreeCard extends StatelessWidget {
     const features = [
       (Icons.sensors_rounded, 'بث مباشر', true),
       (Icons.description_outlined, 'ملفات PDF', false),
-      (Icons.receipt_long_outlined, 'تمارين مع الحلول', false),
-      (Icons.play_arrow_outlined, 'شروحات', false),
-      (Icons.emoji_events_outlined, 'المسابقة', false),
     ];
 
     return Container(

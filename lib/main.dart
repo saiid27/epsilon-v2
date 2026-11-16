@@ -1614,14 +1614,12 @@ class SchoolStore extends ChangeNotifier {
     required String name,
     required String phone,
     required String password,
-    required String level,
   }) async {
     if (backendEnabled) {
       await (_repository as SupabaseRepository).registerFreeStudent(
         name: name,
         phone: phone,
         password: password,
-        level: level,
       );
       return;
     }

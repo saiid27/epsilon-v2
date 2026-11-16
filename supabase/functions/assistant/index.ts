@@ -11,8 +11,9 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-// Questions per day. Free accounts match the "5 أسئلة يومياً" in the app.
-const FREE_DAILY_LIMIT = 5;
+// Questions per day. The free plan (live sessions and PDF files) has no
+// assistant.
+const FREE_DAILY_LIMIT = 0;
 const SUBSCRIBED_DAILY_LIMIT = 50;
 const MAX_HISTORY = 20;
 

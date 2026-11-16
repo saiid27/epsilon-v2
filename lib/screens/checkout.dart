@@ -1020,7 +1020,7 @@ class _SubjectDetailScreenState extends State<SubjectDetailScreen> {
                         ],
                         3 => [
                           for (final e in exercises)
-                            if (e.isFree || subscribed)
+                            if (subscribed)
                               Padding(
                                 padding: const EdgeInsets.only(bottom: 6),
                                 child: ExerciseCard(exercise: e),

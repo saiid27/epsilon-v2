@@ -217,7 +217,6 @@ class ProfileTab extends StatelessWidget {
             ),
             Text(
               [
-                if (profile?.level.isNotEmpty ?? false) profile!.level,
                 if (profile?.faculty.isNotEmpty ?? false) profile!.faculty,
                 if (profile?.university.isNotEmpty ?? false)
                   profile!.university,
@@ -1122,17 +1121,9 @@ class _FreePlanScreenState extends State<FreePlanScreen> {
     final live = learn.liveSessions
         .where((s) => s.isFree && s.state != LiveState.past)
         .toList();
-    final lessons = learn.freeLessons;
-    final exercises = learn.exercises.where((e) => e.isFree).toList();
     final pdfs = learn.pdfs.where((p) => p.isFree).toList();
-    final quizzes = learn.quizzes.where((q) => q.isFree).toList();
-    const tabs = [
-      'البث المباشر',
-      'شروحات',
-      'تمارين مع الحلول',
-      'الملفات',
-      'المسابقة',
-    ];
+    // The free plan is live sessions and PDF files only.
+    const tabs = ['البث المباشر', 'الملفات'];
     return EpsPage(
       title: 'الخطة المجانية',
       action: const Center(child: EpsBadge('مجاناً', tone: EpsTone.green)),
@@ -1169,7 +1160,7 @@ class _FreePlanScreenState extends State<FreePlanScreen> {
                       style: TextStyle(fontSize: 17, color: Colors.white),
                     ),
                     Text(
-                      'دروس قصيرة وتمارين محلولة وملخصات PDF مختارة بعناية.',
+                      'جلسات بث مباشر مجانية وملفات PDF مختارة بعناية.',
                       style: TextStyle(fontSize: 7, color: Color(0xFFD6E0F7)),
                     ),
                   ],
@@ -1236,37 +1227,64 @@ class _FreePlanScreenState extends State<FreePlanScreen> {
                 child: LiveSessionRow(session: s),
               ),
           ],
-          1 => [
-            for (final l in lessons)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 7),
-                child: LessonRow(lesson: l),
-              ),
-          ],
-          2 => [
-            for (final e in exercises)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 7),
-                child: ExerciseCard(exercise: e),
-              ),
-          ],
-          3 => [
+          _ => [
             for (final p in pdfs)
               Padding(
                 padding: const EdgeInsets.only(bottom: 7),
                 child: PdfRow(pdf: p),
               ),
           ],
-          _ => [
-            for (final q in quizzes)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 7),
-                child: QuizRow(quiz: q),
-              ),
-          ],
         },
         const SizedBox(height: 6),
         const FreeUpsell(),
+      ],
+    );
+  }
+}
+
+/// Shown to free accounts on features outside the free plan (the free plan
+/// is live sessions and PDF files only).
+class SubscribersOnlyPage extends StatelessWidget {
+  const SubscribersOnlyPage({
+    required this.title,
+    required this.message,
+    super.key,
+  });
+
+  final String title;
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return EpsPage(
+      title: title,
+      children: [
+        const SizedBox(height: 60),
+        const Center(
+          child: EpsMark(icon: Icons.lock_outline_rounded, size: 64),
+        ),
+        const SizedBox(height: 14),
+        Text(
+          message,
+          textAlign: TextAlign.center,
+          style: const TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w700,
+            color: Eps.ink,
+          ),
+        ),
+        const SizedBox(height: 4),
+        const Text(
+          'الخطة المجانية تشمل البث المباشر وملفات PDF.',
+          textAlign: TextAlign.center,
+          style: TextStyle(fontSize: 10, color: Eps.muted),
+        ),
+        const SizedBox(height: 20),
+        EpsPrimaryButton(
+          label: 'اشترك في مادة',
+          icon: Icons.add_rounded,
+          onPressed: () => pushPage(context, const SectionsScreen()),
+        ),
       ],
     );
   }
@@ -1281,11 +1299,10 @@ class UpgradeScreen extends StatelessWidget {
     const rows = [
       ('البث المباشر', 'جلسات مختارة', 'جميع الجلسات'),
       ('ملفات PDF', 'ملفات مختارة', 'كل ملفات المادة'),
-      ('التمارين', 'تمارين محددة', 'بنك التمارين الكامل'),
-      ('التسجيلات', 'غير متاح', 'كل التسجيلات'),
-      ('الاختبارات', 'المسابقات العامة', 'اختبارات كل وحدة'),
-      ('مساعد AI', '5 أسئلة يومياً', 'أسئلة أكثر يومياً'),
-      ('المسابقات', 'متاح', 'متاح + نقاط إضافية'),
+      ('الدروس والشروحات', 'غير متاح', 'كل دروس المادة'),
+      ('التمارين مع الحلول', 'غير متاح', 'بنك التمارين الكامل'),
+      ('الاختبارات والمسابقات', 'غير متاح', 'اختبارات كل وحدة'),
+      ('مساعد AI', 'غير متاح', 'متاح يومياً'),
     ];
     const head = TextStyle(
       fontSize: 7,
@@ -1531,6 +1548,12 @@ class _AssistantScreenState extends State<AssistantScreen> {
   @override
   Widget build(BuildContext context) {
     final learn = LearnScope.of(context);
+    if (!learn.isSubscribed) {
+      return const SubscribersOnlyPage(
+        title: 'مساعد إبسيلون',
+        message: 'مساعد الذكاء الاصطناعي متاح للمشتركين فقط.',
+      );
+    }
     final left = (dailyLimit - used).clamp(0, dailyLimit);
     const chips = [
       'اشرح لي هذا الدرس',
@@ -1731,19 +1754,16 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
   ];
   static const faculties = ['FST', 'الاقتصاد', 'أخرى'];
   static const tracks = ['MPI', 'PC', 'MPIC'];
-  static const levels = ['Bac', 'L1', 'L2', 'L3', 'M1', 'M2'];
 
   String? university;
   String faculty = 'FST';
   String track = 'MPI';
-  late String level;
   bool saving = false;
 
   @override
   void initState() {
     super.initState();
     final p = LearnScope.read(context).profile;
-    level = levels.contains(p?.level) ? p!.level : 'L1';
     if (universities.contains(p?.university)) {
       university = p!.university;
     }
@@ -1756,7 +1776,6 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
         'university': university ?? '',
         'faculty': faculty,
         'track': track,
-        'level': level,
         'profile_completed': true,
       });
       widget.onDone();
@@ -1883,13 +1902,6 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
             choices(faculties, faculty, (v) => setState(() => faculty = v)),
             const AuthLabel('المسار', top: 14),
             choices(tracks, track, (v) => setState(() => track = v)),
-            const AuthLabel('المستوى', top: 14),
-            choices(
-              levels,
-              level,
-              (v) => setState(() => level = v),
-              height: 38,
-            ),
             const SizedBox(height: 22),
             EpsPrimaryButton(
               label: 'إنهاء الإعداد',
@@ -1916,8 +1928,6 @@ class WelcomeScreen extends StatelessWidget {
     const features = [
       (Icons.sensors_rounded, 'البث المباشر المجاني'),
       (Icons.description_outlined, 'ملفات PDF مختارة'),
-      (Icons.receipt_long_outlined, 'تمارين وحلول خطوة بخطوة'),
-      (Icons.emoji_events_outlined, 'شروحات قصيرة والمسابقات'),
     ];
     return Scaffold(
       backgroundColor: Eps.bg,
