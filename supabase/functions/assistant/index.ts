@@ -24,6 +24,9 @@ const TIERS: Record<string, Tier> = {
   basic: { monthlyIn: 2_000_000, monthlyOut: 200_000, dailyIn: 80_000, dailyOut: 8_000 },
   standard: { monthlyIn: 4_000_000, monthlyOut: 400_000, dailyIn: 160_000, dailyOut: 16_000 },
   pro: { monthlyIn: 8_000_000, monthlyOut: 800_000, dailyIn: 320_000, dailyOut: 32_000 },
+  // Free plan: a few questions a day, enough to try the assistant (about
+  // 3 to 4 answers a day, or one photo or short PDF).
+  free: { monthlyIn: 600_000, monthlyOut: 60_000, dailyIn: 30_000, dailyOut: 3_000 },
 };
 // Longest answer, in output tokens.
 const MAX_ANSWER_TOKENS = 4000;
@@ -122,16 +125,15 @@ Deno.serve(async (req) => {
       return json({ message: 'الحساب غير مفعل' }, 403);
     }
 
+    // Subscribers get their tier; everyone else gets the free plan.
     const { count: activeSubs } = await supabase
       .from('subject_subscriptions')
       .select('id', { count: 'exact', head: true })
       .eq('student_id', userId)
       .eq('status', 'active');
-    if ((activeSubs ?? 0) === 0) {
-      return json({ message: 'مساعد إبسيلون متاح للمشتركين فقط.' }, 403);
-    }
-
-    const tier = await tierFor(supabase, user.assistant_tier);
+    const tier = (activeSubs ?? 0) > 0
+      ? await tierFor(supabase, user.assistant_tier)
+      : TIERS.free;
     const bonus = await seasonBonus(supabase);
     const budget = await remainingBudget(supabase, userId, tier, bonus);
     if (body.action === 'balance') {

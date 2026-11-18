@@ -1815,9 +1815,6 @@ class _AssistantScreenState extends State<AssistantScreen> {
   @override
   Widget build(BuildContext context) {
     final learn = LearnScope.of(context);
-    if (!learn.isSubscribed) {
-      return const AssistantPlansScreen();
-    }
     Widget roundButton(
       IconData icon,
       VoidCallback? onTap, {
@@ -1848,6 +1845,39 @@ class _AssistantScreenState extends State<AssistantScreen> {
               padding: EdgeInsets.symmetric(horizontal: 18),
               child: EpsPageHeader(title: 'مساعد إبسيلون'),
             ),
+            if (!learn.isSubscribed)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(18, 0, 18, 8),
+                child: Container(
+                  padding: const EdgeInsets.fromLTRB(12, 8, 6, 8),
+                  decoration: BoxDecoration(
+                    color: Eps.blueSoft,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          'الخطة المجانية: بقي لك $dailyLeft% من رصيد اليوم',
+                          style: const TextStyle(
+                            fontSize: 9,
+                            fontWeight: FontWeight.w700,
+                            color: Eps.blue,
+                          ),
+                        ),
+                      ),
+                      TextButton(
+                        onPressed: () =>
+                            pushPage(context, const AssistantPlansScreen()),
+                        child: const Text(
+                          'ترقية',
+                          style: TextStyle(fontSize: 9),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
             Container(
               height: 50,
               margin: const EdgeInsets.symmetric(horizontal: 18),
@@ -3239,6 +3269,23 @@ class _AssistantPlansScreenState extends State<AssistantPlansScreen> {
     return EpsPage(
       title: 'مساعد إبسيلون',
       children: [
+        FlatCard(
+          shadow: false,
+          border: Eps.blue,
+          child: const Row(
+            children: [
+              Icon(Icons.bolt_rounded, color: Eps.green, size: 22),
+              SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'المجانية: حوالي 3 أسئلة يومياً أو صورة أو ملف صغير، بدون دفع.',
+                  style: TextStyle(fontSize: 9, color: Eps.ink, height: 1.6),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
         Container(
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(

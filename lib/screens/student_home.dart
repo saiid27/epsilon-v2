@@ -69,7 +69,7 @@ class StudentShellState extends State<StudentShell> {
       body: Stack(
         children: [
           IndexedStack(index: tab, children: pages),
-          if (tab == 0 && learn.isSubscribed)
+          if (tab == 0)
             const Positioned(left: 14, bottom: 11, child: AssistantFab()),
         ],
       ),
