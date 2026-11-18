@@ -3665,6 +3665,7 @@ class StudentFileUploadScreen extends StatefulWidget {
 }
 
 class _StudentFileUploadScreenState extends State<StudentFileUploadScreen> {
+  static const medicineTracks = ['الطب العام', 'الصيدلة', 'طب الأسنان'];
   static const defaultTracks = [
     'MPI',
     'PC',
@@ -3702,7 +3703,8 @@ class _StudentFileUploadScreenState extends State<StudentFileUploadScreen> {
           () => faculties = [
             for (final (name, label) in const [
               ('FST', 'كلية العلوم والتقنيات'),
-              ('FSJE', 'كلية العلوم القانونية والاقتصادية'),
+              ('LAW', 'كلية القانون'),
+              ('ECO', 'كلية الاقتصاد'),
               ('FLSH', 'كلية الآداب والعلوم الإنسانية'),
               ('MED', 'كلية الطب'),
             ])
@@ -3855,7 +3857,8 @@ class _StudentFileUploadScreenState extends State<StudentFileUploadScreen> {
   @override
   Widget build(BuildContext context) {
     final learn = LearnScope.of(context);
-    final trackOptions = optionsWith(defaultTracks, const []);
+    // Medicine is one faculty with its programmes as tracks.
+    final trackOptions = facultyValue == 'MED' ? medicineTracks : defaultTracks;
     return EpsPage(
       title: 'رفع ملف',
       children: [
@@ -3876,7 +3879,10 @@ class _StudentFileUploadScreenState extends State<StudentFileUploadScreen> {
               DropdownMenuItem(value: f.name, child: Text(f.label)),
             addItem('+ كلية غير موجودة'),
           ],
-          onChanged: (v) => setState(() => faculty = v),
+          onChanged: (v) => setState(() {
+            faculty = v;
+            track = null;
+          }),
         ),
         if (faculty == addNewChoice)
           TextField(
