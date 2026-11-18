@@ -32,19 +32,224 @@ List<({String name, String url})> parseResultsLinks(String raw) {
 
 /// Opens the university results website inside the app. The student signs in
 /// on the university's own page; nothing they type passes through Epsilon.
-class UniversityResultsPage extends StatefulWidget {
+/// The results entry point: one card per faculty from the admin setting.
+/// Tapping a faculty opens its results website in the viewer below.
+class UniversityResultsPage extends StatelessWidget {
   const UniversityResultsPage({required this.url, super.key});
 
   /// The admin setting: one or more faculty links (see [parseResultsLinks]).
   final String url;
 
   @override
-  State<UniversityResultsPage> createState() => _UniversityResultsPageState();
+  Widget build(BuildContext context) {
+    final links = parseResultsLinks(url);
+    final colors = [Eps.blue, Eps.green, Eps.orangeInk, Eps.navy2];
+    return Scaffold(
+      backgroundColor: Eps.bg,
+      body: SafeArea(
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 18),
+              child: EpsPageHeader(
+                title: 'نتائجي الجامعية',
+                onBack: () => Navigator.of(context).maybePop(),
+              ),
+            ),
+            Expanded(
+              child: ListView(
+                padding: const EdgeInsets.fromLTRB(18, 8, 18, 24),
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(18),
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(22),
+                      gradient: const LinearGradient(
+                        begin: Alignment.topRight,
+                        end: Alignment.bottomLeft,
+                        colors: [Eps.blue, Eps.navy],
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text(
+                                'اختر كليتك',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 17,
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                'افتح موقع نتائج كليتك مباشرة من التطبيق',
+                                style: TextStyle(
+                                  color: Colors.white.withValues(alpha: 0.85),
+                                  fontSize: 10,
+                                  height: 1.5,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 8,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: 0.16),
+                            borderRadius: BorderRadius.circular(999),
+                          ),
+                          child: Text(
+                            '${links.length} كلية',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  GridView.count(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    crossAxisCount: 2,
+                    mainAxisSpacing: 12,
+                    crossAxisSpacing: 12,
+                    childAspectRatio: 0.95,
+                    children: [
+                      for (var i = 0; i < links.length; i++)
+                        _FacultyResultCard(
+                          name: links[i].name,
+                          color: colors[i % colors.length],
+                          onTap: () => pushPage(
+                            context,
+                            UniversityResultsViewer(
+                              url: url,
+                              initial: links[i].url,
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+                  const Text(
+                    'تسجيل الدخول يتم على موقع الجامعة نفسه، ولا تمر بياناتك عبر إبسيلون.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 9,
+                      color: Eps.muted,
+                      height: 1.6,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
-class _UniversityResultsPageState extends State<UniversityResultsPage> {
+class _FacultyResultCard extends StatelessWidget {
+  const _FacultyResultCard({
+    required this.name,
+    required this.color,
+    required this.onTap,
+  });
+
+  final String name;
+  final Color color;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(18),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(18),
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: Eps.line),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 46,
+                height: 46,
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Icon(Icons.school_rounded, color: color, size: 24),
+              ),
+              const Spacer(),
+              Text(
+                name,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w900,
+                  color: Eps.ink,
+                  height: 1.4,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Text(
+                    'عرض النتائج',
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w800,
+                      color: color,
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  Icon(Icons.arrow_back_rounded, size: 14, color: color),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Shows one faculty's results website, with the other faculties as chips.
+class UniversityResultsViewer extends StatefulWidget {
+  const UniversityResultsViewer({required this.url, this.initial, super.key});
+
+  /// The admin setting: one or more faculty links (see [parseResultsLinks]).
+  final String url;
+
+  /// The faculty chosen on the list page.
+  final String? initial;
+
+  @override
+  State<UniversityResultsViewer> createState() =>
+      _UniversityResultsViewerState();
+}
+
+class _UniversityResultsViewerState extends State<UniversityResultsViewer> {
   late final links = parseResultsLinks(widget.url);
-  late String url = links.first.url;
+  late String url = widget.initial ?? links.first.url;
   WebViewController? controller;
   int progress = 0;
   bool failed = false;
