@@ -1673,7 +1673,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen> {
 /// Ink colours of the whiteboard: Epsilon's dark ink and blue only.
 const boardInks = [Color(0xFF172039), Color(0xFF2F5BD3)];
 
-/// One stroke on the whiteboard, in coordinates relative to the board
+/// One stroke on the whiteboard, in coordinates relative to the drawing area
 /// (0 to 1), so every screen draws it at its own size.
 class BoardStroke {
   BoardStroke(this.points, this.ink);
@@ -1702,10 +1702,36 @@ class BoardStroke {
   }
 }
 
-/// The whiteboard of a live session. The teacher draws; the strokes go to
-/// the students through a Supabase realtime channel (only coordinates, so
-/// it works on a weak connection). A student who joins late asks for the
-/// whole board and gets a snapshot from the teacher.
+/// A page of the board: an optional picture (a lesson or a solution, with its
+/// shape) and the strokes written over it.
+class BoardPage {
+  BoardPage({this.imageUrl = '', this.aspect = 0, List<BoardStroke>? strokes})
+    : strokes = strokes ?? [];
+
+  String imageUrl;
+  double aspect;
+  final List<BoardStroke> strokes;
+}
+
+/// The area a page is drawn in: the picture's shape inside the board, or the
+/// whole board when there is no picture. Strokes are relative to this area,
+/// so teacher and students see them on the same part of the picture.
+Rect boardArea(Size box, double aspect) {
+  if (aspect <= 0 || box.isEmpty) {
+    return Offset.zero & box;
+  }
+  final boxAspect = box.width / box.height;
+  if (aspect > boxAspect) {
+    final h = box.width / aspect;
+    return Rect.fromLTWH(0, (box.height - h) / 2, box.width, h);
+  }
+  final w = box.height * aspect;
+  return Rect.fromLTWH((box.width - w) / 2, 0, w, box.height);
+}
+
+/// The whiteboard of a live session. The teacher draws and turns the pages;
+/// the strokes and pages go to the students through a Supabase realtime
+/// channel. A student who joins late gets the whole board from the teacher.
 class LiveBoard extends ChangeNotifier {
   LiveBoard({required this.learn, required this.sessionId, required this.host});
 
@@ -1713,12 +1739,18 @@ class LiveBoard extends ChangeNotifier {
   final String sessionId;
   final bool host;
 
-  final List<BoardStroke> strokes = [];
+  final List<BoardPage> pages = [BoardPage()];
+  int index = 0;
   BoardStroke? current;
   bool on = false;
   int ink = 0;
   RealtimeChannel? _channel;
   bool _disposed = false;
+
+  BoardPage get page => pages[index];
+
+  /// The strokes of the page on show.
+  List<BoardStroke> get strokes => page.strokes;
 
   void connect() {
     if (!learn.enabled || _channel != null) {
@@ -1734,25 +1766,27 @@ class LiveBoard extends ChangeNotifier {
           event: 'stroke',
           callback: (p) {
             final stroke = BoardStroke.fromJson(p);
+            final n = (p['page'] as num?)?.toInt() ?? index;
             if (stroke != null) {
-              strokes.add(stroke);
+              _pageAt(n).strokes.add(stroke);
               _notify();
             }
           },
         )
         ..onBroadcast(
           event: 'undo',
-          callback: (_) {
-            if (strokes.isNotEmpty) {
-              strokes.removeLast();
+          callback: (p) {
+            final list = _pageAt((p['page'] as num?)?.toInt() ?? index).strokes;
+            if (list.isNotEmpty) {
+              list.removeLast();
             }
             _notify();
           },
         )
         ..onBroadcast(
           event: 'clear',
-          callback: (_) {
-            strokes.clear();
+          callback: (p) {
+            _pageAt((p['page'] as num?)?.toInt() ?? index).strokes.clear();
             _notify();
           },
         )
@@ -1763,13 +1797,22 @@ class LiveBoard extends ChangeNotifier {
             _notify();
           },
         )
+        ..onBroadcast(event: 'structure', callback: (p) => _applyStructure(p))
         ..onBroadcast(
           event: 'hello',
           callback: (_) {
             if (host) {
               _send('snapshot', {
                 'on': on,
-                'strokes': [for (final s in strokes) s.toJson()],
+                'index': index,
+                'pages': [
+                  for (final pg in pages)
+                    {
+                      'img': pg.imageUrl,
+                      'asp': pg.aspect,
+                      'strokes': [for (final s in pg.strokes) s.toJson()],
+                    },
+                ],
               });
             }
           },
@@ -1781,12 +1824,19 @@ class LiveBoard extends ChangeNotifier {
               return;
             }
             on = p['on'] == true;
-            strokes
+            pages
               ..clear()
               ..addAll([
-                for (final raw in (p['strokes'] as List? ?? const []))
-                  ?BoardStroke.fromJson(Map<String, dynamic>.from(raw as Map)),
+                for (final raw in (p['pages'] as List? ?? const []))
+                  _pageFromJson(Map<String, dynamic>.from(raw as Map)),
               ]);
+            if (pages.isEmpty) {
+              pages.add(BoardPage());
+            }
+            index = ((p['index'] as num?)?.toInt() ?? 0).clamp(
+              0,
+              pages.length - 1,
+            );
             _notify();
           },
         )
@@ -1801,6 +1851,43 @@ class LiveBoard extends ChangeNotifier {
     }
   }
 
+  BoardPage _pageFromJson(Map<String, dynamic> m) => BoardPage(
+    imageUrl: '${m['img'] ?? ''}',
+    aspect: (m['asp'] as num?)?.toDouble() ?? 0,
+    strokes: [
+      for (final raw in (m['strokes'] as List? ?? const []))
+        ?BoardStroke.fromJson(Map<String, dynamic>.from(raw as Map)),
+    ],
+  );
+
+  /// The page with that number, adding empty pages up to it if needed.
+  BoardPage _pageAt(int n) {
+    while (pages.length <= n) {
+      pages.add(BoardPage());
+    }
+    return pages[n];
+  }
+
+  /// Pages, pictures and the page on show (no strokes): students follow it.
+  void _applyStructure(Map<String, dynamic> p) {
+    final list = (p['pages'] as List? ?? const []);
+    for (var i = 0; i < list.length; i++) {
+      final m = Map<String, dynamic>.from(list[i] as Map);
+      final pg = _pageAt(i);
+      pg.imageUrl = '${m['img'] ?? ''}';
+      pg.aspect = (m['asp'] as num?)?.toDouble() ?? 0;
+    }
+    index = ((p['index'] as num?)?.toInt() ?? index).clamp(0, pages.length - 1);
+    _notify();
+  }
+
+  Map<String, dynamic> _structure() => {
+    'index': index,
+    'pages': [
+      for (final pg in pages) {'img': pg.imageUrl, 'asp': pg.aspect},
+    ],
+  };
+
   void _send(String event, Map<String, dynamic> payload) {
     final channel = _channel;
     if (channel == null) {
@@ -1808,6 +1895,8 @@ class LiveBoard extends ChangeNotifier {
     }
     unawaited(channel.sendBroadcastMessage(event: event, payload: payload));
   }
+
+  // Teacher's actions ------------------------------------------------------
 
   void beginStroke(Offset at) {
     if (!host) {
@@ -1826,24 +1915,24 @@ class LiveBoard extends ChangeNotifier {
     final stroke = current;
     current = null;
     if (stroke != null && stroke.points.length > 1) {
-      strokes.add(stroke);
-      _send('stroke', stroke.toJson());
+      page.strokes.add(stroke);
+      _send('stroke', {...stroke.toJson(), 'page': index});
     }
     _notify();
   }
 
   void undo() {
-    if (strokes.isEmpty) {
+    if (page.strokes.isEmpty) {
       return;
     }
-    strokes.removeLast();
-    _send('undo', {});
+    page.strokes.removeLast();
+    _send('undo', {'page': index});
     _notify();
   }
 
   void clear() {
-    strokes.clear();
-    _send('clear', {});
+    page.strokes.clear();
+    _send('clear', {'page': index});
     _notify();
   }
 
@@ -1853,9 +1942,57 @@ class LiveBoard extends ChangeNotifier {
     _notify();
   }
 
-  void setInk(int index) {
-    ink = index;
+  void setInk(int i) {
+    ink = i;
     _notify();
+  }
+
+  void goTo(int n) {
+    if (n < 0 || n >= pages.length || n == index) {
+      return;
+    }
+    index = n;
+    _send('structure', _structure());
+    _notify();
+  }
+
+  /// A new blank page, after the current one.
+  void addPage() {
+    pages.add(BoardPage());
+    index = pages.length - 1;
+    _send('structure', _structure());
+    _notify();
+  }
+
+  /// Puts a picture (a lesson or a solution) on the current page.
+  Future<void> setImage(Uint8List bytes) async {
+    final aspect = await _aspectOf(bytes);
+    if (!learn.enabled) {
+      // Offline demo: the picture stays on this screen only.
+      page.imageUrl = 'data:image/png;base64,${base64Encode(bytes)}';
+      page.aspect = aspect;
+      _notify();
+      return;
+    }
+    final path = 'live/$sessionId/${DateTime.now().millisecondsSinceEpoch}.png';
+    final bucket = learn.repo.client.storage.from('live-board');
+    await bucket.uploadBinary(
+      path,
+      bytes,
+      fileOptions: const FileOptions(contentType: 'image/png', upsert: false),
+    );
+    page.imageUrl = bucket.getPublicUrl(path);
+    page.aspect = aspect;
+    _send('structure', _structure());
+    _notify();
+  }
+
+  Future<double> _aspectOf(Uint8List bytes) async {
+    final codec = await ui.instantiateImageCodec(bytes);
+    final frame = await codec.getNextFrame();
+    final aspect = frame.image.width / frame.image.height;
+    frame.image.dispose();
+    return aspect;
   }
 
   void _notify() {
@@ -1876,7 +2013,7 @@ class LiveBoard extends ChangeNotifier {
   }
 }
 
-/// The white board. The teacher draws on it; students only look at it.
+/// The whiteboard. The teacher draws on it; students only look at it.
 class BoardCanvas extends StatelessWidget {
   const BoardCanvas({required this.board, this.interactive = false, super.key});
 
@@ -1889,16 +2026,41 @@ class BoardCanvas extends StatelessWidget {
       listenable: board,
       builder: (context, _) => LayoutBuilder(
         builder: (context, box) {
+          final size = Size(box.maxWidth, box.maxHeight);
+          final area = boardArea(size, board.page.aspect);
           Offset norm(Offset o) => Offset(
-            (o.dx / box.maxWidth).clamp(0.0, 1.0),
-            (o.dy / box.maxHeight).clamp(0.0, 1.0),
+            ((o.dx - area.left) / area.width).clamp(0.0, 1.0),
+            ((o.dy - area.top) / area.height).clamp(0.0, 1.0),
           );
-          final canvas = CustomPaint(
-            size: Size(box.maxWidth, box.maxHeight),
-            painter: _BoardPainter(board.strokes, board.current),
+          final painter = CustomPaint(
+            size: size,
+            painter: _BoardPainter(board.strokes, board.current, area),
+          );
+          final picture = board.page.imageUrl.isEmpty
+              ? null
+              : Positioned.fromRect(
+                  rect: area,
+                  child: board.page.imageUrl.startsWith('data:')
+                      ? Image.memory(
+                          base64Decode(board.page.imageUrl.split(',').last),
+                          fit: BoxFit.fill,
+                        )
+                      : Image.network(
+                          board.page.imageUrl,
+                          fit: BoxFit.fill,
+                          errorBuilder: (_, _, _) => const SizedBox.shrink(),
+                        ),
+                );
+          final stack = Stack(
+            fit: StackFit.expand,
+            children: [
+              ColoredBox(color: Colors.white),
+              ?picture,
+              painter,
+            ],
           );
           if (!interactive) {
-            return ColoredBox(color: Colors.white, child: canvas);
+            return stack;
           }
           return GestureDetector(
             behavior: HitTestBehavior.opaque,
@@ -1906,7 +2068,7 @@ class BoardCanvas extends StatelessWidget {
             onPanUpdate: (d) => board.extendStroke(norm(d.localPosition)),
             onPanEnd: (_) => board.endStroke(),
             onPanCancel: board.endStroke,
-            child: ColoredBox(color: Colors.white, child: canvas),
+            child: stack,
           );
         },
       ),
@@ -1915,10 +2077,11 @@ class BoardCanvas extends StatelessWidget {
 }
 
 class _BoardPainter extends CustomPainter {
-  _BoardPainter(this.strokes, this.current);
+  _BoardPainter(this.strokes, this.current, this.area);
 
   final List<BoardStroke> strokes;
   final BoardStroke? current;
+  final Rect area;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -1928,15 +2091,18 @@ class _BoardPainter extends CustomPainter {
       }
       final paint = Paint()
         ..color = boardInks[stroke.ink.clamp(0, boardInks.length - 1)]
-        ..strokeWidth = size.width * 0.009
+        ..strokeWidth = area.width * 0.009
         ..strokeCap = StrokeCap.round
         ..strokeJoin = StrokeJoin.round
         ..style = PaintingStyle.stroke;
+      Offset at(Offset p) =>
+          Offset(area.left + p.dx * area.width, area.top + p.dy * area.height);
       final path = Path();
-      final first = stroke.points.first;
-      path.moveTo(first.dx * size.width, first.dy * size.height);
+      final first = at(stroke.points.first);
+      path.moveTo(first.dx, first.dy);
       for (final p in stroke.points.skip(1)) {
-        path.lineTo(p.dx * size.width, p.dy * size.height);
+        final q = at(p);
+        path.lineTo(q.dx, q.dy);
       }
       canvas.drawPath(path, paint);
     }
@@ -1954,18 +2120,37 @@ class _BoardPainter extends CustomPainter {
   bool shouldRepaint(_BoardPainter old) => true;
 }
 
-/// Teacher's tools over the board: ink, undo, clear, and back to the camera.
+/// Teacher's tools under the board: ink, undo, clear, a picture from the
+/// phone, page turning, and back to the camera.
 class _BoardToolbar extends StatelessWidget {
   const _BoardToolbar({required this.board});
 
   final LiveBoard board;
+
+  Future<void> pickPicture(BuildContext context) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final file = await NativeFilePicker.pickImage();
+    if (file == null) {
+      return;
+    }
+    try {
+      final data =
+          NativeFilePicker.webFiles[file.path] ??
+          await File(file.path).readAsBytes();
+      // Shrink it first: a clear photo of a page is plenty on the board.
+      final uri = await shrinkImageDataUri(data, width: 1600);
+      await board.setImage(base64Decode(uri.split(',').last));
+    } on Object catch (e) {
+      messenger.showSnackBar(SnackBar(content: Text('تعذر رفع الصورة: $e')));
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     Widget tool(
       IconData icon,
       String tip,
-      VoidCallback onTap, {
+      VoidCallback? onTap, {
       bool active = false,
     }) => Padding(
       padding: const EdgeInsetsDirectional.only(start: 6),
@@ -1974,8 +2159,8 @@ class _BoardToolbar extends StatelessWidget {
         child: GestureDetector(
           onTap: onTap,
           child: Container(
-            width: 34,
-            height: 34,
+            width: 36,
+            height: 36,
             decoration: BoxDecoration(
               color: active ? Eps.blue : Colors.white,
               shape: BoxShape.circle,
@@ -1983,8 +2168,12 @@ class _BoardToolbar extends StatelessWidget {
             ),
             child: Icon(
               icon,
-              size: 17,
-              color: active ? Colors.white : boardInks[0],
+              size: 18,
+              color: onTap == null
+                  ? Eps.faint
+                  : active
+                  ? Colors.white
+                  : boardInks[0],
             ),
           ),
         ),
@@ -1992,20 +2181,53 @@ class _BoardToolbar extends StatelessWidget {
     );
     return ListenableBuilder(
       listenable: board,
-      builder: (context, _) => Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          for (var i = 0; i < boardInks.length; i++)
+      builder: (context, _) => SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        reverse: true,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (var i = 0; i < boardInks.length; i++)
+              tool(
+                Icons.edit_rounded,
+                i == 0 ? 'قلم داكن' : 'قلم أزرق',
+                () => board.setInk(i),
+                active: board.ink == i,
+              ),
+            tool(Icons.undo_rounded, 'تراجع', board.undo),
+            tool(Icons.delete_outline_rounded, 'مسح الصفحة', board.clear),
             tool(
-              Icons.edit_rounded,
-              i == 0 ? 'قلم داكن' : 'قلم أزرق',
-              () => board.setInk(i),
-              active: board.ink == i,
+              Icons.add_photo_alternate_outlined,
+              'صورة درس أو حل من الهاتف',
+              () => pickPicture(context),
             ),
-          tool(Icons.undo_rounded, 'تراجع', board.undo),
-          tool(Icons.delete_outline_rounded, 'مسح السبورة', board.clear),
-          tool(Icons.videocam_outlined, 'العودة للكاميرا', board.toggle),
-        ],
+            tool(
+              Icons.chevron_left_rounded,
+              'الصفحة التالية',
+              board.index < board.pages.length - 1
+                  ? () => board.goTo(board.index + 1)
+                  : null,
+            ),
+            Padding(
+              padding: const EdgeInsetsDirectional.only(start: 6),
+              child: Text(
+                '${board.index + 1} / ${board.pages.length}',
+                style: const TextStyle(
+                  fontFamily: Eps.fontNum,
+                  fontSize: 11,
+                  color: Eps.ink,
+                ),
+              ),
+            ),
+            tool(
+              Icons.chevron_right_rounded,
+              'الصفحة السابقة',
+              board.index > 0 ? () => board.goTo(board.index - 1) : null,
+            ),
+            tool(Icons.note_add_outlined, 'صفحة جديدة', board.addPage),
+            tool(Icons.videocam_outlined, 'العودة للكاميرا', board.toggle),
+          ],
+        ),
       ),
     );
   }
