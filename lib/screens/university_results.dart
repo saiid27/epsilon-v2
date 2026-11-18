@@ -350,7 +350,12 @@ class _UniversityResultsViewerState extends State<UniversityResultsViewer> {
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 18),
                 child: EpsPageHeader(
-                  title: 'نتائجي الجامعية',
+                  title: links
+                      .firstWhere(
+                        (l) => l.url == url,
+                        orElse: () => links.first,
+                      )
+                      .name,
                   onBack: () => Navigator.of(context).maybePop(),
                   action: kIsWeb
                       ? EpsIconButton(
@@ -367,27 +372,33 @@ class _UniversityResultsViewerState extends State<UniversityResultsViewer> {
               ),
               if (links.length > 1)
                 SizedBox(
-                  height: 40,
+                  height: 48,
                   child: ListView(
                     scrollDirection: Axis.horizontal,
                     padding: const EdgeInsets.symmetric(
                       horizontal: 18,
-                      vertical: 4,
+                      vertical: 8,
                     ),
                     children: [
                       for (final link in links)
                         Padding(
-                          padding: const EdgeInsetsDirectional.only(end: 6),
+                          padding: const EdgeInsetsDirectional.only(end: 8),
                           child: ChoiceChip(
                             label: Text(
                               link.name,
                               style: TextStyle(
-                                fontSize: 10,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w800,
                                 color: link.url == url ? Colors.white : Eps.ink,
                               ),
                             ),
                             selected: link.url == url,
                             showCheckmark: false,
+                            selectedColor: Eps.blue,
+                            backgroundColor: Colors.white,
+                            side: BorderSide(
+                              color: link.url == url ? Eps.blue : Eps.line,
+                            ),
                             onSelected: (_) => choose(link.url),
                           ),
                         ),
@@ -432,6 +443,8 @@ class _UniversityResultsViewerState extends State<UniversityResultsViewer> {
                                         onTap: openOutside,
                                         child: const Text(
                                           'إذا لم تظهر الصفحة، اضغط لفتحها في نافذة جديدة',
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
                                           style: TextStyle(
                                             fontSize: 9,
                                             fontWeight: FontWeight.w700,
