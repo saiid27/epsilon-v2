@@ -3665,13 +3665,6 @@ class StudentFileUploadScreen extends StatefulWidget {
 }
 
 class _StudentFileUploadScreenState extends State<StudentFileUploadScreen> {
-  static const defaultFaculties = [
-    'FST',
-    'الاقتصاد',
-    'الحقوق',
-    'الآداب',
-    'الطب',
-  ];
   static const defaultTracks = [
     'MPI',
     'PC',
@@ -3691,11 +3684,47 @@ class _StudentFileUploadScreenState extends State<StudentFileUploadScreen> {
   String? faculty;
   String? track;
   String? subjectId;
+  List<EpsFaculty> faculties = [];
   PickedNativeFile? picked;
   Uint8List? bytes;
   bool rights = false;
   bool sending = false;
   String error = '';
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      final learn = LearnScope.read(context);
+      if (!learn.enabled) {
+        // Offline: the known faculties, so the list is never empty.
+        setState(
+          () => faculties = [
+            for (final (name, label) in const [
+              ('FST', 'كلية العلوم والتقنيات'),
+              ('FSJE', 'كلية العلوم القانونية والاقتصادية'),
+              ('FLSH', 'كلية الآداب والعلوم الإنسانية'),
+              ('MED', 'كلية الطب'),
+            ])
+              EpsFaculty.fromRow({
+                'name': name,
+                'label': label,
+                'status': 'approved',
+              }),
+          ],
+        );
+        return;
+      }
+      try {
+        final list = await learn.repo.approvedFaculties();
+        if (mounted) {
+          setState(() => faculties = list);
+        }
+      } on Object {
+        // The student can still add a faculty.
+      }
+    });
+  }
 
   @override
   void dispose() {
@@ -3764,6 +3793,14 @@ class _StudentFileUploadScreenState extends State<StudentFileUploadScreen> {
       setState(() => error = 'اختر الكلية أو اكتب اسمها.');
       return;
     }
+    if (faculty == addNewChoice && learn.enabled) {
+      // A new faculty waits for the administration's approval.
+      try {
+        await learn.repo.suggestFaculty(facultyValue, userId ?? '');
+      } on Object {
+        // The file is still uploaded with the faculty typed.
+      }
+    }
     if (trackValue.isEmpty) {
       setState(() => error = 'اختر التخصص أو اكتب اسمه.');
       return;
@@ -3818,10 +3855,6 @@ class _StudentFileUploadScreenState extends State<StudentFileUploadScreen> {
   @override
   Widget build(BuildContext context) {
     final learn = LearnScope.of(context);
-    final facultyOptions = optionsWith(
-      defaultFaculties,
-      learn.subjects.map((s) => s.faculty),
-    );
     final trackOptions = optionsWith(defaultTracks, const []);
     return EpsPage(
       title: 'رفع ملف',
@@ -3839,8 +3872,8 @@ class _StudentFileUploadScreenState extends State<StudentFileUploadScreen> {
           isExpanded: true,
           decoration: const InputDecoration(hintText: 'اختر الكلية'),
           items: [
-            for (final f in facultyOptions)
-              DropdownMenuItem(value: f, child: Text(f)),
+            for (final f in faculties)
+              DropdownMenuItem(value: f.name, child: Text(f.label)),
             addItem('+ كلية غير موجودة'),
           ],
           onChanged: (v) => setState(() => faculty = v),

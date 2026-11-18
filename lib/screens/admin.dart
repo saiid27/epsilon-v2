@@ -235,6 +235,7 @@ class _AdminConsoleState extends State<AdminConsole> {
         c.from('courses').select().order('created_at'),
         c.from('plans').select().order('sort_order'),
         c.from('student_files').select().order('created_at', ascending: false),
+        c.from('faculties').select().order('created_at'),
       ]);
       universityResultsUrl = await repo.setting(
         'universityResultsUrl',
@@ -253,7 +254,8 @@ class _AdminConsoleState extends State<AdminConsole> {
           ..['announcements'] = list(r[8])
           ..['courses'] = list(r[9])
           ..['plans'] = list(r[10])
-          ..['student_files'] = list(r[11]);
+          ..['student_files'] = list(r[11])
+          ..['faculties'] = list(r[12]);
         loading = false;
         error = null;
       });
@@ -1036,7 +1038,47 @@ class _AdminConsoleState extends State<AdminConsole> {
       );
     }
 
+    final faculties = rows('faculties');
+    final pendingFaculties = faculties.where((f) => f['status'] == 'pending');
+    Future<void> setFaculty(
+      Map<String, dynamic> f,
+      String status,
+      String done,
+    ) => run(
+      () => repo.client
+          .from('faculties')
+          .update({'status': status})
+          .eq('id', '${f['id']}'),
+      done,
+    );
     return [
+      if (pendingFaculties.isNotEmpty) ...[
+        const Text(
+          'كليات يقترحها الطلاب',
+          style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700),
+        ),
+        const SizedBox(height: 6),
+        for (final f in pendingFaculties)
+          rowTile(
+            title: '${f['name']}',
+            subtitle: 'عند الموافقة تُضاف للقائمة لجميع الطلاب',
+            badges: const [EpsBadge('قيد المراجعة', tone: EpsTone.orange)],
+            extra: [
+              IconButton(
+                tooltip: 'موافقة',
+                icon: const Icon(Icons.check_circle_outline, color: Eps.green),
+                onPressed: () =>
+                    setFaculty(f, 'approved', 'تمت إضافة الكلية للقائمة'),
+              ),
+              IconButton(
+                tooltip: 'رفض',
+                icon: const Icon(Icons.cancel_outlined, color: Eps.red),
+                onPressed: () => setFaculty(f, 'rejected', 'تم رفض الكلية'),
+              ),
+            ],
+          ),
+        const SizedBox(height: 12),
+      ],
       FlatCard(
         shadow: false,
         radius: 14,

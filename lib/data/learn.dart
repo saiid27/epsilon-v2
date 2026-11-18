@@ -240,6 +240,20 @@ class EpsExercise {
   final bool isFree;
 }
 
+/// A faculty offered on upload. [label] is the full name shown to students.
+class EpsFaculty {
+  EpsFaculty.fromRow(Map<String, dynamic> r)
+    : id = _str(r['id']),
+      name = _str(r['name']),
+      label = _str(r['label']).isEmpty ? _str(r['name']) : _str(r['label']),
+      status = _str(r['status']);
+
+  final String id;
+  final String name;
+  final String label;
+  final String status;
+}
+
 /// A file shared by a student with their specialty; visible once approved.
 class EpsStudentFile {
   EpsStudentFile.fromRow(Map<String, dynamic> r)
@@ -853,6 +867,43 @@ class LearnRepository {
     }
     return null;
   }
+
+  /// Faculties offered to students (approved only).
+  Future<List<EpsFaculty>> approvedFaculties() async =>
+      (await client
+              .from('faculties')
+              .select()
+              .eq('status', 'approved')
+              .order('name'))
+          .map((r) => EpsFaculty.fromRow(Map<String, dynamic>.from(r)))
+          .toList();
+
+  /// Every faculty, for the administration (pending first).
+  Future<List<EpsFaculty>> allFaculties() async => _list(
+    await client.from('faculties').select().order('created_at'),
+  ).map(EpsFaculty.fromRow).toList();
+
+  /// A student suggests a faculty that is missing; it waits for approval.
+  Future<void> suggestFaculty(String name, String userId) async {
+    final existing = _list(
+      await client
+          .from('faculties')
+          .select('id')
+          .eq('name', name.trim())
+          .limit(1),
+    );
+    if (existing.isNotEmpty) {
+      return;
+    }
+    await client.from('faculties').insert({
+      'name': name.trim(),
+      'status': 'pending',
+      'suggested_by': userId,
+    });
+  }
+
+  Future<void> setFacultyStatus(String id, String status) =>
+      client.from('faculties').update({'status': status}).eq('id', id);
 
   /// Approved files of a specialty (faculty, track and level). An empty
   /// value leaves that part unfiltered.
