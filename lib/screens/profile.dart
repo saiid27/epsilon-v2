@@ -1554,6 +1554,63 @@ class _AssistantScreenState extends State<AssistantScreen> {
     super.dispose();
   }
 
+  /// Attach menu: a photo of an exercise or a PDF file.
+  void attachSheet() => showModalBottomSheet<void>(
+    context: context,
+    builder: (sheet) => SafeArea(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          ListTile(
+            leading: const Icon(Icons.photo_camera_outlined, color: Eps.blue),
+            title: const Text('صوّر التمرين'),
+            onTap: () {
+              Navigator.of(sheet).pop();
+              pickPhoto();
+            },
+          ),
+          ListTile(
+            leading: const Icon(Icons.picture_as_pdf_outlined, color: Eps.blue),
+            title: const Text('أرفق ملف PDF'),
+            onTap: () {
+              Navigator.of(sheet).pop();
+              pickPdf();
+            },
+          ),
+        ],
+      ),
+    ),
+  );
+
+  /// Mode menu: full solution, hint, explanation, and the other modes.
+  void chooseMode() => showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    builder: (sheet) => SafeArea(
+      child: ListView(
+        shrinkWrap: true,
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        children: [
+          for (final (code, label, icon) in modes)
+            ListTile(
+              leading: Icon(icon, color: Eps.blue),
+              title: Text(label),
+              trailing: code == mode
+                  ? const Icon(Icons.check_rounded, color: Eps.blue)
+                  : null,
+              onTap: () {
+                Navigator.of(sheet).pop();
+                setState(() => mode = code);
+                if (code == 'pdf' && pdf == null) {
+                  pickPdf();
+                }
+              },
+            ),
+        ],
+      ),
+    ),
+  );
+
   void say(String text) => setState(
     () => messages.add((me: false, text: text, image: null, file: null)),
   );
@@ -1818,27 +1875,6 @@ class _AssistantScreenState extends State<AssistantScreen> {
     final assistantName = firstName(
       StoreScope.of(context).currentUser?.name ?? '',
     );
-    Widget roundButton(
-      IconData icon,
-      VoidCallback? onTap, {
-      Color color = Eps.blueSoft,
-      Color ink = Eps.blue,
-      String? tooltip,
-    }) => Tooltip(
-      message: tooltip ?? '',
-      child: GestureDetector(
-        onTap: onTap,
-        child: Container(
-          width: 34,
-          height: 34,
-          decoration: BoxDecoration(
-            color: color,
-            borderRadius: BorderRadius.circular(10),
-          ),
-          child: Icon(icon, color: ink, size: 17),
-        ),
-      ),
-    );
     return Scaffold(
       backgroundColor: Eps.bg,
       body: SafeArea(
@@ -1907,7 +1943,7 @@ class _AssistantScreenState extends State<AssistantScreen> {
                         ),
                         Text(
                           '● متصل',
-                          style: TextStyle(fontSize: 7, color: Eps.green),
+                          style: TextStyle(fontSize: 7, color: Eps.blue),
                         ),
                       ],
                     ),
@@ -2081,7 +2117,7 @@ class _AssistantScreenState extends State<AssistantScreen> {
                   children: [
                     const EpsMark(
                       icon: Icons.picture_as_pdf_rounded,
-                      tone: EpsTone.red,
+                      tone: EpsTone.blue,
                       size: 44,
                     ),
                     const SizedBox(width: 8),
@@ -2150,136 +2186,110 @@ class _AssistantScreenState extends State<AssistantScreen> {
                   ],
                 ),
               ),
-            if (listening)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 4),
-                child: Text(
-                  french
-                      ? '● Parlez maintenant… (اضغط الميكروفون للإيقاف)'
-                      : '● تكلم الآن… (اضغط الميكروفون للإيقاف)',
-                  style: const TextStyle(fontSize: 9, color: Eps.red),
-                ),
+            Container(
+              margin: const EdgeInsets.fromLTRB(16, 6, 16, 12),
+              padding: const EdgeInsets.fromLTRB(16, 12, 10, 10),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(24),
+                border: Border.all(color: Eps.blue.withAlpha(60)),
+                boxShadow: Eps.cardShadow,
               ),
-            SizedBox(
-              height: 32,
-              child: ListView(
-                padding: const EdgeInsets.symmetric(horizontal: 18),
-                scrollDirection: Axis.horizontal,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  for (final (code, label, icon) in modes)
+                  if (listening)
                     Padding(
-                      padding: const EdgeInsetsDirectional.only(end: 6),
-                      child: GestureDetector(
-                        onTap: () {
-                          setState(() => mode = code);
-                          if (code == 'pdf' && pdf == null) {
-                            pickPdf();
-                          }
-                        },
-                        child: AnimatedContainer(
-                          duration: const Duration(milliseconds: 150),
-                          padding: const EdgeInsets.symmetric(horizontal: 10),
-                          alignment: Alignment.center,
+                      padding: const EdgeInsets.only(bottom: 6),
+                      child: Text(
+                        french ? 'Parlez maintenant…' : 'تكلم الآن…',
+                        style: const TextStyle(fontSize: 9, color: Eps.blue),
+                      ),
+                    ),
+                  TextField(
+                    controller: input,
+                    onSubmitted: ask,
+                    minLines: 1,
+                    maxLines: 5,
+                    style: const TextStyle(fontSize: 10, color: Eps.ink),
+                    decoration: const InputDecoration(
+                      isCollapsed: true,
+                      filled: false,
+                      border: InputBorder.none,
+                      enabledBorder: InputBorder.none,
+                      focusedBorder: InputBorder.none,
+                      hintText: 'اسأل مساعد إبسيلون...',
+                      hintStyle: TextStyle(fontSize: 10, color: Eps.faint),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      SoftIconButton(
+                        icon: Icons.add_rounded,
+                        tooltip: 'إضافة صورة أو ملف',
+                        onTap: thinking ? null : attachSheet,
+                      ),
+                      const SizedBox(width: 8),
+                      GestureDetector(
+                        onTap: thinking ? null : chooseMode,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 7,
+                          ),
                           decoration: BoxDecoration(
-                            color: mode == code ? Eps.blue : Colors.white,
+                            color: Eps.blueSoft,
                             borderRadius: BorderRadius.circular(999),
-                            border: Border.all(
-                              color: mode == code ? Eps.blue : Eps.line,
-                            ),
                           ),
                           child: Row(
+                            mainAxisSize: MainAxisSize.min,
                             children: [
-                              Icon(
-                                icon,
-                                size: 13,
-                                color: mode == code ? Colors.white : Eps.blue,
-                              ),
-                              const SizedBox(width: 4),
                               Text(
-                                label,
-                                style: TextStyle(
-                                  fontSize: 8,
+                                modes.firstWhere((m) => m.$1 == mode).$2,
+                                style: const TextStyle(
+                                  fontSize: 9,
                                   fontWeight: FontWeight.w700,
-                                  color: mode == code ? Colors.white : Eps.ink,
+                                  color: Eps.blue,
                                 ),
+                              ),
+                              const SizedBox(width: 2),
+                              const Icon(
+                                Icons.expand_more_rounded,
+                                size: 16,
+                                color: Eps.blue,
                               ),
                             ],
                           ),
                         ),
                       ),
-                    ),
-                ],
-              ),
-            ),
-            Container(
-              margin: const EdgeInsets.fromLTRB(18, 8, 18, 10),
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: listening ? Eps.red : Eps.line),
-              ),
-              child: Row(
-                children: [
-                  roundButton(
-                    Icons.photo_camera_outlined,
-                    thinking ? null : pickPhoto,
-                    tooltip: 'صوّر التمرين',
-                  ),
-                  const SizedBox(width: 5),
-                  roundButton(
-                    Icons.attach_file_rounded,
-                    thinking ? null : pickPdf,
-                    tooltip: 'أرفق ملف PDF',
-                  ),
-                  const SizedBox(width: 5),
-                  roundButton(
-                    listening ? Icons.stop_rounded : Icons.mic_none_rounded,
-                    thinking ? null : toggleVoice,
-                    color: listening ? Eps.red : Eps.blueSoft,
-                    ink: listening ? Colors.white : Eps.blue,
-                    tooltip: 'اسأل بصوتك',
-                  ),
-                  GestureDetector(
-                    onTap: listening
-                        ? null
-                        : () => setState(() => french = !french),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 6),
-                      child: Text(
-                        french ? 'FR' : 'ع',
-                        style: const TextStyle(
-                          fontSize: 9,
-                          fontWeight: FontWeight.w800,
-                          color: Eps.muted,
+                      const Spacer(),
+                      SoftIconButton(
+                        icon: listening
+                            ? Icons.stop_rounded
+                            : Icons.mic_none_rounded,
+                        tooltip: 'اسأل بصوتك',
+                        active: listening,
+                        onTap: thinking ? null : toggleVoice,
+                      ),
+                      const SizedBox(width: 8),
+                      GestureDetector(
+                        onTap: thinking ? null : () => ask(input.text),
+                        child: Container(
+                          width: 38,
+                          height: 38,
+                          decoration: BoxDecoration(
+                            color: thinking ? Eps.line : Eps.blue,
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(
+                            Icons.arrow_upward_rounded,
+                            color: Colors.white,
+                            size: 20,
+                          ),
                         ),
                       ),
-                    ),
-                  ),
-                  Expanded(
-                    child: TextField(
-                      controller: input,
-                      onSubmitted: ask,
-                      minLines: 1,
-                      maxLines: 4,
-                      style: const TextStyle(fontSize: 9),
-                      decoration: const InputDecoration(
-                        isCollapsed: true,
-                        filled: false,
-                        border: InputBorder.none,
-                        enabledBorder: InputBorder.none,
-                        focusedBorder: InputBorder.none,
-                        hintText: 'اكتب سؤالك هنا...',
-                        hintStyle: TextStyle(fontSize: 9, color: Eps.faint),
-                      ),
-                    ),
-                  ),
-                  roundButton(
-                    Icons.send_rounded,
-                    thinking ? null : () => ask(input.text),
-                    color: Eps.blue,
-                    ink: Colors.white,
-                    tooltip: 'إرسال',
+                    ],
                   ),
                 ],
               ),
@@ -3824,6 +3834,42 @@ class _StudentFileUploadScreenState extends State<StudentFileUploadScreen> {
           style: TextStyle(fontSize: 8, color: Eps.muted),
         ),
       ],
+    );
+  }
+}
+
+/// Round icon button of the assistant's input bar: soft blue, or solid blue
+/// while active.
+class SoftIconButton extends StatelessWidget {
+  const SoftIconButton({
+    required this.icon,
+    required this.onTap,
+    this.active = false,
+    this.tooltip = '',
+    super.key,
+  });
+
+  final IconData icon;
+  final VoidCallback? onTap;
+  final bool active;
+  final String tooltip;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: tooltip,
+      child: GestureDetector(
+        onTap: onTap,
+        child: Container(
+          width: 38,
+          height: 38,
+          decoration: BoxDecoration(
+            color: active ? Eps.blue : Eps.blueSoft,
+            shape: BoxShape.circle,
+          ),
+          child: Icon(icon, size: 20, color: active ? Colors.white : Eps.blue),
+        ),
+      ),
     );
   }
 }
