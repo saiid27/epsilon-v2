@@ -3457,10 +3457,15 @@ class _StudentFilesScreenState extends State<StudentFilesScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) => load());
   }
 
+  /// Faculty names in the order of the list, and their labels.
+  List<String> facultyOrder = [];
+  Map<String, String> facultyLabels = {};
+  String? faculty;
+  String? track;
+
   Future<void> load() async {
     final learn = LearnScope.read(context);
     final userId = learn.userId;
-    final profile = learn.profile;
     if (!learn.enabled || userId == null) {
       setState(() => loading = false);
       return;
@@ -3470,17 +3475,15 @@ class _StudentFilesScreenState extends State<StudentFilesScreen> {
       error = '';
     });
     try {
-      final results = await Future.wait<List<EpsStudentFile>>([
-        learn.repo.studentFiles(
-          faculty: profile?.faculty ?? '',
-          track: profile?.track ?? '',
-        ),
-        learn.repo.myStudentFiles(userId),
-      ]);
+      final everything = await learn.repo.studentFiles();
+      final mineList = await learn.repo.myStudentFiles(userId);
+      final faculties = await learn.repo.approvedFaculties();
       if (mounted) {
         setState(() {
-          shared = results[0];
-          mine = results[1];
+          shared = everything;
+          mine = mineList;
+          facultyOrder = [for (final f in faculties) f.name];
+          facultyLabels = {for (final f in faculties) f.name: f.label};
           loading = false;
         });
       }
@@ -3492,6 +3495,100 @@ class _StudentFilesScreenState extends State<StudentFilesScreen> {
         });
       }
     }
+  }
+
+  /// Files grouped by faculty first, then, inside the chosen faculty, by
+  /// track. The student's own faculty opens first.
+  List<Widget> _sharedByFacultyThenTrack() {
+    final learn = LearnScope.read(context);
+    final profileFaculty = learn.profile?.faculty ?? '';
+    final faculties = {
+      ...facultyOrder,
+      for (final f in shared)
+        if (f.faculty.isNotEmpty && !facultyOrder.contains(f.faculty))
+          f.faculty,
+    }.where((f) => shared.any((x) => x.faculty == f)).toList();
+    final selected =
+        faculty ??
+        (faculties.contains(profileFaculty) ? profileFaculty : null) ??
+        (faculties.isEmpty ? null : faculties.first);
+    final tracks = <String>{
+      for (final f in shared)
+        if (f.faculty == selected && f.track.isNotEmpty) f.track,
+    }.toList()..sort();
+    final files = [
+      for (final f in shared)
+        if (f.faculty == selected && (track == null || f.track == track)) f,
+    ];
+
+    Widget pill(String label, bool on, VoidCallback onTap) => Padding(
+      padding: const EdgeInsetsDirectional.only(end: 6),
+      child: GestureDetector(
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+          decoration: BoxDecoration(
+            color: on ? Eps.blue : Colors.white,
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(color: on ? Eps.blue : Eps.line),
+          ),
+          child: Text(
+            label,
+            style: TextStyle(
+              fontSize: 9,
+              fontWeight: FontWeight.w700,
+              color: on ? Colors.white : Eps.ink,
+            ),
+          ),
+        ),
+      ),
+    );
+
+    return [
+      const Text('الكلية', style: TextStyle(fontSize: 10, color: Eps.muted)),
+      const SizedBox(height: 6),
+      SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          children: [
+            for (final f in faculties)
+              pill(
+                facultyLabels[f] ?? f,
+                f == selected,
+                () => setState(() {
+                  faculty = f;
+                  track = null;
+                }),
+              ),
+          ],
+        ),
+      ),
+      if (selected != null && tracks.isNotEmpty) ...[
+        const SizedBox(height: 10),
+        const Text('التخصص', style: TextStyle(fontSize: 10, color: Eps.muted)),
+        const SizedBox(height: 6),
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(
+            children: [
+              pill('الكل', track == null, () => setState(() => track = null)),
+              for (final t in tracks)
+                pill(t, track == t, () => setState(() => track = t)),
+            ],
+          ),
+        ),
+      ],
+      const SizedBox(height: 10),
+      if (files.isEmpty)
+        const Padding(
+          padding: EdgeInsets.symmetric(vertical: 12),
+          child: Text(
+            'لا توجد ملفات في هذا الاختيار بعد.',
+            style: TextStyle(fontSize: 10, color: Eps.muted),
+          ),
+        ),
+      for (final f in files) _StudentFileTile(file: f),
+    ];
   }
 
   Future<void> upload() async {
@@ -3548,11 +3645,13 @@ class _StudentFilesScreenState extends State<StudentFilesScreen> {
             const Padding(
               padding: EdgeInsets.symmetric(vertical: 12),
               child: Text(
-                'لا توجد ملفات بعد في تخصصك. كن أول من يشارك!',
+                'لا توجد ملفات بعد. كن أول من يشارك!',
                 style: TextStyle(fontSize: 10, color: Eps.muted),
               ),
-            ),
-          for (final f in shared) _StudentFileTile(file: f),
+            )
+          else ...[
+            ..._sharedByFacultyThenTrack(),
+          ],
           const SizedBox(height: 10),
           const HomeSectionTitle('ملفاتي'),
           if (mine.isEmpty)
