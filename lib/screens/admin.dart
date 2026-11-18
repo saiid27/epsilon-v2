@@ -1085,7 +1085,7 @@ class _AdminConsoleState extends State<AdminConsole> {
         color: Eps.blueSoft,
         border: Colors.transparent,
         child: const Text(
-          'راجع الملفات قبل نشرها: تأكد أنها مفيدة، وأنها لا تنتهك حقوق الأساتذة. عند القبول يحصل صاحبها على 50 ألف توكن للمساعد.',
+          'راجع الملفات قبل نشرها: تأكد أنها مفيدة، وأنها لا تنتهك حقوق الأساتذة. عند القبول سيتم زيادة رصيد المساعد لدى صاحبها فقط.',
           style: TextStyle(fontSize: 10, color: Eps.ink, height: 1.6),
         ),
       ),

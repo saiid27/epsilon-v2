@@ -371,7 +371,7 @@ class ProfileTab extends StatelessWidget {
             ),
             _MenuRow(
               icon: Icons.folder_shared_outlined,
-              title: 'ملفات زملائي',
+              title: 'مكتبة الملفات',
               subtitle: 'ملفات تخصصك، وشارك ملفاتك',
               onTap: () => pushPage(context, const StudentFilesScreen()),
             ),
@@ -3610,7 +3610,7 @@ class _StudentFilesScreenState extends State<StudentFilesScreen> {
       if (profile?.level.isNotEmpty ?? false) profile!.level,
     ].join(' • ');
     return EpsPage(
-      title: 'ملفات زملائي',
+      title: 'مكتبة الملفات',
       action: EpsIconButton(
         icon: Icons.refresh_rounded,
         tooltip: 'تحديث',
@@ -3620,8 +3620,8 @@ class _StudentFilesScreenState extends State<StudentFilesScreen> {
         FlatCard(
           child: Text(
             specialty.isEmpty
-                ? 'شارك ملاحظاتك وملفات مراجعتك مع زملائك. تُعرض الملفات بعد مراجعة الإدارة، وتحصل على 50 ألف توكن للمساعد عند القبول.'
-                : 'ملفات زملائك في $specialty. شارك ملفاتك وتحصل على 50 ألف توكن للمساعد عند قبولها.',
+                ? 'شارك ملاحظاتك وملفات مراجعتك مع زملائك. تُعرض الملفات بعد مراجعة الإدارة، سيتم زيادة رصيد المساعد لديك فقط عند القبول.'
+                : 'ملفات زملائك في $specialty. شارك ملفاتك سيتم زيادة رصيد المساعد لديك فقط عند قبولها.',
             style: const TextStyle(fontSize: 10, color: Eps.ink, height: 1.7),
           ),
         ),
@@ -3640,7 +3640,7 @@ class _StudentFilesScreenState extends State<StudentFilesScreen> {
         else if (error.isNotEmpty)
           Text(error, style: const TextStyle(color: Eps.red, fontSize: 10))
         else ...[
-          const HomeSectionTitle('ملفات زملائك'),
+          const HomeSectionTitle('الملفات المشتركة'),
           if (shared.isEmpty)
             const Padding(
               padding: EdgeInsets.symmetric(vertical: 12),
@@ -3942,7 +3942,7 @@ class _StudentFileUploadScreenState extends State<StudentFileUploadScreen> {
       if (mounted) {
         setState(() {
           sending = false;
-          error = 'تعذر الرفع: $e';
+          error = e is StateError ? e.message : 'تعذر الرفع: $e';
         });
       }
     }
