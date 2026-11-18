@@ -204,6 +204,19 @@ Deno.serve(async (req) => {
       questions: credit.questions - (attachment ? 0 : 1),
       files: credit.files - (attachment ? 1 : 0),
     };
+    // Cost log (Claude Haiku 5.5 list prices, USD per million tokens).
+    const inTok = response.usage?.input_tokens ?? 0;
+    const outTok = response.usage?.output_tokens ?? 0;
+    const costUsd = (inTok * 0.1 + outTok * 0.5) / 1_000_000;
+    await supabase.from('assistant_costs').insert({
+      user_id: userId,
+      kind: attachment ? 'file' : 'question',
+      model: 'claude-haiku-5-5',
+      input_tokens: inTok,
+      output_tokens: outTok,
+      cost_usd: costUsd,
+    });
+
     await supabase.from('assistant_credits').upsert({
       user_id: userId,
       questions: left.questions,
