@@ -4851,8 +4851,8 @@ class _GuestContentPageState extends State<GuestContentPage> {
     final store = StoreScope.of(context);
     final courses = [...store.courses]
       ..sort((a, b) => a.title.compareTo(b.title));
-    final filteredItems = selectedCourseId == null
-        ? <GuestContentItem>[]
+    final items = selectedCourseId == null
+        ? widget.items
         : widget.items
               .where((item) => item.courseId == selectedCourseId)
               .toList();
@@ -4868,53 +4868,76 @@ class _GuestContentPageState extends State<GuestContentPage> {
             subtitle: widget.subtitle,
             icon: widget.icon,
           ),
-          const SizedBox(height: 16),
-          SectionCard(
-            title: 'اختر القسم',
-            icon: Icons.menu_book_rounded,
-            child: courses.isEmpty
-                ? const EmptyState(text: 'لا توجد أقسام متاحة حاليا.')
-                : DropdownButtonFormField<String>(
-                    initialValue: selectedCourseId,
-                    decoration: const InputDecoration(
-                      labelText: 'القسم',
-                      prefixIcon: Icon(Icons.school_rounded),
+          const SizedBox(height: 14),
+          if (courses.isNotEmpty)
+            SizedBox(
+              height: 42,
+              child: ListView(
+                scrollDirection: Axis.horizontal,
+                reverse: true,
+                children: [
+                  _GuestCourseChip(
+                    label: 'الكل',
+                    selected: selectedCourseId == null,
+                    onTap: () => setState(() => selectedCourseId = null),
+                  ),
+                  for (final course in courses)
+                    _GuestCourseChip(
+                      label: course.title,
+                      selected: selectedCourseId == course.id,
+                      onTap: () => setState(() => selectedCourseId = course.id),
                     ),
-                    items: courses
-                        .map(
-                          (course) => DropdownMenuItem(
-                            value: course.id,
-                            child: Text(course.title),
-                          ),
-                        )
-                        .toList(),
-                    onChanged: (value) =>
-                        setState(() => selectedCourseId = value),
-                  ),
-          ),
-          const SizedBox(height: 16),
-          SectionCard(
-            title: selectedCourseId == null
-                ? 'محتوى القسم'
-                : store.courseById(selectedCourseId)?.title ?? widget.title,
-            icon: widget.icon,
-            child: selectedCourseId == null
-                ? const EmptyState(text: 'اختر القسم لعرض المحتوى الخاص به.')
-                : filteredItems.isEmpty
-                ? EmptyState(text: widget.emptyText)
-                : Column(
-                    children: filteredItems
-                        .map(
-                          (item) => GuestContentTile(
-                            item: item,
-                            icon: widget.icon,
-                            viewerKind: widget.viewerKind,
-                          ),
-                        )
-                        .toList(),
-                  ),
-          ),
+                ],
+              ),
+            ),
+          const SizedBox(height: 14),
+          if (items.isEmpty)
+            EmptyState(text: widget.emptyText)
+          else
+            for (final item in items)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: GuestContentTile(
+                  item: item,
+                  icon: widget.icon,
+                  viewerKind: widget.viewerKind,
+                  courseTitle: store.courseById(item.courseId)?.title ?? '',
+                ),
+              ),
         ],
+      ),
+    );
+  }
+}
+
+class _GuestCourseChip extends StatelessWidget {
+  const _GuestCourseChip({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    const blue = Color(0xFF2F5BEA);
+    return Padding(
+      padding: const EdgeInsets.only(left: 8),
+      child: ChoiceChip(
+        label: Text(label),
+        selected: selected,
+        onSelected: (_) => onTap(),
+        selectedColor: blue,
+        backgroundColor: Colors.white,
+        side: BorderSide(color: selected ? blue : const Color(0xFFE2E8F5)),
+        labelStyle: TextStyle(
+          fontWeight: FontWeight.w800,
+          color: selected ? Colors.white : const Color(0xFF172039),
+        ),
+        showCheckmark: false,
       ),
     );
   }
@@ -4925,34 +4948,111 @@ class GuestContentTile extends StatelessWidget {
     required this.item,
     required this.icon,
     required this.viewerKind,
+    this.courseTitle = '',
     super.key,
   });
 
   final GuestContentItem item;
   final IconData icon;
   final SecureContentKind viewerKind;
+  final String courseTitle;
 
   @override
   Widget build(BuildContext context) {
-    return ListTile(
-      contentPadding: EdgeInsets.zero,
-      leading: Icon(icon, color: const Color(0xFF2F5BEA)),
-      title: Text(
-        item.title,
-        style: const TextStyle(fontWeight: FontWeight.w900),
-      ),
-      subtitle: Text(
-        item.description.trim().isEmpty ? 'اضغط للعرض' : item.description,
-        maxLines: 2,
-        overflow: TextOverflow.ellipsis,
-      ),
-      trailing: const Icon(Icons.arrow_back_ios_new_rounded, size: 16),
-      onTap: () => Navigator.of(context).push(
-        MaterialPageRoute(
-          builder: (_) => SecureContentViewerPage(
-            title: item.title,
-            url: item.url,
-            kind: viewerKind,
+    const blue = Color(0xFF2F5BEA);
+    final isVideo = viewerKind == SecureContentKind.video;
+    return Material(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(16),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: () => Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) => SecureContentViewerPage(
+              title: item.title,
+              url: item.url,
+              kind: viewerKind,
+            ),
+          ),
+        ),
+        child: Container(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: const Color(0xFFE2E8F5)),
+          ),
+          padding: const EdgeInsets.all(12),
+          child: Row(
+            children: [
+              Container(
+                width: 74,
+                height: 74,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(14),
+                  gradient: const LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [Color(0xFF2F5BEA), Color(0xFF172039)],
+                  ),
+                ),
+                child: Icon(
+                  isVideo ? Icons.play_arrow_rounded : icon,
+                  color: Colors.white,
+                  size: 40,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (courseTitle.isNotEmpty)
+                      Container(
+                        margin: const EdgeInsets.only(bottom: 6),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 3,
+                        ),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFEEF3FF),
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                        child: Text(
+                          courseTitle,
+                          style: const TextStyle(
+                            color: blue,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ),
+                    Text(
+                      item.title,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w900,
+                        fontSize: 15,
+                        color: Color(0xFF172039),
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      item.description.trim().isEmpty
+                          ? (isVideo ? 'فيديو مجاني' : 'ملف PDF')
+                          : item.description,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Color(0xFF6B7690),
+                        fontSize: 12,
+                        height: 1.4,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const Icon(Icons.chevron_left_rounded, color: blue),
+            ],
           ),
         ),
       ),
