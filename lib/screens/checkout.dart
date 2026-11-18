@@ -1210,6 +1210,10 @@ class PlansScreen extends StatelessWidget {
                         onTap: () => learn.selectPlan(plan.code),
                       ),
                     ),
+                // The assistant has its own packages, bought apart from subjects.
+                _AssistantSubscriptionEntry(
+                  onTap: () => pushPage(context, const AssistantPlansScreen()),
+                ),
               ],
             ),
             Positioned(
@@ -1236,6 +1240,75 @@ class PlansScreen extends StatelessWidget {
                       },
               ),
             ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _AssistantSubscriptionEntry extends StatelessWidget {
+  const _AssistantSubscriptionEntry({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          gradient: const LinearGradient(
+            begin: Alignment.topRight,
+            end: Alignment.bottomLeft,
+            colors: [Eps.blue, Eps.navy],
+          ),
+          borderRadius: BorderRadius.circular(17),
+          boxShadow: Eps.cardShadow,
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 42,
+              height: 42,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.16),
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: const Icon(
+                Icons.auto_awesome_rounded,
+                color: Colors.white,
+                size: 22,
+              ),
+            ),
+            const SizedBox(width: 12),
+            const Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'مساعد Epsilon AI',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w900,
+                      color: Colors.white,
+                    ),
+                  ),
+                  SizedBox(height: 2),
+                  Text(
+                    'اشتراك المساعد الذكي: باقات شهرية وسنوية',
+                    style: TextStyle(
+                      fontSize: 8,
+                      color: Color(0xFFD6E2FF),
+                      height: 1.5,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const Icon(Icons.chevron_left_rounded, color: Colors.white),
           ],
         ),
       ),
