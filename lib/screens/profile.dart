@@ -1530,7 +1530,7 @@ class _AssistantScreenState extends State<AssistantScreen> {
         () => messages.add((
           me: false,
           text:
-              'أحل وأشرح تمارينك${widget.lessonTitle == null ? '' : ' في درس «${widget.lessonTitle}»'} 📚، وأشرح ملفات PDF 📄، وأكتب سيرتك الذاتية ورسائلك وتقاريرك ✍️.\nاكتب، أو صوّر 📷، أو أرفق ملفاً 📎، أو تكلم 🎙️.',
+              'أحل وأشرح تمارينك${widget.lessonTitle == null ? '' : ' في درس «${widget.lessonTitle}»'}، وأشرح ملفات PDF، وأكتب سيرتك الذاتية ورسائلك وتقاريرك.\nاكتب، أو صوّر، أو أرفق ملفاً، أو تكلم.',
           image: null,
           file: null,
         )),
@@ -1815,6 +1815,9 @@ class _AssistantScreenState extends State<AssistantScreen> {
   @override
   Widget build(BuildContext context) {
     final learn = LearnScope.of(context);
+    final assistantName = firstName(
+      StoreScope.of(context).currentUser?.name ?? '',
+    );
     Widget roundButton(
       IconData icon,
       VoidCallback? onTap, {
@@ -1889,8 +1892,6 @@ class _AssistantScreenState extends State<AssistantScreen> {
               ),
               child: Row(
                 children: [
-                  const EpsLogo(size: 34, shadow: null),
-                  const SizedBox(width: 8),
                   const Expanded(
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
@@ -1916,115 +1917,151 @@ class _AssistantScreenState extends State<AssistantScreen> {
               ),
             ),
             Expanded(
-              child: ListView(
-                padding: const EdgeInsets.fromLTRB(18, 14, 18, 8),
+              child: Stack(
                 children: [
-                  AssistantWelcome(
-                    name: firstName(
-                      StoreScope.of(context).currentUser?.name ?? '',
-                    ),
-                  ),
-                  for (final m in messages)
-                    Align(
-                      alignment: m.me
-                          ? AlignmentDirectional.centerStart
-                          : AlignmentDirectional.centerEnd,
-                      child: Container(
-                        constraints: BoxConstraints(maxWidth: m.me ? 290 : 340),
-                        margin: const EdgeInsets.only(bottom: 9),
-                        padding: const EdgeInsets.all(10),
-                        decoration: BoxDecoration(
-                          color: m.me ? Eps.blue : const Color(0xFFE9EEF9),
-                          borderRadius: BorderRadius.circular(13),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            if (m.image != null)
-                              Padding(
-                                padding: const EdgeInsets.only(bottom: 6),
-                                child: ClipRRect(
-                                  borderRadius: BorderRadius.circular(9),
-                                  child: Image.memory(
-                                    m.image!,
-                                    height: 150,
-                                    fit: BoxFit.cover,
-                                  ),
-                                ),
-                              ),
-                            if (m.file != null)
-                              Padding(
-                                padding: const EdgeInsets.only(bottom: 6),
-                                child: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    const Icon(
-                                      Icons.picture_as_pdf_rounded,
-                                      color: Colors.white,
-                                      size: 16,
+                  ListView(
+                    padding: const EdgeInsets.fromLTRB(18, 14, 18, 8),
+                    children: [
+                      for (final m
+                          in messages.length <= 1 && !thinking
+                              ? messages.take(0)
+                              : messages)
+                        Align(
+                          alignment: m.me
+                              ? AlignmentDirectional.centerStart
+                              : AlignmentDirectional.centerEnd,
+                          child: Container(
+                            constraints: BoxConstraints(
+                              maxWidth: m.me ? 290 : 340,
+                            ),
+                            margin: const EdgeInsets.only(bottom: 9),
+                            padding: const EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              color: m.me ? Eps.blue : const Color(0xFFE9EEF9),
+                              borderRadius: BorderRadius.circular(13),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                if (m.image != null)
+                                  Padding(
+                                    padding: const EdgeInsets.only(bottom: 6),
+                                    child: ClipRRect(
+                                      borderRadius: BorderRadius.circular(9),
+                                      child: Image.memory(
+                                        m.image!,
+                                        height: 150,
+                                        fit: BoxFit.cover,
+                                      ),
                                     ),
-                                    const SizedBox(width: 4),
-                                    Flexible(
-                                      child: Text(
-                                        m.file!,
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: const TextStyle(
-                                          fontSize: 8,
+                                  ),
+                                if (m.file != null)
+                                  Padding(
+                                    padding: const EdgeInsets.only(bottom: 6),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        const Icon(
+                                          Icons.picture_as_pdf_rounded,
                                           color: Colors.white,
+                                          size: 16,
+                                        ),
+                                        const SizedBox(width: 4),
+                                        Flexible(
+                                          child: Text(
+                                            m.file!,
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: const TextStyle(
+                                              fontSize: 8,
+                                              color: Colors.white,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                if (m.me)
+                                  SelectableText(
+                                    m.text,
+                                    style: const TextStyle(
+                                      fontSize: 9,
+                                      height: 1.7,
+                                      color: Colors.white,
+                                    ),
+                                  )
+                                else ...[
+                                  MathAnswer(text: m.text),
+                                  if (m != messages.first)
+                                    Align(
+                                      alignment: AlignmentDirectional.centerEnd,
+                                      child: TextButton.icon(
+                                        onPressed: () => savePdf(m.text),
+                                        style: TextButton.styleFrom(
+                                          visualDensity: VisualDensity.compact,
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 6,
+                                          ),
+                                        ),
+                                        icon: const Icon(
+                                          Icons.picture_as_pdf_outlined,
+                                          size: 15,
+                                        ),
+                                        label: const Text(
+                                          'حفظ PDF',
+                                          style: TextStyle(fontSize: 9),
                                         ),
                                       ),
                                     ),
-                                  ],
-                                ),
-                              ),
-                            if (m.me)
-                              SelectableText(
-                                m.text,
-                                style: const TextStyle(
-                                  fontSize: 9,
-                                  height: 1.7,
-                                  color: Colors.white,
-                                ),
-                              )
-                            else ...[
-                              MathAnswer(text: m.text),
-                              if (m != messages.first)
-                                Align(
-                                  alignment: AlignmentDirectional.centerEnd,
-                                  child: TextButton.icon(
-                                    onPressed: () => savePdf(m.text),
-                                    style: TextButton.styleFrom(
-                                      visualDensity: VisualDensity.compact,
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 6,
-                                      ),
-                                    ),
-                                    icon: const Icon(
-                                      Icons.picture_as_pdf_outlined,
-                                      size: 15,
-                                    ),
-                                    label: const Text(
-                                      'حفظ PDF',
-                                      style: TextStyle(fontSize: 9),
-                                    ),
-                                  ),
-                                ),
-                            ],
-                          ],
+                                ],
+                              ],
+                            ),
+                          ),
                         ),
-                      ),
-                    ),
-                  if (thinking)
-                    const Align(
-                      alignment: AlignmentDirectional.centerEnd,
+                      if (thinking)
+                        const Align(
+                          alignment: AlignmentDirectional.centerEnd,
+                          child: Padding(
+                            padding: EdgeInsets.all(8),
+                            child: SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                  if (messages.length <= 1 && !thinking)
+                    Center(
                       child: Padding(
-                        padding: EdgeInsets.all(8),
-                        child: SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
+                        padding: const EdgeInsets.symmetric(horizontal: 28),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              assistantName.isEmpty
+                                  ? 'مرحباً بعودتك'
+                                  : 'مرحباً بعودتك يا $assistantName',
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.w800,
+                                color: Eps.ink,
+                              ),
+                            ),
+                            const SizedBox(height: 10),
+                            Text(
+                              messages.isEmpty ? '' : messages.first.text,
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(
+                                fontSize: 10,
+                                height: 1.9,
+                                color: Eps.muted,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                     ),
@@ -2249,84 +2286,6 @@ class _AssistantScreenState extends State<AssistantScreen> {
             ),
           ],
         ),
-      ),
-    );
-  }
-}
-
-/// Greeting at the top of the assistant: a waving hand and "welcome back,
-/// your assistant is with you".
-class AssistantWelcome extends StatefulWidget {
-  const AssistantWelcome({required this.name, super.key});
-
-  final String name;
-
-  @override
-  State<AssistantWelcome> createState() => _AssistantWelcomeState();
-}
-
-class _AssistantWelcomeState extends State<AssistantWelcome>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController wave = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 1400),
-  )..forward();
-
-  @override
-  void dispose() {
-    wave.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(18),
-        gradient: const LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [Color(0xFFEAF1FF), Color(0xFFF6F9FF)],
-        ),
-        border: Border.all(color: const Color(0xFFD6E2FB)),
-      ),
-      child: Column(
-        children: [
-          AnimatedBuilder(
-            animation: wave,
-            builder: (context, child) => Transform.rotate(
-              // Three quick waves, then still.
-              angle: sin(wave.value * pi * 6) * 0.35 * (1 - wave.value),
-              alignment: Alignment.bottomCenter,
-              child: child,
-            ),
-            child: const Text('👋', style: TextStyle(fontSize: 40)),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            widget.name.isEmpty
-                ? 'مرحباً بعودتك'
-                : 'مرحباً بعودتك يا ${widget.name}',
-            textAlign: TextAlign.center,
-            style: const TextStyle(
-              fontSize: 15,
-              fontWeight: FontWeight.w800,
-              color: Eps.ink,
-            ),
-          ),
-          const SizedBox(height: 2),
-          const Text(
-            'مساعدك معك 🤖✨',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w700,
-              color: Eps.blue,
-            ),
-          ),
-        ],
       ),
     );
   }
@@ -3294,7 +3253,6 @@ class _AssistantPlansScreenState extends State<AssistantPlansScreen> {
           ),
           child: const Column(
             children: [
-              Text('🤖✨', style: TextStyle(fontSize: 34)),
               SizedBox(height: 6),
               Text(
                 'مساعدك الدراسي الذكي',
