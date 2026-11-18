@@ -954,19 +954,6 @@ class LearnRepository {
       _ => 'application/pdf',
     };
     final fileType = mime == 'application/pdf' ? 'pdf' : 'image';
-    // One contribution per student and faculty (rejected files do not count).
-    final earlier = await client
-        .from('student_files')
-        .select('id')
-        .eq('uploader_id', userId)
-        .ilike('faculty', faculty)
-        .neq('status', 'rejected')
-        .limit(1);
-    if ((earlier as List).isNotEmpty) {
-      throw StateError(
-        'لقد شاركت ملفاً لهذه الكلية من قبل. يسمح بمساهمة واحدة لكل كلية.',
-      );
-    }
     final path =
         '$userId/${DateTime.now().millisecondsSinceEpoch}.${fileType == 'pdf' ? 'pdf' : ext}';
     final bucket = client.storage.from('student-files');
