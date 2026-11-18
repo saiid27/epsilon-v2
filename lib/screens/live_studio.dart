@@ -1209,19 +1209,24 @@ class _LiveStudioScreenState extends State<LiveStudioScreen> {
   /// The whiteboard in place of the camera: the teacher writes on it, and the
   /// students see the same strokes.
   Widget _boardStage() {
+    // Most of the screen is board; the tools sit underneath it.
+    final height = MediaQuery.sizeOf(context).height * 0.62;
     final top = MediaQuery.paddingOf(context).top;
     return SizedBox(
-      height: 245 + top,
+      height: height,
       child: Column(
         children: [
           Padding(
-            padding: EdgeInsets.fromLTRB(10, top + 6, 10, 6),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.end,
-              children: [_BoardToolbar(board: board)],
-            ),
+            padding: EdgeInsets.only(top: top),
+            child: const SizedBox.shrink(),
           ),
           Expanded(child: BoardCanvas(board: board, interactive: true)),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            color: Colors.white,
+            child: Center(child: _BoardToolbar(board: board)),
+          ),
         ],
       ),
     );
