@@ -1112,11 +1112,6 @@ class _SubjectDetailScreenState extends State<SubjectDetailScreen> {
                 ),
               ),
             ),
-            Positioned(
-              left: 14,
-              bottom: 70,
-              child: AssistantFab(subjectName: s.name),
-            ),
           ],
         ),
       ),

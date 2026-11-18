@@ -625,11 +625,13 @@ class _CourseScreenState extends State<CourseScreen> {
                 },
               ],
             ),
-            Positioned(
-              left: 14,
-              bottom: 11,
-              child: AssistantFab(subjectName: subject.name),
-            ),
+            // The assistant opens only after the student subscribes to the subject.
+            if (learn.hasAccess(subject.id))
+              Positioned(
+                left: 14,
+                bottom: 11,
+                child: AssistantFab(subjectName: subject.name),
+              ),
           ],
         ),
       ),
