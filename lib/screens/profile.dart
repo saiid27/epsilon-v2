@@ -1813,10 +1813,7 @@ class _AssistantScreenState extends State<AssistantScreen> {
   Widget build(BuildContext context) {
     final learn = LearnScope.of(context);
     if (!learn.isSubscribed) {
-      return const SubscribersOnlyPage(
-        title: 'مساعد إبسيلون',
-        message: 'مساعد الذكاء الاصطناعي متاح للمشتركين فقط.',
-      );
+      return const AssistantPlansScreen();
     }
     Widget roundButton(
       IconData icon,
@@ -3154,6 +3151,269 @@ class _GpaScreenState extends State<GpaScreen> {
           ),
         ),
       ],
+    );
+  }
+}
+
+/// One monthly or yearly assistant package. Prices are in MRU (the current
+/// ouguiya) and are set here, in one place.
+class AssistantPackage {
+  const AssistantPackage({
+    required this.name,
+    required this.tagline,
+    required this.monthly,
+    required this.yearly,
+    required this.questions,
+    required this.files,
+    required this.perks,
+    this.highlight = false,
+  });
+
+  final String name;
+  final String tagline;
+  final int monthly;
+  final int yearly;
+  final int questions;
+  final int files;
+  final List<String> perks;
+  final bool highlight;
+}
+
+const assistantPackages = [
+  AssistantPackage(
+    name: 'المبتدئ',
+    tagline: 'للتعرّف على المساعد',
+    monthly: 100,
+    yearly: 1000,
+    questions: 5,
+    files: 3,
+    perks: ['كل أوضاع المساعد', 'الصور وملفات PDF', 'حفظ الإجابات كملف PDF'],
+  ),
+  AssistantPackage(
+    name: 'المتميز',
+    tagline: 'الأكثر طلباً من الطلاب',
+    monthly: 150,
+    yearly: 1500,
+    questions: 10,
+    files: 6,
+    perks: [
+      'كل ما في المبتدئ',
+      'السيرة الذاتية والرسائل والتقارير',
+      'السؤال بالصوت بالعربية والفرنسية',
+      'رصيد يتراكم حتى 7 أيام',
+    ],
+    highlight: true,
+  ),
+  AssistantPackage(
+    name: 'الاحترافي',
+    tagline: 'للطلاب في الماستر والمشاريع',
+    monthly: 250,
+    yearly: 2500,
+    questions: 20,
+    files: 12,
+    perks: [
+      'كل ما في المتميز',
+      'مذكرة التخرج والبرمجة',
+      'ضعف الرصيد اليومي',
+      'أولوية في الرد',
+    ],
+  ),
+];
+
+/// Assistant packages (shown to students without an assistant package).
+class AssistantPlansScreen extends StatefulWidget {
+  const AssistantPlansScreen({super.key});
+
+  @override
+  State<AssistantPlansScreen> createState() => _AssistantPlansScreenState();
+}
+
+class _AssistantPlansScreenState extends State<AssistantPlansScreen> {
+  bool yearly = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return EpsPage(
+      title: 'مساعد إبسيلون',
+      children: [
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(20),
+            gradient: Eps.heroGradient,
+          ),
+          child: const Column(
+            children: [
+              Text('🤖✨', style: TextStyle(fontSize: 34)),
+              SizedBox(height: 6),
+              Text(
+                'مساعدك الدراسي الذكي',
+                style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w800,
+                  color: Colors.white,
+                ),
+              ),
+              SizedBox(height: 4),
+              Text(
+                'يحل تمارينك ويشرح الدروس وملفات PDF، ويكتب سيرتك الذاتية ورسائلك',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 10,
+                  color: Color(0xFFD6E2FF),
+                  height: 1.6,
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+        Center(
+          child: SegmentedButton<bool>(
+            segments: const [
+              ButtonSegment(value: false, label: Text('شهري')),
+              ButtonSegment(value: true, label: Text('سنوي (شهران مجاناً)')),
+            ],
+            selected: {yearly},
+            onSelectionChanged: (v) => setState(() => yearly = v.first),
+          ),
+        ),
+        const SizedBox(height: 12),
+        for (final p in assistantPackages)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: _PackageCard(package: p, yearly: yearly),
+          ),
+        const SizedBox(height: 4),
+        const Text(
+          'الأسعار بالأوقية الجديدة (MRU). الرصيد يتجدد يومياً، وما لا تستعمله يُضاف للغد حتى 7 أيام.',
+          textAlign: TextAlign.center,
+          style: TextStyle(fontSize: 9, color: Eps.muted, height: 1.6),
+        ),
+      ],
+    );
+  }
+}
+
+class _PackageCard extends StatelessWidget {
+  const _PackageCard({required this.package, required this.yearly});
+
+  final AssistantPackage package;
+  final bool yearly;
+
+  @override
+  Widget build(BuildContext context) {
+    final p = package;
+    final price = yearly ? p.yearly : p.monthly;
+    final accent = p.highlight ? Eps.blue : Eps.ink;
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: p.highlight ? Eps.blue : Eps.line,
+          width: p.highlight ? 2 : 1,
+        ),
+        boxShadow: p.highlight ? Eps.cardShadow : null,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  p.name,
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w800,
+                    color: accent,
+                  ),
+                ),
+              ),
+              if (p.highlight)
+                const EpsBadge('الأكثر طلباً', tone: EpsTone.orange),
+            ],
+          ),
+          Text(
+            p.tagline,
+            style: const TextStyle(fontSize: 9, color: Eps.muted),
+          ),
+          const SizedBox(height: 10),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text(
+                '$price',
+                style: const TextStyle(
+                  fontFamily: Eps.fontNum,
+                  fontSize: 26,
+                  fontWeight: FontWeight.w800,
+                  color: Eps.blue,
+                ),
+              ),
+              const SizedBox(width: 4),
+              Padding(
+                padding: const EdgeInsets.only(bottom: 4),
+                child: Text(
+                  yearly ? 'MRU / سنة' : 'MRU / شهر',
+                  style: const TextStyle(fontSize: 9, color: Eps.muted),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            decoration: BoxDecoration(
+              color: Eps.blueSoft,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Text(
+              'كل يوم: ${p.questions} أسئلة • ${p.files} ملفات أو صور',
+              style: const TextStyle(
+                fontSize: 10,
+                color: Eps.blue,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+          const SizedBox(height: 10),
+          for (final perk in p.perks)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 5),
+              child: Row(
+                children: [
+                  const Icon(
+                    Icons.check_circle_rounded,
+                    size: 15,
+                    color: Eps.green,
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      perk,
+                      style: const TextStyle(fontSize: 10, color: Eps.ink),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          const SizedBox(height: 10),
+          EpsPrimaryButton(
+            label: 'اختر ${p.name}',
+            color: p.highlight ? Eps.blue : Eps.ink,
+            onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text(
+                  'الدفع للباقات يُفعَّل قريباً. تواصل مع الإدارة للاشتراك.',
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
