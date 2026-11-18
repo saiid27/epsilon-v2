@@ -186,6 +186,7 @@ class _AdminConsoleState extends State<AdminConsole> {
     ('الاختبارات', Icons.sports_esports_outlined),
     ('الملفات', Icons.description_outlined),
     ('الإعلانات', Icons.campaign_outlined),
+    ('ملفات الطلاب', Icons.folder_shared_outlined),
     ('الخطط والأسعار', Icons.sell_outlined),
   ];
 
@@ -233,6 +234,7 @@ class _AdminConsoleState extends State<AdminConsole> {
         c.from('announcements').select().order('created_at', ascending: false),
         c.from('courses').select().order('created_at'),
         c.from('plans').select().order('sort_order'),
+        c.from('student_files').select().order('created_at', ascending: false),
       ]);
       universityResultsUrl = await repo.setting(
         'universityResultsUrl',
@@ -250,7 +252,8 @@ class _AdminConsoleState extends State<AdminConsole> {
           ..['pdfs'] = list(r[7])
           ..['announcements'] = list(r[8])
           ..['courses'] = list(r[9])
-          ..['plans'] = list(r[10]);
+          ..['plans'] = list(r[10])
+          ..['student_files'] = list(r[11]);
         loading = false;
         error = null;
       });
@@ -454,6 +457,7 @@ class _AdminConsoleState extends State<AdminConsole> {
                       7 => quizzes(),
                       8 => pdfs(),
                       9 => announcements(),
+                      10 => studentFilesReview(),
                       _ => plans(),
                     },
                   ),
@@ -969,6 +973,100 @@ class _AdminConsoleState extends State<AdminConsole> {
     const _Field('is_free', 'جلسة مجانية', kind: _FieldKind.toggle),
     const _Field('is_live', 'البث مباشر الآن', kind: _FieldKind.toggle),
   ];
+
+  /// Files shared by students: approve or reject. Approval gives the uploader
+  /// assistant tokens (once, by a database trigger).
+  List<Widget> studentFilesReview() {
+    final users = {for (final u in rows('students')) '${u['id']}': u};
+    final files = rows('student_files');
+    final pending = files.where((f) => f['status'] == 'pending').toList();
+    final decided = files.where((f) => f['status'] != 'pending').toList();
+    Widget row(Map<String, dynamic> f) {
+      final uploader = users['${f['uploader_id']}'];
+      final status = '${f['status']}';
+      final specialty = [
+        f['faculty'],
+        f['track'],
+        f['level'],
+      ].map((x) => '$x').where((x) => x.isNotEmpty).join(' • ');
+      return rowTile(
+        title: '${f['title']}',
+        subtitle: [
+          if (uploader != null) '${uploader['name']}',
+          if (specialty.isNotEmpty) specialty,
+          if (f['file_url'] != null) 'فتح الملف من الرابط',
+        ].join(' • '),
+        badges: [
+          switch (status) {
+            'approved' => const EpsBadge('مقبول', tone: EpsTone.green),
+            'rejected' => const EpsBadge('مرفوض', tone: EpsTone.red),
+            _ => const EpsBadge('قيد المراجعة', tone: EpsTone.orange),
+          },
+        ],
+        extra: [
+          if (f['file_url'] != null)
+            IconButton(
+              tooltip: 'فتح الملف',
+              icon: const Icon(Icons.open_in_new_rounded, size: 18),
+              onPressed: () => launchUrl(
+                Uri.parse('${f['file_url']}'),
+                mode: LaunchMode.externalApplication,
+              ),
+            ),
+          if (status != 'approved')
+            IconButton(
+              tooltip: 'قبول',
+              icon: const Icon(Icons.check_circle_outline, color: Eps.green),
+              onPressed: () => run(
+                () => repo.setStudentFileStatus('${f['id']}', 'approved'),
+                'تم قبول الملف ومكافأة صاحبه',
+              ),
+            ),
+          if (status != 'rejected')
+            IconButton(
+              tooltip: 'رفض',
+              icon: const Icon(Icons.cancel_outlined, color: Eps.red),
+              onPressed: () => run(
+                () => repo.setStudentFileStatus('${f['id']}', 'rejected'),
+                'تم رفض الملف',
+              ),
+            ),
+        ],
+      );
+    }
+
+    return [
+      FlatCard(
+        shadow: false,
+        radius: 14,
+        color: Eps.blueSoft,
+        border: Colors.transparent,
+        child: const Text(
+          'راجع الملفات قبل نشرها: تأكد أنها مفيدة، وأنها لا تنتهك حقوق الأساتذة. عند القبول يحصل صاحبها على 50 ألف توكن للمساعد.',
+          style: TextStyle(fontSize: 10, color: Eps.ink, height: 1.6),
+        ),
+      ),
+      const SizedBox(height: 10),
+      if (pending.isEmpty)
+        const Padding(
+          padding: EdgeInsets.only(bottom: 10),
+          child: Text(
+            'لا توجد ملفات بانتظار المراجعة.',
+            style: TextStyle(fontSize: 10, color: Eps.muted),
+          ),
+        ),
+      for (final f in pending) row(f),
+      if (decided.isNotEmpty) ...[
+        const SizedBox(height: 10),
+        const Text(
+          'تمت مراجعتها',
+          style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700),
+        ),
+        const SizedBox(height: 6),
+        for (final f in decided) row(f),
+      ],
+    ];
+  }
 
   /// Plans offered to students. Price = the subjects' price, paid once; the
   /// months set how long the subscription lasts.

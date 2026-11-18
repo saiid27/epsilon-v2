@@ -1,3 +1,4 @@
+import 'dart:typed_data';
 // Data layer for the Figma redesign features: subjects catalog, per-subject
 // subscriptions, plans, lesson progress, PDFs, live sessions, quizzes,
 // leaderboard, announcements, per-user notifications and assistant.
@@ -237,6 +238,40 @@ class EpsExercise {
   final String illustration;
   final List<String> solutionSteps;
   final bool isFree;
+}
+
+/// A file shared by a student with their specialty; visible once approved.
+class EpsStudentFile {
+  EpsStudentFile.fromRow(Map<String, dynamic> r)
+    : id = _str(r['id']),
+      uploaderId = _str(r['uploader_id']),
+      title = _str(r['title']),
+      description = _str(r['description']),
+      subjectId = _str(r['subject_id']),
+      faculty = _str(r['faculty']),
+      track = _str(r['track']),
+      level = _str(r['level']),
+      url = _str(r['file_url']),
+      fileType = _str(r['file_type']),
+      status = _str(r['status']),
+      downloads = _int(r['downloads']),
+      createdAt = _date(r['created_at']) ?? DateTime.now();
+
+  final String id;
+  final String uploaderId;
+  final String title;
+  final String description;
+  final String subjectId;
+  final String faculty;
+  final String track;
+  final String level;
+  final String url;
+  final String fileType;
+  final String status;
+  final int downloads;
+  final DateTime createdAt;
+
+  bool get isPdf => fileType == 'pdf';
 }
 
 class EpsPdf {
@@ -816,6 +851,80 @@ class LearnRepository {
     }
     return null;
   }
+
+  /// Approved files of a specialty (faculty, track and level). An empty
+  /// value leaves that part unfiltered.
+  Future<List<EpsStudentFile>> studentFiles({
+    String faculty = '',
+    String track = '',
+    String level = '',
+  }) async {
+    var query = client.from('student_files').select().eq('status', 'approved');
+    if (faculty.isNotEmpty) query = query.eq('faculty', faculty);
+    if (track.isNotEmpty) query = query.eq('track', track);
+    if (level.isNotEmpty) query = query.eq('level', level);
+    final rows = _list(
+      await query.order('created_at', ascending: false).limit(200),
+    );
+    return rows.map(EpsStudentFile.fromRow).toList();
+  }
+
+  /// Every file a student uploaded, whatever its status.
+  Future<List<EpsStudentFile>> myStudentFiles(String userId) async => _list(
+    await client
+        .from('student_files')
+        .select()
+        .eq('uploader_id', userId)
+        .order('created_at', ascending: false),
+  ).map(EpsStudentFile.fromRow).toList();
+
+  /// Uploads a file to the student-files bucket and records it as pending.
+  Future<void> uploadStudentFile({
+    required String userId,
+    required String title,
+    required String description,
+    required String subjectId,
+    required String faculty,
+    required String track,
+    required String level,
+    required Uint8List bytes,
+    required String fileName,
+  }) async {
+    final ext = fileName.contains('.')
+        ? fileName.split('.').last.toLowerCase()
+        : 'pdf';
+    final mime = switch (ext) {
+      'png' => 'image/png',
+      'jpg' || 'jpeg' => 'image/jpeg',
+      'webp' => 'image/webp',
+      _ => 'application/pdf',
+    };
+    final fileType = mime == 'application/pdf' ? 'pdf' : 'image';
+    final path =
+        '$userId/${DateTime.now().millisecondsSinceEpoch}.${fileType == 'pdf' ? 'pdf' : ext}';
+    final bucket = client.storage.from('student-files');
+    await bucket.uploadBinary(
+      path,
+      bytes,
+      fileOptions: FileOptions(contentType: mime, upsert: false),
+    );
+    await client.from('student_files').insert({
+      'uploader_id': userId,
+      'title': title.trim(),
+      'description': description.trim(),
+      'subject_id': subjectId.isEmpty ? null : subjectId,
+      'faculty': faculty,
+      'track': track,
+      'level': level,
+      'file_path': path,
+      'file_url': bucket.getPublicUrl(path),
+      'file_type': fileType,
+      'size_bytes': bytes.length,
+    });
+  }
+
+  Future<void> setStudentFileStatus(String id, String status) =>
+      client.from('student_files').update({'status': status}).eq('id', id);
 
   /// Calls the `livekit` edge function: `token`, `start`, `record`, `end`.
   Future<Map<String, dynamic>> liveKit(

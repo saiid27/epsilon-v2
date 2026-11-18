@@ -370,6 +370,12 @@ class ProfileTab extends StatelessWidget {
               ),
             ),
             _MenuRow(
+              icon: Icons.folder_shared_outlined,
+              title: 'ملفات زملائي',
+              subtitle: 'ملفات تخصصك، وشارك ملفاتك',
+              onTap: () => pushPage(context, const StudentFilesScreen()),
+            ),
+            _MenuRow(
               icon: Icons.card_giftcard_outlined,
               title: 'ادعُ صديقاً',
               subtitle: 'كودك: ${profile?.referralCode ?? ''}',
@@ -3411,6 +3417,408 @@ class _PackageCard extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// Files shared by students of the same specialty, plus the student's own
+/// uploads and their review status.
+class StudentFilesScreen extends StatefulWidget {
+  const StudentFilesScreen({super.key});
+
+  @override
+  State<StudentFilesScreen> createState() => _StudentFilesScreenState();
+}
+
+class _StudentFilesScreenState extends State<StudentFilesScreen> {
+  List<EpsStudentFile> shared = [];
+  List<EpsStudentFile> mine = [];
+  bool loading = true;
+  String error = '';
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => load());
+  }
+
+  Future<void> load() async {
+    final learn = LearnScope.read(context);
+    final userId = learn.userId;
+    final profile = learn.profile;
+    if (!learn.enabled || userId == null) {
+      setState(() => loading = false);
+      return;
+    }
+    setState(() {
+      loading = true;
+      error = '';
+    });
+    try {
+      final results = await Future.wait<List<EpsStudentFile>>([
+        learn.repo.studentFiles(
+          faculty: profile?.faculty ?? '',
+          track: profile?.track ?? '',
+          level: profile?.level ?? '',
+        ),
+        learn.repo.myStudentFiles(userId),
+      ]);
+      if (mounted) {
+        setState(() {
+          shared = results[0];
+          mine = results[1];
+          loading = false;
+        });
+      }
+    } on Object catch (e) {
+      if (mounted) {
+        setState(() {
+          error = '$e';
+          loading = false;
+        });
+      }
+    }
+  }
+
+  Future<void> upload() async {
+    final sent = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(builder: (_) => const StudentFileUploadScreen()),
+    );
+    if (sent == true) {
+      await load();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final learn = LearnScope.of(context);
+    final profile = learn.profile;
+    final specialty = [
+      if (profile?.faculty.isNotEmpty ?? false) profile!.faculty,
+      if (profile?.track.isNotEmpty ?? false) profile!.track,
+      if (profile?.level.isNotEmpty ?? false) profile!.level,
+    ].join(' • ');
+    return EpsPage(
+      title: 'ملفات زملائي',
+      action: EpsIconButton(
+        icon: Icons.refresh_rounded,
+        tooltip: 'تحديث',
+        onTap: load,
+      ),
+      children: [
+        FlatCard(
+          child: Text(
+            specialty.isEmpty
+                ? 'شارك ملاحظاتك وملفات مراجعتك مع زملائك. تُعرض الملفات بعد مراجعة الإدارة، وتحصل على 50 ألف توكن للمساعد عند القبول.'
+                : 'ملفات زملائك في $specialty. شارك ملفاتك وتحصل على 50 ألف توكن للمساعد عند قبولها.',
+            style: const TextStyle(fontSize: 10, color: Eps.ink, height: 1.7),
+          ),
+        ),
+        const SizedBox(height: 10),
+        EpsPrimaryButton(
+          label: 'ارفع ملفاً',
+          icon: Icons.upload_file_rounded,
+          onPressed: upload,
+        ),
+        const SizedBox(height: 14),
+        if (loading)
+          const Padding(
+            padding: EdgeInsets.all(30),
+            child: Center(child: CircularProgressIndicator()),
+          )
+        else if (error.isNotEmpty)
+          Text(error, style: const TextStyle(color: Eps.red, fontSize: 10))
+        else ...[
+          const HomeSectionTitle('ملفات زملائك'),
+          if (shared.isEmpty)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 12),
+              child: Text(
+                'لا توجد ملفات بعد في تخصصك. كن أول من يشارك!',
+                style: TextStyle(fontSize: 10, color: Eps.muted),
+              ),
+            ),
+          for (final f in shared) _StudentFileTile(file: f),
+          const SizedBox(height: 10),
+          const HomeSectionTitle('ملفاتي'),
+          if (mine.isEmpty)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 12),
+              child: Text(
+                'لم ترفع ملفات بعد.',
+                style: TextStyle(fontSize: 10, color: Eps.muted),
+              ),
+            ),
+          for (final f in mine) _StudentFileTile(file: f, mine: true),
+        ],
+      ],
+    );
+  }
+}
+
+class _StudentFileTile extends StatelessWidget {
+  const _StudentFileTile({required this.file, this.mine = false});
+
+  final EpsStudentFile file;
+  final bool mine;
+
+  @override
+  Widget build(BuildContext context) {
+    final (label, tone) = switch (file.status) {
+      'approved' => ('مقبول', EpsTone.green),
+      'rejected' => ('مرفوض', EpsTone.red),
+      _ => ('قيد المراجعة', EpsTone.orange),
+    };
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: FlatCard(
+        onTap: file.url.isEmpty || (mine && file.status != 'approved')
+            ? null
+            : () => launchUrl(
+                Uri.parse(file.url),
+                mode: LaunchMode.externalApplication,
+              ),
+        child: Row(
+          children: [
+            EpsMark(
+              icon: file.isPdf
+                  ? Icons.picture_as_pdf_rounded
+                  : Icons.image_outlined,
+              tone: file.isPdf ? EpsTone.red : EpsTone.blue,
+              size: 40,
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    file.title,
+                    style: const TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      color: Eps.ink,
+                    ),
+                  ),
+                  if (file.description.isNotEmpty)
+                    Text(
+                      file.description,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontSize: 8, color: Eps.muted),
+                    ),
+                  const SizedBox(height: 3),
+                  Row(
+                    children: [
+                      EpsBadge(label, tone: tone),
+                      if (!mine) ...[
+                        const SizedBox(width: 6),
+                        Text(
+                          'تحميلات ${file.downloads}',
+                          style: const TextStyle(fontSize: 8, color: Eps.muted),
+                        ),
+                      ],
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            if (!mine || file.status == 'approved')
+              const Icon(Icons.open_in_new_rounded, color: Eps.ink, size: 16),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Upload a file for students of the same specialty. Needs the student's
+/// confirmation that they own the rights to share it.
+class StudentFileUploadScreen extends StatefulWidget {
+  const StudentFileUploadScreen({super.key});
+
+  @override
+  State<StudentFileUploadScreen> createState() =>
+      _StudentFileUploadScreenState();
+}
+
+class _StudentFileUploadScreenState extends State<StudentFileUploadScreen> {
+  final title = TextEditingController();
+  final description = TextEditingController();
+  String subjectId = '';
+  PickedNativeFile? picked;
+  Uint8List? bytes;
+  bool rights = false;
+  bool sending = false;
+  String error = '';
+
+  static const maxBytes = 7 * 1024 * 1024;
+
+  @override
+  void dispose() {
+    title.dispose();
+    description.dispose();
+    super.dispose();
+  }
+
+  Future<void> pick({required bool pdf}) async {
+    final file = pdf
+        ? await NativeFilePicker.pickPdf()
+        : await NativeFilePicker.pickImage();
+    if (file == null) {
+      return;
+    }
+    final data =
+        NativeFilePicker.webFiles[file.path] ??
+        await File(file.path).readAsBytes();
+    if (data.length > maxBytes) {
+      setState(() => error = 'الملف كبير جداً (الحد 7 ميغابايت).');
+      return;
+    }
+    setState(() {
+      picked = file;
+      bytes = data;
+      error = '';
+    });
+  }
+
+  Future<void> send() async {
+    final learn = LearnScope.read(context);
+    final profile = learn.profile;
+    final userId = learn.userId;
+    final file = picked;
+    final data = bytes;
+    if (title.text.trim().isEmpty) {
+      setState(() => error = 'اكتب عنواناً للملف.');
+      return;
+    }
+    if (file == null || data == null || userId == null) {
+      setState(() => error = 'اختر ملفاً أولاً.');
+      return;
+    }
+    if (!rights) {
+      setState(() => error = 'أكّد أنك تملك حق مشاركة هذا الملف.');
+      return;
+    }
+    setState(() {
+      sending = true;
+      error = '';
+    });
+    try {
+      await learn.repo.uploadStudentFile(
+        userId: userId,
+        title: title.text,
+        description: description.text,
+        subjectId: subjectId,
+        faculty: profile?.faculty ?? '',
+        track: profile?.track ?? '',
+        level: profile?.level ?? '',
+        bytes: data,
+        fileName: file.name,
+      );
+      if (mounted) {
+        Navigator.of(context).pop(true);
+      }
+    } on Object catch (e) {
+      if (mounted) {
+        setState(() {
+          sending = false;
+          error = 'تعذر الرفع: $e';
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final learn = LearnScope.of(context);
+    return EpsPage(
+      title: 'رفع ملف',
+      children: [
+        const AuthLabel('عنوان الملف'),
+        TextField(
+          controller: title,
+          decoration: const InputDecoration(
+            hintText: 'مثال: ملخص الفصل الثالث',
+          ),
+        ),
+        const AuthLabel('وصف مختصر (اختياري)', top: 10),
+        TextField(
+          controller: description,
+          maxLines: 2,
+          decoration: const InputDecoration(hintText: 'ما الذي يحتويه الملف؟'),
+        ),
+        const AuthLabel('المادة (اختياري)', top: 10),
+        DropdownButtonFormField<String>(
+          initialValue: subjectId,
+          isExpanded: true,
+          decoration: const InputDecoration(hintText: 'اختر المادة'),
+          items: [
+            const DropdownMenuItem(value: '', child: Text('بدون مادة محددة')),
+            for (final sub in learn.subjects)
+              DropdownMenuItem(value: sub.id, child: Text(sub.name)),
+          ],
+          onChanged: (v) => setState(() => subjectId = v ?? ''),
+        ),
+        const AuthLabel('الملف', top: 10),
+        Row(
+          children: [
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: () => pick(pdf: true),
+                icon: const Icon(Icons.picture_as_pdf_outlined),
+                label: const Text('PDF'),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: () => pick(pdf: false),
+                icon: const Icon(Icons.image_outlined),
+                label: const Text('صورة'),
+              ),
+            ),
+          ],
+        ),
+        if (picked != null)
+          Padding(
+            padding: const EdgeInsets.only(top: 6),
+            child: Text(
+              picked!.name,
+              style: const TextStyle(fontSize: 9, color: Eps.muted),
+            ),
+          ),
+        const SizedBox(height: 12),
+        CheckboxListTile(
+          contentPadding: EdgeInsets.zero,
+          value: rights,
+          onChanged: (v) => setState(() => rights = v ?? false),
+          controlAffinity: ListTileControlAffinity.leading,
+          title: const Text(
+            'أؤكد أن هذا الملف من إنتاجي أو أملك حق مشاركته، وأنه لا يخالف حقوق الأساتذة والجامعة.',
+            style: TextStyle(fontSize: 9, height: 1.6),
+          ),
+        ),
+        if (error.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Text(
+              error,
+              style: const TextStyle(color: Eps.red, fontSize: 10),
+            ),
+          ),
+        EpsPrimaryButton(
+          label: 'إرسال للمراجعة',
+          loading: sending,
+          onPressed: sending ? null : send,
+        ),
+        const SizedBox(height: 8),
+        const Text(
+          'تُنشر الملفات بعد مراجعة الإدارة، وتُحذف ما يخالف الشروط.',
+          textAlign: TextAlign.center,
+          style: TextStyle(fontSize: 8, color: Eps.muted),
+        ),
+      ],
     );
   }
 }
