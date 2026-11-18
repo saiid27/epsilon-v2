@@ -370,6 +370,18 @@ class ProfileTab extends StatelessWidget {
               ),
             ),
             _MenuRow(
+              icon: Icons.card_giftcard_outlined,
+              title: 'ادعُ صديقاً',
+              subtitle: 'كودك: ${profile?.referralCode ?? ''}',
+              onTap: () => pushPage(context, const ReferralScreen()),
+            ),
+            _MenuRow(
+              icon: Icons.calculate_outlined,
+              title: 'حاسبة المعدل',
+              subtitle: 'احسب معدلك وما تحتاجه في الاستدراك',
+              onTap: () => pushPage(context, const GpaScreen()),
+            ),
+            _MenuRow(
               icon: Icons.emoji_events_outlined,
               title: 'الشارات والإنجازات',
               subtitle: '${badges.where((b) => b.$3).length} شارات مكتسبة',
@@ -1489,6 +1501,12 @@ class _AssistantScreenState extends State<AssistantScreen> {
     ('pdf', 'اشرح ملف PDF', Icons.picture_as_pdf_outlined),
     ('cv', 'سيرتي الذاتية CV', Icons.badge_outlined),
     ('write', 'رسالة أو تقرير', Icons.edit_note_rounded),
+    ('fiche', 'ورقة مراجعة', Icons.summarize_outlined),
+    ('exam', 'امتحان تجريبي', Icons.timer_outlined),
+    ('plan', 'خطة مراجعة', Icons.event_note_outlined),
+    ('french', 'فرنسية أكاديمية', Icons.translate_rounded),
+    ('pfe', 'مذكرة التخرج', Icons.school_outlined),
+    ('code', 'البرمجة', Icons.code_rounded),
   ];
   String mode = 'solve';
 
@@ -1680,6 +1698,7 @@ class _AssistantScreenState extends State<AssistantScreen> {
       q = switch (mode) {
         'hint' => 'أعطني تلميحاً لحل هذا التمرين',
         'check' => 'صحّح حلي في الصورة',
+        'fiche' => 'حضّر ورقة مراجعة لهذا الملف',
         'explain' => 'اشرح المفهوم المستعمل في هذا التمرين',
         'practice' => 'أعطني تمارين مشابهة لهذا التمرين',
         _ => 'حل هذا التمرين خطوة بخطوة',
@@ -2875,4 +2894,266 @@ Future<String> shrinkImageDataUri(Uint8List bytes, {required int width}) async {
   frame.image.dispose();
   final png = data!.buffer.asUint8List();
   return 'data:image/png;base64,${base64Encode(png)}';
+}
+
+/// Invite a friend: the inviter gets 5 questions and 1 file for the
+/// assistant once the friend's first subject subscription is active.
+class ReferralScreen extends StatelessWidget {
+  const ReferralScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final learn = LearnScope.of(context);
+    final code = learn.profile?.referralCode ?? '';
+    return EpsPage(
+      title: 'ادعُ صديقاً',
+      children: [
+        FlatCard(
+          gradient: Eps.heroGradient,
+          border: Colors.transparent,
+          padding: const EdgeInsets.all(18),
+          child: Column(
+            children: [
+              const Text('🎁', style: TextStyle(fontSize: 36)),
+              const SizedBox(height: 6),
+              const Text(
+                'شارك كودك مع صديقك',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w800,
+                  color: Colors.white,
+                ),
+              ),
+              const SizedBox(height: 10),
+              SelectableText(
+                code.isEmpty ? 'سيظهر كودك قريباً' : code,
+                style: const TextStyle(
+                  fontFamily: Eps.fontNum,
+                  fontSize: 26,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 4,
+                  color: Colors.white,
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 14),
+        const FlatCard(
+          child: Text(
+            'عندما يسجّل صديقك بكودك ويشترك في أي مادة لأول مرة، تحصل أنت على 5 أسئلة و1 ملف إضافي لمساعد إبسيلون، ويُضاف ذلك إلى رصيدك اليومي.',
+            style: TextStyle(fontSize: 10, color: Eps.ink, height: 1.8),
+          ),
+        ),
+        const SizedBox(height: 14),
+        EpsPrimaryButton(
+          label: 'شارك الكود',
+          icon: Icons.share_outlined,
+          onPressed: code.isEmpty
+              ? null
+              : () => share.SharePlus.instance.share(
+                  share.ShareParams(
+                    text:
+                        'انضم إلى Epsilon Education واستعمل كودي $code عند التسجيل.',
+                  ),
+                ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Academic average (LMD): weighted by each module's coefficient, validated
+/// at 10/20. The official compensation rules are the university's.
+class GpaScreen extends StatefulWidget {
+  const GpaScreen({super.key});
+
+  @override
+  State<GpaScreen> createState() => _GpaScreenState();
+}
+
+class _GpaScreenState extends State<GpaScreen> {
+  final rows =
+      <
+        ({
+          TextEditingController name,
+          TextEditingController note,
+          TextEditingController coef,
+        })
+      >[];
+  final remainingCoef = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    for (var i = 0; i < 4; i++) {
+      addRow();
+    }
+  }
+
+  @override
+  void dispose() {
+    for (final r in rows) {
+      r.name.dispose();
+      r.note.dispose();
+      r.coef.dispose();
+    }
+    remainingCoef.dispose();
+    super.dispose();
+  }
+
+  void addRow() => setState(() {
+    rows.add((
+      name: TextEditingController(),
+      note: TextEditingController(),
+      coef: TextEditingController(text: '1'),
+    ));
+  });
+
+  double? parse(String v) => double.tryParse(v.trim().replaceAll(',', '.'));
+
+  @override
+  Widget build(BuildContext context) {
+    var points = 0.0;
+    var coef = 0.0;
+    for (final r in rows) {
+      final n = parse(r.note.text);
+      final c = parse(r.coef.text);
+      if (n != null && c != null && c > 0 && n >= 0 && n <= 20) {
+        points += n * c;
+        coef += c;
+      }
+    }
+    final average = coef == 0 ? null : points / coef;
+    final rem = parse(remainingCoef.text) ?? 0;
+    // Average needed on the remaining modules to reach 10 overall.
+    final needed = rem > 0 ? (10 * (coef + rem) - points) / rem : null;
+    return EpsPage(
+      title: 'حاسبة المعدل',
+      children: [
+        FlatCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'أدخل علامة كل مادة (من 20) ومعاملها. المعدل = مجموع (العلامة × المعامل) ÷ مجموع المعاملات.',
+                style: TextStyle(fontSize: 9, color: Eps.muted, height: 1.7),
+              ),
+              const SizedBox(height: 10),
+              for (final r in rows)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        flex: 5,
+                        child: TextField(
+                          controller: r.name,
+                          style: const TextStyle(fontSize: 10),
+                          decoration: const InputDecoration(hintText: 'المادة'),
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        flex: 3,
+                        child: TextField(
+                          controller: r.note,
+                          keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true,
+                          ),
+                          onChanged: (_) => setState(() {}),
+                          decoration: const InputDecoration(hintText: "من 20"),
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        flex: 3,
+                        child: TextField(
+                          controller: r.coef,
+                          keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true,
+                          ),
+                          onChanged: (_) => setState(() {}),
+                          decoration: const InputDecoration(hintText: "معامل"),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              TextButton.icon(
+                onPressed: addRow,
+                icon: const Icon(Icons.add_rounded, size: 16),
+                label: const Text('مادة أخرى'),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+        FlatCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                average == null
+                    ? 'أدخل العلامات لترى معدلك'
+                    : 'المعدل العام: ${average.toStringAsFixed(2)} / 20',
+                style: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w800,
+                  color: Eps.ink,
+                ),
+              ),
+              if (average != null) ...[
+                const SizedBox(height: 6),
+                EpsBadge(
+                  average >= 10
+                      ? 'فوق 10: مؤشر نجاح (تأكد من قواعد جامعتك)'
+                      : 'أقل من 10: تحتاج الدورة الاستدراكية',
+                  tone: average >= 10 ? EpsTone.green : EpsTone.red,
+                ),
+              ],
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+        FlatCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'ما الذي تحتاجه في المواد المتبقية؟',
+                style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: remainingCoef,
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+                onChanged: (_) => setState(() {}),
+                decoration: const InputDecoration(
+                  hintText: 'مجموع معاملات المواد المتبقية',
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                needed == null
+                    ? 'اكتب مجموع المعاملات المتبقية'
+                    : needed <= 0
+                    ? 'تكفيك أي علامة للوصول إلى 10'
+                    : needed > 20
+                    ? 'لا يمكن الوصول إلى 10 بهذه المعاملات'
+                    : 'تحتاج معدلاً ${needed.toStringAsFixed(2)} على الأقل في المواد المتبقية',
+                style: const TextStyle(
+                  fontSize: 10,
+                  color: Eps.blue,
+                  height: 1.6,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
 }

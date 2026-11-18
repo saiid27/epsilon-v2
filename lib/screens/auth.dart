@@ -815,6 +815,7 @@ class _RegisterCardState extends State<RegisterCard> {
   final phoneController = TextEditingController();
   final passwordController = TextEditingController();
   final confirmPasswordController = TextEditingController();
+  final referralController = TextEditingController();
   bool submitted = false;
   String? error;
 
@@ -857,6 +858,7 @@ class _RegisterCardState extends State<RegisterCard> {
     phoneController.dispose();
     passwordController.dispose();
     confirmPasswordController.dispose();
+    referralController.dispose();
     super.dispose();
   }
 
@@ -893,6 +895,7 @@ class _RegisterCardState extends State<RegisterCard> {
           name: nameController.text.trim(),
           phone: phone,
           password: passwordController.text,
+          referral: referralController.text.trim(),
         );
         learn.cart.clear();
         unawaited(learn.loadCatalog());
@@ -905,6 +908,7 @@ class _RegisterCardState extends State<RegisterCard> {
         name: nameController.text.trim(),
         phone: phoneController.text.trim(),
         password: passwordController.text,
+        referral: referralController.text.trim(),
       );
       if (!mounted) {
         return;
@@ -969,6 +973,15 @@ class _RegisterCardState extends State<RegisterCard> {
           errorText: submitted && confirmInvalid
               ? 'كلمتا المرور غير متطابقتين'
               : null,
+        ),
+        // Optional: a friend's code gives them and you a reward later.
+        const AuthLabel('كود الدعوة (اختياري)', top: 7),
+        AuthField(
+          controller: referralController,
+          height: 44,
+          hint: 'كود صديقك إن وُجد',
+          textInputAction: TextInputAction.done,
+          leading: const Icon(Icons.card_giftcard_outlined),
         ),
         if (error != null) AuthErrorText(error!),
         EpsPrimaryButton(

@@ -165,6 +165,7 @@ class SupabaseRepository {
     required String name,
     required String phone,
     required String password,
+    String referral = '',
   }) async {
     final existing = _list(
       await client
@@ -179,7 +180,12 @@ class SupabaseRepository {
       if (row['status'] == 'pending' && row['role'] == 'student') {
         await client
             .from('users')
-            .update({'name': name.trim(), 'password': password})
+            .update({
+              'name': name.trim(),
+              'password': password,
+              if (referral.trim().isNotEmpty)
+                'referred_by': referral.trim().toUpperCase(),
+            })
             .eq('id', row['id'] as Object);
         await requestOtp(phone: phone, purpose: 'signup');
         return;
@@ -192,6 +198,8 @@ class SupabaseRepository {
       'password': password,
       'role': 'student',
       'status': 'pending',
+      if (referral.trim().isNotEmpty)
+        'referred_by': referral.trim().toUpperCase(),
     });
     await requestOtp(phone: phone, purpose: 'signup');
   }

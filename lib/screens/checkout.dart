@@ -1807,6 +1807,7 @@ class _ReceiptUploadScreenState extends State<ReceiptUploadScreen> {
           name: draft.name,
           phone: draft.phone,
           password: draft.password,
+          referral: draft.referral,
         );
         if (!mounted) {
           return;

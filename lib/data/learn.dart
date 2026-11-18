@@ -455,11 +455,13 @@ class EpsProfile {
       xp = _int(r['xp']),
       streakDays = _int(r['streak_days']),
       lastActivity = _date(r['last_activity_date']),
-      profileCompleted = _bool(r['profile_completed']);
+      profileCompleted = _bool(r['profile_completed']),
+      referralCode = _str(r['referral_code']);
 
   final String id;
   final String name;
   final String phone;
+  final String referralCode;
   final String university;
   final String faculty;
   final String track;
@@ -1115,7 +1117,7 @@ class LearnStore extends ChangeNotifier {
 
   /// Paid signup in progress: the details typed in the signup form. The
   /// account itself is created when the payment receipt is sent.
-  ({String name, String phone, String password})? signupDraft;
+  ({String name, String phone, String password, String referral})? signupDraft;
 
   /// Subjects, teachers and plans for someone not signed in yet (paid
   /// signup goes through the catalog before the account exists).

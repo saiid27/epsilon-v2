@@ -18,9 +18,13 @@ const corsHeaders = {
 
 // Daily allowance per subscribed student. Photos and PDF files share the
 // "files" allowance. Unused credit rolls over, up to CARRY_DAYS days.
-const DAILY_QUESTIONS = 10;
-const DAILY_FILES = 6;
+// The season bonus (app_settings "assistantBonus", e.g. 2 in exam weeks)
+// multiplies the daily allowance.
+const BASE_QUESTIONS = 10;
+const BASE_FILES = 6;
 const CARRY_DAYS = 7;
+let DAILY_QUESTIONS = BASE_QUESTIONS;
+let DAILY_FILES = BASE_FILES;
 const MAX_HISTORY = 20;
 // Base64 length of the largest attachment accepted (~7.5 MB once decoded).
 const MAX_FILE_CHARS = 10_000_000;
@@ -74,6 +78,12 @@ Structure : ### المعطيات (données et ce qui est demandé) → ### ال�
   practice: `Mode : exercices d'entraînement. Propose 3 exercices du même type et de difficulté croissante, sans les solutions. Ajoute à la fin seulement les résultats finaux (sans détail) sous ### الأجوبة النهائية pour qu'il puisse vérifier.`,
   cv: `Mode : CV. Construis le CV de l'étudiant pas à pas. S'il manque des informations, pose-lui au plus 5 questions courtes et précises (formation, stages, projets, compétences, langues, coordonnées) sans rien inventer. Quand tu as assez d'éléments, rédige le CV complet, en français par défaut (ou dans la langue demandée), adapté à un étudiant mauritanien qui cherche un stage ou un premier emploi : ### Nom et titre, coordonnées, ### Profil (2-3 lignes), ### Formation, ### Expériences et stages, ### Projets, ### Compétences, ### Langues, ### Centres d'intérêt. Phrases courtes, verbes d'action, dates au format MM/AAAA. Termine par une ligne : « اضغط "حفظ PDF" تحت هذه الرسالة لتنزيل سيرتك الذاتية ».`,
   write: `Mode : rédaction. Rédige le document demandé (lettre de motivation, demande de stage, demande administrative, e-mail à un enseignant, rapport, plan de mémoire, exposé) dans la langue et le registre attendus en Mauritanie (français administratif ou arabe soutenu). S'il manque des informations essentielles (destinataire, objet, dates), demande-les d'abord en une seule question. Produis un texte complet, prêt à imprimer, sans commentaires autour.`,
+  fiche: `Mode : fiche de révision. À partir du cours (texte, PDF ou photo jointe), produis une fiche concise et prête à réviser : ### L'essentiel (3-5 idées clés), ### Définitions et théorèmes (énoncés exacts avec leurs conditions), ### Formules à retenir (en LaTeX, $$ $$), ### Méthode type (une démarche en étapes pour l'exercice classique), ### Pièges de l'examen (3 erreurs fréquentes). Reste dense : une page à imprimer.`,
+  exam: `Mode : simulation d'examen. Si l'étudiant n'a pas encore précisé la matière et la durée, demande-les en une question. Sinon, propose un sujet d'examen blanc dans le style d'un examen de Licence mauritanienne : 4 à 5 questions de difficulté croissante, avec barème sur 20 indiqué pour chacune, et la durée conseillée. Ne donne AUCUNE correction. Quand l'étudiant envoie ses réponses, corrige-les comme un correcteur (points obtenus par question, note sur 20, commentaire d'ensemble).`,
+  plan: `Mode : plan de révision. Demande d'abord (en une seule fois) : les matières et les dates des examens, le nombre d'heures disponibles par jour, et les points faibles déjà connus. Puis produis un planning jour par jour jusqu'à l'examen, avec pour chaque jour : matière, notion, durée, et une révision de contrôle les jours précédant chaque examen. Présente-le sous forme de liste par semaine, pas de tableau.`,
+  french: `Mode : français académique. Si le texte est en français : corrige-le (orthographe, accords, registre académique) et explique brièvement chaque correction. Si l'étudiant demande une traduction ou le sens d'un terme : donne le terme français, sa traduction arabe et une phrase d'exemple tirée d'un contexte universitaire. Pour un cours, extrais le vocabulaire technique utile sous forme de glossaire.`,
+  pfe: `Mode : mémoire ou projet de fin d'études (PFE). Aide l'étudiant pas à pas : problématique, plan détaillé (introduction, chapitres, conclusion), méthodologie, structure de la bibliographie (format standard), et relecture de ses paragraphes. Ne rédige jamais le mémoire à sa place : propose la structure et les paragraphes-types à compléter, et explique pourquoi chaque partie est là.`,
+  code: `Mode : programmation. Explique le code joint ou le problème, puis indique l'erreur précisément (ligne et cause), donne la correction minimale, et termine par une façon de tester la solution. Langages courants à l'université : Python, C, Java, SQL, MATLAB. Mets le code dans des blocs de code.`,
   pdf: `Mode : commenter un PDF. Sur le document joint : ### ملخص (résumé fidèle en quelques points), ### الأفكار الأساسية (notions clés, définitions et formules importantes avec la page), ### شرح الأجزاء الصعبة, ### أسئلة امتحان محتملة (4-6 questions avec indications de réponse). Si l'étudiant pose une question précise sur le PDF, réponds plutôt directement à sa question.`,
 };
 
@@ -114,6 +124,7 @@ Deno.serve(async (req) => {
       return json({ message: 'مساعد إبسيلون متاح للمشتركين فقط.' }, 403);
     }
 
+    await loadBonus(supabase);
     const credit = await currentCredit(supabase, userId);
     if (body.action === 'balance') {
       return json({ questionsLeft: credit.questions, filesLeft: credit.files });
@@ -215,6 +226,19 @@ Deno.serve(async (req) => {
     return json({ message: error instanceof Error ? error.message : 'Erreur' }, 500);
   }
 });
+
+/// Season bonus from the admin settings; 1 when missing or invalid.
+async function loadBonus(supabase: ReturnType<typeof createClient>) {
+  const { data } = await supabase
+    .from('app_settings')
+    .select('value')
+    .eq('key', 'assistantBonus')
+    .maybeSingle();
+  const factor = Number(data?.value);
+  const bonus = Number.isFinite(factor) && factor >= 1 && factor <= 5 ? Math.round(factor) : 1;
+  DAILY_QUESTIONS = BASE_QUESTIONS * bonus;
+  DAILY_FILES = BASE_FILES * bonus;
+}
 
 function today() {
   return new Date().toISOString().slice(0, 10);
