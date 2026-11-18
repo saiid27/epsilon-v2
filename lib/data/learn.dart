@@ -794,19 +794,21 @@ class LearnRepository {
     ]);
   }
 
-  /// The student's assistant credit: questions and files (photos, PDF)
-  /// left. Unused daily credit carries over (see the assistant function).
-  Future<({int questions, int files})?> assistantBalance(String userId) async {
+  /// The student's assistant allowance left today and this month, as
+  /// percentages (the assistant function works in tokens).
+  Future<({int dailyLeftPct, int monthlyLeftPct})?> assistantBalance(
+    String userId,
+  ) async {
     try {
       final response = await client.functions.invoke(
         'assistant',
         body: {'userId': userId, 'action': 'balance'},
       );
       final data = response.data;
-      if (data is Map && data['questionsLeft'] is num) {
+      if (data is Map && data['dailyLeftPct'] is num) {
         return (
-          questions: (data['questionsLeft'] as num).toInt(),
-          files: ((data['filesLeft'] as num?) ?? 0).toInt(),
+          dailyLeftPct: (data['dailyLeftPct'] as num).toInt(),
+          monthlyLeftPct: ((data['monthlyLeftPct'] as num?) ?? 0).toInt(),
         );
       }
     } on Object {
@@ -899,7 +901,8 @@ class LearnRepository {
           .subscribe();
 
   /// Asks the assistant. [image] (a data URI) goes with the last question.
-  Future<({String reply, int? questionsLeft, int? filesLeft})> askAssistant({
+  Future<({String reply, int? dailyLeftPct, int? monthlyLeftPct})>
+  askAssistant({
     required String userId,
     required List<Map<String, String>> messages,
     String? lessonTitle,
@@ -938,8 +941,8 @@ class LearnRepository {
       int? n(Object? v) => v is num ? v.toInt() : null;
       return (
         reply: '${data['reply']}',
-        questionsLeft: n(data['questionsLeft']),
-        filesLeft: n(data['filesLeft']),
+        dailyLeftPct: n(data['dailyLeftPct']),
+        monthlyLeftPct: n(data['monthlyLeftPct']),
       );
     }
     throw Exception(

@@ -16,15 +16,22 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-// Daily allowance per subscribed student. Photos and PDF files share the
-// "files" allowance. Unused credit rolls over, up to CARRY_DAYS days.
-// The season bonus (app_settings "assistantBonus", e.g. 2 in exam weeks)
-// multiplies the daily allowance.
-const BASE_QUESTIONS = 10;
-const BASE_FILES = 6;
-const CARRY_DAYS = 7;
-let DAILY_QUESTIONS = BASE_QUESTIONS;
-let DAILY_FILES = BASE_FILES;
+// Token allowance (like Claude's usage limits). Each subscribed student has a
+// monthly pool and a daily cap, for input and output tokens separately. Output
+// tokens cost five times more, so they have smaller caps.
+type Tier = { monthlyIn: number; monthlyOut: number; dailyIn: number; dailyOut: number };
+const TIERS: Record<string, Tier> = {
+  basic: { monthlyIn: 2_000_000, monthlyOut: 200_000, dailyIn: 80_000, dailyOut: 8_000 },
+  standard: { monthlyIn: 4_000_000, monthlyOut: 400_000, dailyIn: 160_000, dailyOut: 16_000 },
+  pro: { monthlyIn: 8_000_000, monthlyOut: 800_000, dailyIn: 320_000, dailyOut: 32_000 },
+};
+// Longest answer, in output tokens.
+const MAX_ANSWER_TOKENS = 4000;
+// Below these, a request is refused rather than run on a near-empty balance.
+const MIN_INPUT_LEFT = 3_000;
+const MIN_OUTPUT_LEFT = 500;
+// Files need room for their pages.
+const MIN_FILE_INPUT_LEFT = 20_000;
 const MAX_HISTORY = 20;
 // Base64 length of the largest attachment accepted (~7.5 MB once decoded).
 const MAX_FILE_CHARS = 10_000_000;
@@ -108,7 +115,7 @@ Deno.serve(async (req) => {
 
     const { data: user } = await supabase
       .from('users')
-      .select('id, status')
+      .select('id, status, assistant_tier')
       .eq('id', userId)
       .maybeSingle();
     if (!user || user.status !== 'active') {
@@ -124,21 +131,24 @@ Deno.serve(async (req) => {
       return json({ message: 'مساعد إبسيلون متاح للمشتركين فقط.' }, 403);
     }
 
-    await loadBonus(supabase);
-    const credit = await currentCredit(supabase, userId);
+    const tier = await tierFor(supabase, user.assistant_tier);
+    const bonus = await seasonBonus(supabase);
+    const budget = await remainingBudget(supabase, userId, tier, bonus);
     if (body.action === 'balance') {
-      return json({ questionsLeft: credit.questions, filesLeft: credit.files });
+      return json(percentLeft(budget, tier, bonus));
     }
 
     const attachment = parseAttachment(body.image, body.document, body.documentName);
     if ((body.image || body.document) && !attachment) {
       return json({ message: 'الملف غير صالح أو كبير جداً (الحد 7 ميغابايت).' }, 422);
     }
-    if (attachment && credit.files <= 0) {
-      return json({ message: 'نفد رصيد الصور والملفات. يتجدد غداً.' }, 429);
+    const inputLeft = Math.min(budget.dailyIn, budget.monthlyIn);
+    const outputLeft = Math.min(budget.dailyOut, budget.monthlyOut);
+    if (inputLeft < MIN_INPUT_LEFT || outputLeft < MIN_OUTPUT_LEFT) {
+      return json({ message: 'نفد رصيدك من الاستعمال. يتجدد الرصيد اليومي غداً.' }, 429);
     }
-    if (!attachment && credit.questions <= 0) {
-      return json({ message: 'نفد رصيد الأسئلة. يتجدد غداً.' }, 429);
+    if (attachment && inputLeft < MIN_FILE_INPUT_LEFT) {
+      return json({ message: 'رصيدك اليومي لا يكفي لقراءة هذا الملف. جرّب غداً أو ملفاً أصغر.' }, 429);
     }
 
     // Keep only well-formed turns, starting with a user turn.
@@ -183,7 +193,8 @@ Deno.serve(async (req) => {
 
     const response = await anthropic.messages.create({
       model: 'claude-haiku-5-5',
-      max_tokens: 16000,
+      // Never more than the student has left today and this month.
+      max_tokens: Math.max(500, Math.min(MAX_ANSWER_TOKENS, outputLeft)),
       // Solving and correcting need careful reasoning; the rest less so.
       output_config: { effort: mode === 'solve' || mode === 'check' ? 'high' : 'medium' },
       system: [SYSTEM_PROMPT, MODES[mode], context].filter(Boolean).join('\n\n'),
@@ -200,11 +211,7 @@ Deno.serve(async (req) => {
       .join('\n')
       .trim();
 
-    const left = {
-      questions: credit.questions - (attachment ? 0 : 1),
-      files: credit.files - (attachment ? 1 : 0),
-    };
-    // Cost log (Claude Haiku 5.5 list prices, USD per million tokens).
+    // Record what this answer really used (tokens and estimated cost).
     const inTok = response.usage?.input_tokens ?? 0;
     const outTok = response.usage?.output_tokens ?? 0;
     const costUsd = (inTok * 0.1 + outTok * 0.5) / 1_000_000;
@@ -217,17 +224,10 @@ Deno.serve(async (req) => {
       cost_usd: costUsd,
     });
 
-    await supabase.from('assistant_credits').upsert({
-      user_id: userId,
-      questions: left.questions,
-      files: left.files,
-      refreshed_on: today(),
-    });
-
+    const after = await remainingBudget(supabase, userId, tier, bonus);
     return json({
       reply: reply || 'لم أتمكن من صياغة إجابة، حاول إعادة صياغة سؤالك.',
-      questionsLeft: left.questions,
-      filesLeft: left.files,
+      ...percentLeft(after, tier, bonus),
     });
   } catch (error) {
     if (error instanceof Anthropic.RateLimitError) {
@@ -240,43 +240,95 @@ Deno.serve(async (req) => {
   }
 });
 
-/// Season bonus from the admin settings; 1 when missing or invalid.
-async function loadBonus(supabase: ReturnType<typeof createClient>) {
+type Budget = {
+  dailyIn: number;
+  dailyOut: number;
+  monthlyIn: number;
+  monthlyOut: number;
+};
+
+/// Tokens left today and this month. Bonus tokens (referrals) add to the
+/// monthly pool; the season bonus multiplies both kinds of caps.
+async function remainingBudget(
+  supabase: ReturnType<typeof createClient>,
+  userId: string,
+  tier: Tier,
+  bonus: number,
+): Promise<Budget> {
+  const now = new Date();
+  const dayStart = now.toISOString().slice(0, 10);
+  const monthStart = `${dayStart.slice(0, 8)}01`;
+  const { data: costs } = await supabase
+    .from('assistant_costs')
+    .select('day, input_tokens, output_tokens')
+    .eq('user_id', userId)
+    .gte('day', monthStart);
+  const { data: bonuses } = await supabase
+    .from('assistant_bonus')
+    .select('input_tokens, output_tokens')
+    .eq('user_id', userId)
+    .gte('created_at', `${monthStart}T00:00:00Z`);
+  let dayIn = 0, dayOut = 0, monthIn = 0, monthOut = 0;
+  for (const c of costs ?? []) {
+    monthIn += c.input_tokens ?? 0;
+    monthOut += c.output_tokens ?? 0;
+    if (c.day === dayStart) {
+      dayIn += c.input_tokens ?? 0;
+      dayOut += c.output_tokens ?? 0;
+    }
+  }
+  let extraIn = 0, extraOut = 0;
+  for (const b of bonuses ?? []) {
+    extraIn += b.input_tokens ?? 0;
+    extraOut += b.output_tokens ?? 0;
+  }
+  return {
+    dailyIn: tier.dailyIn * bonus - dayIn,
+    dailyOut: tier.dailyOut * bonus - dayOut,
+    monthlyIn: tier.monthlyIn * bonus + extraIn - monthIn,
+    monthlyOut: tier.monthlyOut * bonus + extraOut - monthOut,
+  };
+}
+
+/// What the app shows: how much of today's and this month's allowance is left
+/// (the tighter of input and output), as a percentage.
+function percentLeft(b: Budget, tier: Tier, bonus: number) {
+  const share = (left: number, cap: number) => Math.max(0, Math.min(1, left / cap));
+  const daily = Math.min(
+    share(b.dailyIn, tier.dailyIn * bonus),
+    share(b.dailyOut, tier.dailyOut * bonus),
+  );
+  const monthly = Math.min(
+    share(b.monthlyIn, tier.monthlyIn * bonus),
+    share(b.monthlyOut, tier.monthlyOut * bonus),
+  );
+  return {
+    dailyLeftPct: Math.floor(daily * 100),
+    monthlyLeftPct: Math.floor(monthly * 100),
+  };
+}
+
+/// The student's tier: their own override, else the default in settings.
+async function tierFor(supabase: ReturnType<typeof createClient>, override: unknown): Promise<Tier> {
+  if (typeof override === 'string' && TIERS[override]) return TIERS[override];
+  const { data } = await supabase
+    .from('app_settings')
+    .select('value')
+    .eq('key', 'assistantDefaultTier')
+    .maybeSingle();
+  const name = String(data?.value ?? '').trim();
+  return TIERS[name] ?? TIERS.standard;
+}
+
+/// Season bonus from the admin settings (1 to 5); 1 when missing or invalid.
+async function seasonBonus(supabase: ReturnType<typeof createClient>): Promise<number> {
   const { data } = await supabase
     .from('app_settings')
     .select('value')
     .eq('key', 'assistantBonus')
     .maybeSingle();
   const factor = Number(data?.value);
-  const bonus = Number.isFinite(factor) && factor >= 1 && factor <= 5 ? Math.round(factor) : 1;
-  DAILY_QUESTIONS = BASE_QUESTIONS * bonus;
-  DAILY_FILES = BASE_FILES * bonus;
-}
-
-function today() {
-  return new Date().toISOString().slice(0, 10);
-}
-
-/// The student's credit now: what was left, plus one daily allowance per day
-/// since the last refresh, capped at CARRY_DAYS days' worth.
-async function currentCredit(
-  supabase: ReturnType<typeof createClient>,
-  userId: string,
-): Promise<{ questions: number; files: number }> {
-  const { data } = await supabase
-    .from('assistant_credits')
-    .select('questions, files, refreshed_on')
-    .eq('user_id', userId)
-    .maybeSingle();
-  if (!data) return { questions: DAILY_QUESTIONS, files: DAILY_FILES };
-  const days = Math.max(
-    0,
-    Math.round((Date.parse(today()) - Date.parse(String(data.refreshed_on))) / 86_400_000),
-  );
-  return {
-    questions: Math.min(DAILY_QUESTIONS * CARRY_DAYS, (data.questions ?? 0) + days * DAILY_QUESTIONS),
-    files: Math.min(DAILY_FILES * CARRY_DAYS, (data.files ?? 0) + days * DAILY_FILES),
-  };
+  return Number.isFinite(factor) && factor >= 1 && factor <= 5 ? Math.round(factor) : 1;
 }
 
 function parseAttachment(image: unknown, document: unknown, name: unknown): Attachment | null {

@@ -1470,14 +1470,14 @@ class AssistantScreen extends StatefulWidget {
 }
 
 class _AssistantScreenState extends State<AssistantScreen> {
-  static const dailyQuestions = 10;
-  static const dailyFiles = 6;
+  /// Share of today's and this month's allowance left (0 to 100).
+  static const fullAllowance = 100;
   final input = TextEditingController();
   final messages = <({bool me, String text, Uint8List? image, String? file})>[];
 
   /// Credit left (daily allowance; unused credit carries over).
-  int questionsLeft = dailyQuestions;
-  int filesLeft = dailyFiles;
+  int dailyLeft = fullAllowance;
+  int monthlyLeft = fullAllowance;
   bool thinking = false;
 
   /// Photo of an exercise waiting to be sent with the next question.
@@ -1533,8 +1533,8 @@ class _AssistantScreenState extends State<AssistantScreen> {
         final balance = await learn.repo.assistantBalance(learn.userId!);
         if (balance != null && mounted) {
           setState(() {
-            questionsLeft = balance.questions;
-            filesLeft = balance.files;
+            dailyLeft = balance.dailyLeftPct;
+            monthlyLeft = balance.monthlyLeftPct;
           });
         }
       }
@@ -1553,8 +1553,8 @@ class _AssistantScreenState extends State<AssistantScreen> {
   );
 
   Future<void> pickPdf() async {
-    if (filesLeft <= 0) {
-      say('نفد رصيد الصور والملفات. يتجدد غداً.');
+    if (dailyLeft <= 0 || monthlyLeft <= 0) {
+      say('نفد رصيدك من الاستعمال. يتجدد الرصيد اليومي غداً.');
       return;
     }
     final picked = await NativeFilePicker.pickPdf();
@@ -1616,8 +1616,8 @@ class _AssistantScreenState extends State<AssistantScreen> {
   }
 
   Future<void> pickPhoto() async {
-    if (filesLeft <= 0) {
-      say('نفد رصيد الصور والملفات. يتجدد غداً.');
+    if (dailyLeft <= 0 || monthlyLeft <= 0) {
+      say('نفد رصيدك من الاستعمال. يتجدد الرصيد اليومي غداً.');
       return;
     }
     final picked = await NativeFilePicker.pickImage();
@@ -1707,9 +1707,8 @@ class _AssistantScreenState extends State<AssistantScreen> {
     if (q.isEmpty || thinking) {
       return;
     }
-    final hasFile = sending != null || sendingPdf != null;
-    if (!hasFile && questionsLeft <= 0) {
-      say('نفد رصيد الأسئلة. يتجدد غداً، وما لا تستعمله يُضاف لرصيدك.');
+    if (dailyLeft <= 0 || monthlyLeft <= 0) {
+      say('نفد رصيدك من الاستعمال. يتجدد الرصيد اليومي غداً.');
       return;
     }
     if (listening) {
@@ -1795,10 +1794,8 @@ class _AssistantScreenState extends State<AssistantScreen> {
       );
       setState(() {
         messages.add((me: false, text: answer.reply, image: null, file: null));
-        questionsLeft =
-            answer.questionsLeft ??
-            (hasFile ? questionsLeft : questionsLeft - 1);
-        filesLeft = answer.filesLeft ?? (hasFile ? filesLeft - 1 : filesLeft);
+        dailyLeft = answer.dailyLeftPct ?? dailyLeft;
+        monthlyLeft = answer.monthlyLeftPct ?? monthlyLeft;
       });
     } on Object catch (e) {
       say(e.toString().replaceFirst('Exception: ', ''));
@@ -1878,7 +1875,7 @@ class _AssistantScreenState extends State<AssistantScreen> {
                       ],
                     ),
                   ),
-                  EpsBadge('رصيدك: $questionsLeft سؤال • $filesLeft ملف'),
+                  EpsBadge('اليوم $dailyLeft% • الشهر $monthlyLeft%'),
                 ],
               ),
             ),
