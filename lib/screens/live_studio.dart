@@ -433,11 +433,17 @@ class _LiveKitViewerStageState extends State<LiveKitViewerStage> {
     sessionId: widget.session.id,
     host: false,
   );
+  late final LiveBoard board = LiveBoard(
+    learn: LearnScope.read(context),
+    sessionId: widget.session.id,
+    host: false,
+  );
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      board.connect();
       if (!conn.demo) {
         conn.join();
       }
@@ -459,6 +465,7 @@ class _LiveKitViewerStageState extends State<LiveKitViewerStage> {
 
   @override
   void dispose() {
+    board.dispose();
     conn.dispose();
     super.dispose();
   }
@@ -466,7 +473,7 @@ class _LiveKitViewerStageState extends State<LiveKitViewerStage> {
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
-      listenable: conn,
+      listenable: Listenable.merge([conn, board]),
       builder: (context, _) {
         final video = conn.mainVideo;
         final ended =
@@ -507,6 +514,8 @@ class _LiveKitViewerStageState extends State<LiveKitViewerStage> {
                   'انتهت الجلسة',
                   'شكراً لحضورك',
                 )
+              : board.on
+              ? BoardCanvas(board: board)
               : switch (conn.state) {
                   LiveConnState.idle || LiveConnState.connecting => message(
                     Icons.wifi_tethering_rounded,
@@ -1098,6 +1107,11 @@ class _LiveStudioScreenState extends State<LiveStudioScreen> {
     learn: learn,
     sessionId: widget.session.id,
   );
+  late final LiveBoard board = LiveBoard(
+    learn: learn,
+    sessionId: widget.session.id,
+    host: true,
+  );
   final input = TextEditingController();
   bool questionsTab = true;
   Timer? clock;
@@ -1105,7 +1119,10 @@ class _LiveStudioScreenState extends State<LiveStudioScreen> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => chat.start());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      chat.start();
+      board.connect();
+    });
     clock = Timer.periodic(const Duration(seconds: 1), (_) {
       if (conn.state == LiveConnState.connected && mounted) {
         setState(() {});
@@ -1118,6 +1135,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen> {
     clock?.cancel();
     input.dispose();
     chat.dispose();
+    board.dispose();
     conn.dispose();
     super.dispose();
   }
@@ -1188,7 +1206,31 @@ class _LiveStudioScreenState extends State<LiveStudioScreen> {
     );
   }
 
+  /// The whiteboard in place of the camera: the teacher writes on it, and the
+  /// students see the same strokes.
+  Widget _boardStage() {
+    final top = MediaQuery.paddingOf(context).top;
+    return SizedBox(
+      height: 245 + top,
+      child: Column(
+        children: [
+          Padding(
+            padding: EdgeInsets.fromLTRB(10, top + 6, 10, 6),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [_BoardToolbar(board: board)],
+            ),
+          ),
+          Expanded(child: BoardCanvas(board: board, interactive: true)),
+        ],
+      ),
+    );
+  }
+
   Widget _studioStage(bool live) {
+    if (board.on) {
+      return _boardStage();
+    }
     final video = conn.mainVideo;
     Widget center;
     switch (conn.state) {
@@ -1409,6 +1451,12 @@ class _LiveStudioScreenState extends State<LiveStudioScreen> {
               conn.toggleScreenShare,
               active: conn.screenOn,
             ),
+          button(
+            Icons.draw_outlined,
+            board.on ? 'الكاميرا' : 'السبورة',
+            board.toggle,
+            active: board.on,
+          ),
           button(Icons.call_end_rounded, 'إنهاء', end, color: Eps.red),
         ],
       ),
@@ -1612,6 +1660,347 @@ class _LiveStudioScreenState extends State<LiveStudioScreen> {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// Ink colours of the whiteboard: Epsilon's dark ink and blue only.
+const boardInks = [Color(0xFF172039), Color(0xFF2F5BD3)];
+
+/// One stroke on the whiteboard, in coordinates relative to the board
+/// (0 to 1), so every screen draws it at its own size.
+class BoardStroke {
+  BoardStroke(this.points, this.ink);
+
+  final List<Offset> points;
+  final int ink;
+
+  Map<String, dynamic> toJson() => {
+    'p': [
+      for (final o in points) [o.dx, o.dy],
+    ],
+    'i': ink,
+  };
+
+  static BoardStroke? fromJson(Map<String, dynamic> j) {
+    final raw = j['p'];
+    if (raw is! List) {
+      return null;
+    }
+    final points = <Offset>[
+      for (final p in raw)
+        if (p is List && p.length == 2)
+          Offset((p[0] as num).toDouble(), (p[1] as num).toDouble()),
+    ];
+    return BoardStroke(points, (j['i'] as num?)?.toInt() ?? 0);
+  }
+}
+
+/// The whiteboard of a live session. The teacher draws; the strokes go to
+/// the students through a Supabase realtime channel (only coordinates, so
+/// it works on a weak connection). A student who joins late asks for the
+/// whole board and gets a snapshot from the teacher.
+class LiveBoard extends ChangeNotifier {
+  LiveBoard({required this.learn, required this.sessionId, required this.host});
+
+  final LearnStore learn;
+  final String sessionId;
+  final bool host;
+
+  final List<BoardStroke> strokes = [];
+  BoardStroke? current;
+  bool on = false;
+  int ink = 0;
+  RealtimeChannel? _channel;
+  bool _disposed = false;
+
+  void connect() {
+    if (!learn.enabled || _channel != null) {
+      return;
+    }
+    try {
+      final channel = learn.repo.client.channel(
+        'board-$sessionId',
+        opts: const RealtimeChannelConfig(self: false),
+      );
+      channel
+        ..onBroadcast(
+          event: 'stroke',
+          callback: (p) {
+            final stroke = BoardStroke.fromJson(p);
+            if (stroke != null) {
+              strokes.add(stroke);
+              _notify();
+            }
+          },
+        )
+        ..onBroadcast(
+          event: 'undo',
+          callback: (_) {
+            if (strokes.isNotEmpty) {
+              strokes.removeLast();
+            }
+            _notify();
+          },
+        )
+        ..onBroadcast(
+          event: 'clear',
+          callback: (_) {
+            strokes.clear();
+            _notify();
+          },
+        )
+        ..onBroadcast(
+          event: 'mode',
+          callback: (p) {
+            on = p['on'] == true;
+            _notify();
+          },
+        )
+        ..onBroadcast(
+          event: 'hello',
+          callback: (_) {
+            if (host) {
+              _send('snapshot', {
+                'on': on,
+                'strokes': [for (final s in strokes) s.toJson()],
+              });
+            }
+          },
+        )
+        ..onBroadcast(
+          event: 'snapshot',
+          callback: (p) {
+            if (host) {
+              return;
+            }
+            on = p['on'] == true;
+            strokes
+              ..clear()
+              ..addAll([
+                for (final raw in (p['strokes'] as List? ?? const []))
+                  ?BoardStroke.fromJson(Map<String, dynamic>.from(raw as Map)),
+              ]);
+            _notify();
+          },
+        )
+        ..subscribe((status, [error]) {
+          if (status == RealtimeSubscribeStatus.subscribed && !host) {
+            _send('hello', {});
+          }
+        });
+      _channel = channel;
+    } on Object {
+      // Without realtime the board still works on the teacher's screen.
+    }
+  }
+
+  void _send(String event, Map<String, dynamic> payload) {
+    final channel = _channel;
+    if (channel == null) {
+      return;
+    }
+    unawaited(channel.sendBroadcastMessage(event: event, payload: payload));
+  }
+
+  void beginStroke(Offset at) {
+    if (!host) {
+      return;
+    }
+    current = BoardStroke([at], ink);
+    _notify();
+  }
+
+  void extendStroke(Offset at) {
+    current?.points.add(at);
+    _notify();
+  }
+
+  void endStroke() {
+    final stroke = current;
+    current = null;
+    if (stroke != null && stroke.points.length > 1) {
+      strokes.add(stroke);
+      _send('stroke', stroke.toJson());
+    }
+    _notify();
+  }
+
+  void undo() {
+    if (strokes.isEmpty) {
+      return;
+    }
+    strokes.removeLast();
+    _send('undo', {});
+    _notify();
+  }
+
+  void clear() {
+    strokes.clear();
+    _send('clear', {});
+    _notify();
+  }
+
+  void toggle() {
+    on = !on;
+    _send('mode', {'on': on});
+    _notify();
+  }
+
+  void setInk(int index) {
+    ink = index;
+    _notify();
+  }
+
+  void _notify() {
+    if (!_disposed) {
+      notifyListeners();
+    }
+  }
+
+  @override
+  void dispose() {
+    _disposed = true;
+    final channel = _channel;
+    _channel = null;
+    if (channel != null) {
+      unawaited(learn.repo.client.removeChannel(channel));
+    }
+    super.dispose();
+  }
+}
+
+/// The white board. The teacher draws on it; students only look at it.
+class BoardCanvas extends StatelessWidget {
+  const BoardCanvas({required this.board, this.interactive = false, super.key});
+
+  final LiveBoard board;
+  final bool interactive;
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: board,
+      builder: (context, _) => LayoutBuilder(
+        builder: (context, box) {
+          Offset norm(Offset o) => Offset(
+            (o.dx / box.maxWidth).clamp(0.0, 1.0),
+            (o.dy / box.maxHeight).clamp(0.0, 1.0),
+          );
+          final canvas = CustomPaint(
+            size: Size(box.maxWidth, box.maxHeight),
+            painter: _BoardPainter(board.strokes, board.current),
+          );
+          if (!interactive) {
+            return ColoredBox(color: Colors.white, child: canvas);
+          }
+          return GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onPanStart: (d) => board.beginStroke(norm(d.localPosition)),
+            onPanUpdate: (d) => board.extendStroke(norm(d.localPosition)),
+            onPanEnd: (_) => board.endStroke(),
+            onPanCancel: board.endStroke,
+            child: ColoredBox(color: Colors.white, child: canvas),
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _BoardPainter extends CustomPainter {
+  _BoardPainter(this.strokes, this.current);
+
+  final List<BoardStroke> strokes;
+  final BoardStroke? current;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    void draw(BoardStroke stroke) {
+      if (stroke.points.isEmpty) {
+        return;
+      }
+      final paint = Paint()
+        ..color = boardInks[stroke.ink.clamp(0, boardInks.length - 1)]
+        ..strokeWidth = size.width * 0.009
+        ..strokeCap = StrokeCap.round
+        ..strokeJoin = StrokeJoin.round
+        ..style = PaintingStyle.stroke;
+      final path = Path();
+      final first = stroke.points.first;
+      path.moveTo(first.dx * size.width, first.dy * size.height);
+      for (final p in stroke.points.skip(1)) {
+        path.lineTo(p.dx * size.width, p.dy * size.height);
+      }
+      canvas.drawPath(path, paint);
+    }
+
+    for (final s in strokes) {
+      draw(s);
+    }
+    final now = current;
+    if (now != null) {
+      draw(now);
+    }
+  }
+
+  @override
+  bool shouldRepaint(_BoardPainter old) => true;
+}
+
+/// Teacher's tools over the board: ink, undo, clear, and back to the camera.
+class _BoardToolbar extends StatelessWidget {
+  const _BoardToolbar({required this.board});
+
+  final LiveBoard board;
+
+  @override
+  Widget build(BuildContext context) {
+    Widget tool(
+      IconData icon,
+      String tip,
+      VoidCallback onTap, {
+      bool active = false,
+    }) => Padding(
+      padding: const EdgeInsetsDirectional.only(start: 6),
+      child: Tooltip(
+        message: tip,
+        child: GestureDetector(
+          onTap: onTap,
+          child: Container(
+            width: 34,
+            height: 34,
+            decoration: BoxDecoration(
+              color: active ? Eps.blue : Colors.white,
+              shape: BoxShape.circle,
+              border: Border.all(color: Eps.line),
+            ),
+            child: Icon(
+              icon,
+              size: 17,
+              color: active ? Colors.white : boardInks[0],
+            ),
+          ),
+        ),
+      ),
+    );
+    return ListenableBuilder(
+      listenable: board,
+      builder: (context, _) => Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          for (var i = 0; i < boardInks.length; i++)
+            tool(
+              Icons.edit_rounded,
+              i == 0 ? 'قلم داكن' : 'قلم أزرق',
+              () => board.setInk(i),
+              active: board.ink == i,
+            ),
+          tool(Icons.undo_rounded, 'تراجع', board.undo),
+          tool(Icons.delete_outline_rounded, 'مسح السبورة', board.clear),
+          tool(Icons.videocam_outlined, 'العودة للكاميرا', board.toggle),
+        ],
       ),
     );
   }
