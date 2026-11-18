@@ -993,6 +993,7 @@ class _AdminConsoleState extends State<AdminConsole> {
         title: '${f['title']}',
         subtitle: [
           if (uploader != null) '${uploader['name']}',
+          if ('${f['subject_name'] ?? ''}'.isNotEmpty) '${f['subject_name']}',
           if (specialty.isNotEmpty) specialty,
           if (f['file_url'] != null) 'فتح الملف من الرابط',
         ].join(' • '),

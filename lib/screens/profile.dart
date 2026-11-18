@@ -3474,7 +3474,6 @@ class _StudentFilesScreenState extends State<StudentFilesScreen> {
         learn.repo.studentFiles(
           faculty: profile?.faculty ?? '',
           track: profile?.track ?? '',
-          level: profile?.level ?? '',
         ),
         learn.repo.myStudentFiles(userId),
       ]);
@@ -3615,9 +3614,13 @@ class _StudentFileTile extends StatelessWidget {
                       color: Eps.ink,
                     ),
                   ),
-                  if (file.description.isNotEmpty)
+                  if (file.subjectName.isNotEmpty ||
+                      file.description.isNotEmpty)
                     Text(
-                      file.description,
+                      [
+                        file.subjectName,
+                        file.description,
+                      ].where((x) => x.isNotEmpty).join(' • '),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(fontSize: 8, color: Eps.muted),
@@ -3647,8 +3650,12 @@ class _StudentFileTile extends StatelessWidget {
   }
 }
 
-/// Upload a file for students of the same specialty. Needs the student's
-/// confirmation that they own the rights to share it.
+/// Value of a dropdown that opens a text field to type a missing choice.
+const addNewChoice = '__add_new__';
+
+/// Upload a file. The student picks the faculty, the track and the subject
+/// (or types one that is missing); the administration checks them before the
+/// file is published, and the student confirms they own the rights to share it.
 class StudentFileUploadScreen extends StatefulWidget {
   const StudentFileUploadScreen({super.key});
 
@@ -3658,22 +3665,55 @@ class StudentFileUploadScreen extends StatefulWidget {
 }
 
 class _StudentFileUploadScreenState extends State<StudentFileUploadScreen> {
+  static const defaultFaculties = [
+    'FST',
+    'الاقتصاد',
+    'الحقوق',
+    'الآداب',
+    'الطب',
+  ];
+  static const defaultTracks = [
+    'MPI',
+    'PC',
+    'MPIC',
+    'SNV',
+    'الإعلاميات',
+    'الاقتصاد',
+    'القانون',
+  ];
+  static const maxBytes = 7 * 1024 * 1024;
+
   final title = TextEditingController();
   final description = TextEditingController();
-  String subjectId = '';
+  final newFaculty = TextEditingController();
+  final newTrack = TextEditingController();
+  final newSubject = TextEditingController();
+  String? faculty;
+  String? track;
+  String? subjectId;
   PickedNativeFile? picked;
   Uint8List? bytes;
   bool rights = false;
   bool sending = false;
   String error = '';
 
-  static const maxBytes = 7 * 1024 * 1024;
-
   @override
   void dispose() {
     title.dispose();
     description.dispose();
+    newFaculty.dispose();
+    newTrack.dispose();
+    newSubject.dispose();
     super.dispose();
+  }
+
+  /// Choices offered: the defaults plus those already used in the catalog.
+  List<String> optionsWith(List<String> defaults, Iterable<String> extra) {
+    final seen = <String>{};
+    return [
+      for (final v in [...defaults, ...extra])
+        if (v.trim().isNotEmpty && seen.add(v.trim())) v.trim(),
+    ];
   }
 
   Future<void> pick({required bool pdf}) async {
@@ -3697,14 +3737,39 @@ class _StudentFileUploadScreenState extends State<StudentFileUploadScreen> {
     });
   }
 
+  String get facultyValue =>
+      faculty == addNewChoice ? newFaculty.text.trim() : (faculty ?? '');
+  String get trackValue =>
+      track == addNewChoice ? newTrack.text.trim() : (track ?? '');
+  String get subjectName {
+    if (subjectId == addNewChoice) {
+      return newSubject.text.trim();
+    }
+    final learn = LearnScope.read(context);
+    return learn.subjects.where((s) => s.id == subjectId).firstOrNull?.name ??
+        '';
+  }
+
   Future<void> send() async {
     final learn = LearnScope.read(context);
-    final profile = learn.profile;
     final userId = learn.userId;
     final file = picked;
     final data = bytes;
+    final chosenSubject = subjectId ?? '';
     if (title.text.trim().isEmpty) {
       setState(() => error = 'اكتب عنواناً للملف.');
+      return;
+    }
+    if (facultyValue.isEmpty) {
+      setState(() => error = 'اختر الكلية أو اكتب اسمها.');
+      return;
+    }
+    if (trackValue.isEmpty) {
+      setState(() => error = 'اختر التخصص أو اكتب اسمه.');
+      return;
+    }
+    if (subjectName.isEmpty) {
+      setState(() => error = 'اختر المادة أو اكتب اسمها.');
       return;
     }
     if (file == null || data == null || userId == null) {
@@ -3724,10 +3789,11 @@ class _StudentFileUploadScreenState extends State<StudentFileUploadScreen> {
         userId: userId,
         title: title.text,
         description: description.text,
-        subjectId: subjectId,
-        faculty: profile?.faculty ?? '',
-        track: profile?.track ?? '',
-        level: profile?.level ?? '',
+        subjectId: chosenSubject == addNewChoice ? '' : chosenSubject,
+        subjectName: subjectName,
+        faculty: facultyValue,
+        track: trackValue,
+        level: '',
         bytes: data,
         fileName: file.name,
       );
@@ -3744,9 +3810,19 @@ class _StudentFileUploadScreenState extends State<StudentFileUploadScreen> {
     }
   }
 
+  DropdownMenuItem<String> addItem(String label) => DropdownMenuItem(
+    value: addNewChoice,
+    child: Text(label, style: const TextStyle(color: Eps.blue)),
+  );
+
   @override
   Widget build(BuildContext context) {
     final learn = LearnScope.of(context);
+    final facultyOptions = optionsWith(
+      defaultFaculties,
+      learn.subjects.map((s) => s.faculty),
+    );
+    final trackOptions = optionsWith(defaultTracks, const []);
     return EpsPage(
       title: 'رفع ملف',
       children: [
@@ -3757,23 +3833,62 @@ class _StudentFileUploadScreenState extends State<StudentFileUploadScreen> {
             hintText: 'مثال: ملخص الفصل الثالث',
           ),
         ),
-        const AuthLabel('وصف مختصر (اختياري)', top: 10),
-        TextField(
-          controller: description,
-          maxLines: 2,
-          decoration: const InputDecoration(hintText: 'ما الذي يحتويه الملف؟'),
+        const AuthLabel('الكلية', top: 10),
+        DropdownButtonFormField<String>(
+          initialValue: faculty,
+          isExpanded: true,
+          decoration: const InputDecoration(hintText: 'اختر الكلية'),
+          items: [
+            for (final f in facultyOptions)
+              DropdownMenuItem(value: f, child: Text(f)),
+            addItem('+ كلية غير موجودة'),
+          ],
+          onChanged: (v) => setState(() => faculty = v),
         ),
-        const AuthLabel('المادة (اختياري)', top: 10),
+        if (faculty == addNewChoice)
+          TextField(
+            controller: newFaculty,
+            decoration: const InputDecoration(hintText: 'اكتب اسم الكلية'),
+          ),
+        const AuthLabel('التخصص', top: 10),
+        DropdownButtonFormField<String>(
+          initialValue: track,
+          isExpanded: true,
+          decoration: const InputDecoration(hintText: 'اختر التخصص'),
+          items: [
+            for (final t in trackOptions)
+              DropdownMenuItem(value: t, child: Text(t)),
+            addItem('+ تخصص غير موجود'),
+          ],
+          onChanged: (v) => setState(() => track = v),
+        ),
+        if (track == addNewChoice)
+          TextField(
+            controller: newTrack,
+            decoration: const InputDecoration(hintText: 'اكتب اسم التخصص'),
+          ),
+        const AuthLabel('المادة', top: 10),
         DropdownButtonFormField<String>(
           initialValue: subjectId,
           isExpanded: true,
           decoration: const InputDecoration(hintText: 'اختر المادة'),
           items: [
-            const DropdownMenuItem(value: '', child: Text('بدون مادة محددة')),
             for (final sub in learn.subjects)
               DropdownMenuItem(value: sub.id, child: Text(sub.name)),
+            addItem('+ مادة غير موجودة'),
           ],
-          onChanged: (v) => setState(() => subjectId = v ?? ''),
+          onChanged: (v) => setState(() => subjectId = v),
+        ),
+        if (subjectId == addNewChoice)
+          TextField(
+            controller: newSubject,
+            decoration: const InputDecoration(hintText: 'اكتب اسم المادة'),
+          ),
+        const AuthLabel('وصف مختصر (اختياري)', top: 10),
+        TextField(
+          controller: description,
+          maxLines: 2,
+          decoration: const InputDecoration(hintText: 'ما الذي يحتويه الملف؟'),
         ),
         const AuthLabel('الملف', top: 10),
         Row(
@@ -3823,15 +3938,15 @@ class _StudentFileUploadScreenState extends State<StudentFileUploadScreen> {
             ),
           ),
         EpsPrimaryButton(
-          label: 'إرسال للمراجعة',
+          label: 'سيتأكد الإدارة منه ويتم الرفع',
           loading: sending,
           onPressed: sending ? null : send,
         ),
         const SizedBox(height: 8),
         const Text(
-          'تُنشر الملفات بعد مراجعة الإدارة، وتُحذف ما يخالف الشروط.',
+          'تراجع الإدارة الكلية والتخصص والمادة قبل نشر الملف، وتصحح الاسم إن كان مكتوباً بشكل مختلف.',
           textAlign: TextAlign.center,
-          style: TextStyle(fontSize: 8, color: Eps.muted),
+          style: TextStyle(fontSize: 8, color: Eps.muted, height: 1.6),
         ),
       ],
     );

@@ -248,6 +248,7 @@ class EpsStudentFile {
       title = _str(r['title']),
       description = _str(r['description']),
       subjectId = _str(r['subject_id']),
+      subjectName = _str(r['subject_name']),
       faculty = _str(r['faculty']),
       track = _str(r['track']),
       level = _str(r['level']),
@@ -262,6 +263,7 @@ class EpsStudentFile {
   final String title;
   final String description;
   final String subjectId;
+  final String subjectName;
   final String faculty;
   final String track;
   final String level;
@@ -884,6 +886,7 @@ class LearnRepository {
     required String title,
     required String description,
     required String subjectId,
+    required String subjectName,
     required String faculty,
     required String track,
     required String level,
@@ -913,6 +916,7 @@ class LearnRepository {
       'title': title.trim(),
       'description': description.trim(),
       'subject_id': subjectId.isEmpty ? null : subjectId,
+      'subject_name': subjectName.trim(),
       'faculty': faculty,
       'track': track,
       'level': level,
