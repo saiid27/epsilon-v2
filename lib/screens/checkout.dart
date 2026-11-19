@@ -40,6 +40,11 @@ class SectionsScreen extends StatelessWidget {
           style: TextStyle(fontSize: 9, color: Eps.muted),
         ),
         const SizedBox(height: 14),
+        // The assistant subscription comes before the sections and subjects.
+        _AssistantSubscriptionEntry(
+          onTap: () => pushPage(context, const AssistantPlansScreen()),
+        ),
+        const SizedBox(height: 10),
         for (final (id, title, description, subjects) in sections)
           Padding(
             padding: const EdgeInsets.only(bottom: 10),
