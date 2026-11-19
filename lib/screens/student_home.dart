@@ -77,11 +77,15 @@ class StudentShellState extends State<StudentShell> {
         index: tab,
         onChanged: goTab,
         items: [
-          const EpsNavItem('الرئيسية', Icons.home_outlined),
-          const EpsNavItem('موادي', Icons.menu_book_outlined),
-          EpsNavItem('مباشر', Icons.sensors_rounded, dot: hasLive),
-          const EpsNavItem('الاختبارات', Icons.sports_esports_outlined),
-          const EpsNavItem('حسابي', Icons.person_outline_rounded),
+          EpsNavItem(tr('الرئيسية', 'Accueil'), Icons.home_outlined),
+          EpsNavItem(tr('موادي', 'Mes matières'), Icons.menu_book_outlined),
+          EpsNavItem(
+            tr('مباشر', 'Direct'),
+            Icons.sensors_rounded,
+            dot: hasLive,
+          ),
+          EpsNavItem(tr('الاختبارات', 'Quiz'), Icons.sports_esports_outlined),
+          EpsNavItem(tr('حسابي', 'Compte'), Icons.person_outline_rounded),
         ],
       ),
     );
@@ -436,6 +440,7 @@ class _StudentHomeTabState extends State<StudentHomeTab> {
               const SizedBox(height: 3),
             ],
             const UniversityResultsCard(),
+            const ArchiveCard(),
             const SizedBox(height: 4),
             if (heroes.isNotEmpty) ...[
               const SizedBox(height: 8),
@@ -450,8 +455,8 @@ class _StudentHomeTabState extends State<StudentHomeTab> {
               _PagerDots(count: heroes.length, index: heroIndex),
             ],
             HomeSectionTitle(
-              'تابع التعلّم',
-              link: 'عرض موادي',
+              tr('تابع التعلّم', 'Continuer'),
+              link: tr('عرض موادي', 'Voir mes matières'),
               onTap: () => shell?.goTab(1),
             ),
             if (active != null)

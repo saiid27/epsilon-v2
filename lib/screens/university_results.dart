@@ -597,3 +597,62 @@ class UniversityResultsCard extends StatelessWidget {
     );
   }
 }
+
+/// Home card that opens the archive: files shared by students, by faculty
+/// and track.
+class ArchiveCard extends StatelessWidget {
+  const ArchiveCard({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 9),
+      child: FlatCard(
+        onTap: () => pushPage(context, const StudentFilesScreen()),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        child: Row(
+          children: [
+            Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: Eps.blueSoft,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: const Icon(
+                Icons.folder_shared_outlined,
+                color: Eps.blue,
+                size: 21,
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    tr('الأرشيف', 'Archives'),
+                    style: const TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      color: Eps.ink,
+                      height: 1.5,
+                    ),
+                  ),
+                  Text(
+                    tr(
+                      'ملفات مشتركة من الطلاب، حسب الكلية والتخصص',
+                      'Fichiers partagés par les étudiants, par faculté et filière',
+                    ),
+                    style: const TextStyle(fontSize: 9, color: Eps.muted),
+                  ),
+                ],
+              ),
+            ),
+            const Icon(Icons.chevron_left_rounded, color: Eps.muted),
+          ],
+        ),
+      ),
+    );
+  }
+}

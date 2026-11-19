@@ -370,12 +370,6 @@ class ProfileTab extends StatelessWidget {
               ),
             ),
             _MenuRow(
-              icon: Icons.folder_shared_outlined,
-              title: 'مكتبة الملفات',
-              subtitle: 'ملفات تخصصك، وشارك ملفاتك',
-              onTap: () => pushPage(context, const StudentFilesScreen()),
-            ),
-            _MenuRow(
               icon: Icons.card_giftcard_outlined,
               title: 'ادعُ صديقاً',
               subtitle: 'كودك: ${profile?.referralCode ?? ''}',
@@ -693,12 +687,12 @@ class _StudentSettingsScreenState extends State<StudentSettingsScreen> {
       ),
     );
     return EpsPage(
-      title: 'الإعدادات',
+      title: tr('الإعدادات', 'Paramètres'),
       children: [
-        head('التفضيلات'),
+        head(tr('التفضيلات', 'Préférences')),
         _MenuRow(
           icon: Icons.translate_rounded,
-          title: 'اللغة',
+          title: tr('اللغة', 'Langue'),
           subtitle: store.languageCode == 'fr' ? 'Français' : 'العربية',
           onTap: null,
           trailing: Container(
@@ -746,7 +740,7 @@ class _StudentSettingsScreenState extends State<StudentSettingsScreen> {
             },
           ),
         ),
-        head('المساعدة'),
+        head(tr('المساعدة', 'Aide')),
         _MenuRow(
           icon: Icons.chat_bubble_outline_rounded,
           title: 'تواصل عبر WhatsApp',
@@ -3610,7 +3604,7 @@ class _StudentFilesScreenState extends State<StudentFilesScreen> {
       if (profile?.level.isNotEmpty ?? false) profile!.level,
     ].join(' • ');
     return EpsPage(
-      title: 'مكتبة الملفات',
+      title: 'الأرشيف',
       action: EpsIconButton(
         icon: Icons.refresh_rounded,
         tooltip: 'تحديث',

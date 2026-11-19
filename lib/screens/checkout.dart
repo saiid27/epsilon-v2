@@ -33,7 +33,7 @@ class SectionsScreen extends StatelessWidget {
     ]..sort((a, b) => a.$2.compareTo(b.$2));
     final other = learn.subjects.where((s) => s.courseId == null).toList();
     return EpsPage(
-      title: 'اختر القسم',
+      title: tr('اختر القسم', 'Choisir une section'),
       children: [
         const Text(
           'اختر قسمك أولاً، ثم اختر المواد التي تريد الاشتراك فيها.',
@@ -1162,7 +1162,7 @@ class PlansScreen extends StatelessWidget {
             ListView(
               padding: const EdgeInsets.fromLTRB(18, 0, 18, 110),
               children: [
-                const EpsPageHeader(title: 'اختيار الخطة'),
+                EpsPageHeader(title: tr('اختيار الخطة', 'Choisir un plan')),
                 Row(
                   children: [
                     Container(

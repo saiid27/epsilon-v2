@@ -46,7 +46,14 @@ part 'screens/checkout.dart';
 part 'screens/profile.dart';
 part 'screens/admin.dart';
 part 'screens/university_results.dart';
+
 part 'screens/live_studio.dart';
+
+/// The language picked in settings: 'ar' (default) or 'fr'.
+String appLanguage = 'ar';
+
+/// Arabic text, or its French version when French is chosen.
+String tr(String ar, String fr) => appLanguage == 'fr' ? fr : ar;
 
 const epsilonBlue = Eps.blue;
 const epsilonTeal = Eps.green;
@@ -2770,6 +2777,7 @@ class SchoolStore extends ChangeNotifier {
 
   void setLanguageCode(String value) {
     languageCode = value;
+    appLanguage = value;
     notifyListeners();
   }
 
