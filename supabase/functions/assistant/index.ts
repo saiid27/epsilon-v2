@@ -244,10 +244,13 @@ Deno.serve(async (req) => {
       ...percentLeft(after, tier, bonus),
     });
   } catch (error) {
+    // Logged so the cause (key, credit, model, limits) shows in the function logs.
+    console.error('assistant error:', error instanceof Error ? error.message : error);
     if (error instanceof Anthropic.RateLimitError) {
       return json({ message: 'المساعد مشغول الآن، حاول بعد قليل.' }, 503);
     }
     if (error instanceof Anthropic.APIError) {
+      console.error('anthropic status:', error.status, error.message);
       return json({ message: 'تعذر الوصول إلى المساعد.' }, 502);
     }
     return json({ message: error instanceof Error ? error.message : 'Erreur' }, 500);
