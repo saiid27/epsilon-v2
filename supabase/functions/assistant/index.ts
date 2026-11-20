@@ -135,15 +135,27 @@ Deno.serve(async (req) => {
       return json({ message: 'الحساب غير مفعل' }, 403);
     }
 
-    // Subscribers get their tier; everyone else gets the free plan.
+    // A bought assistant package wins. Otherwise a subject subscriber gets the
+    // default tier, and everyone else gets the free plan.
+    const { data: pkg } = await supabase
+      .from('assistant_subscriptions')
+      .select('tier')
+      .eq('student_id', userId)
+      .eq('status', 'active')
+      .gt('expires_at', new Date().toISOString())
+      .order('expires_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
     const { count: activeSubs } = await supabase
       .from('subject_subscriptions')
       .select('id', { count: 'exact', head: true })
       .eq('student_id', userId)
       .eq('status', 'active');
-    const tier = (activeSubs ?? 0) > 0
-      ? await tierFor(supabase, user.assistant_tier)
-      : TIERS.free;
+    const tier = pkg && TIERS[pkg.tier]
+      ? TIERS[pkg.tier]
+      : (activeSubs ?? 0) > 0
+        ? await tierFor(supabase, user.assistant_tier)
+        : TIERS.free;
     const bonus = await seasonBonus(supabase);
     const budget = await remainingBudget(supabase, userId, tier, bonus);
     if (body.action === 'balance') {
