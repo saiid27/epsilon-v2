@@ -49,7 +49,8 @@ const MAX_HISTORY = 20;
 const MAX_FILE_CHARS = 10_000_000;
 const IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'];
 
-const anthropic = new Anthropic({ apiKey: Deno.env.get('ANTHROPIC_API_KEY') });
+// Trimmed: a stray space or newline pasted with the secret makes Claude return 401.
+const anthropic = new Anthropic({ apiKey: (Deno.env.get('ANTHROPIC_API_KEY') ?? '').trim() });
 
 const SYSTEM_PROMPT = `Tu es « مساعد إبسيلون », assistant pédagogique de la plateforme Epsilon Education, réservé aux étudiants de l'enseignement supérieur mauritanien (Université de Nouakchott et ses facultés — FST, FSJE, FLSH, Médecine —, écoles et instituts supérieurs, universités régionales).
 
