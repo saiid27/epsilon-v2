@@ -22,7 +22,7 @@ const corsHeaders = {
 type Tier = { monthlyIn: number; monthlyOut: number; dailyIn: number; dailyOut: number };
 const TIERS: Record<string, Tier> = {
   // Paid plans, sized so that a full month on Claude Sonnet 5.5 costs about
-  // half the plan price (100 / 150 / 250 MRU). About 3, 5 and 8 questions a day.
+  // half the plan price (200 / 300 / 450 MRU). About 3, 5 and 8 questions a day.
   basic: { monthlyIn: 250_000, monthlyOut: 75_000, dailyIn: 8_000, dailyOut: 2_500 },
   standard: { monthlyIn: 400_000, monthlyOut: 110_000, dailyIn: 12_500, dailyOut: 3_500 },
   pro: { monthlyIn: 640_000, monthlyOut: 180_000, dailyIn: 20_000, dailyOut: 6_000 },

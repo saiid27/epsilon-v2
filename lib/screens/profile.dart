@@ -3213,8 +3213,8 @@ const assistantPackages = [
   AssistantPackage(
     name: 'المبتدئ',
     tagline: 'للتعرّف على المساعد',
-    monthly: 100,
-    yearly: 1000,
+    monthly: 200,
+    yearly: 2000,
     questions: 3,
     files: 1,
     perks: ['كل أوضاع المساعد', 'الصور وملفات PDF', 'حفظ الإجابات كملف PDF'],
@@ -3222,8 +3222,8 @@ const assistantPackages = [
   AssistantPackage(
     name: 'المتميز',
     tagline: 'الأكثر طلباً من الطلاب',
-    monthly: 150,
-    yearly: 1500,
+    monthly: 300,
+    yearly: 3000,
     questions: 5,
     files: 2,
     perks: [
@@ -3237,8 +3237,8 @@ const assistantPackages = [
   AssistantPackage(
     name: 'الاحترافي',
     tagline: 'للطلاب في الماستر والمشاريع',
-    monthly: 250,
-    yearly: 2500,
+    monthly: 450,
+    yearly: 4500,
     questions: 8,
     files: 3,
     perks: [
