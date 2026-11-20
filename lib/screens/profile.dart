@@ -1586,26 +1586,54 @@ class _AssistantScreenState extends State<AssistantScreen> {
   void chooseMode() => showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
+    showDragHandle: true,
     builder: (sheet) => SafeArea(
-      child: ListView(
-        shrinkWrap: true,
-        padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          for (final (code, label, icon) in modes)
-            ListTile(
-              leading: Icon(icon, color: Eps.blue),
-              title: Text(label),
-              trailing: code == mode
-                  ? const Icon(Icons.check_rounded, color: Eps.blue)
-                  : null,
-              onTap: () {
-                Navigator.of(sheet).pop();
-                setState(() => mode = code);
-                if (code == 'pdf' && pdf == null) {
-                  pickPdf();
-                }
-              },
+          Padding(
+            padding: const EdgeInsets.fromLTRB(8, 0, 8, 4),
+            child: Row(
+              children: [
+                IconButton(
+                  tooltip: 'رجوع',
+                  icon: const Icon(Icons.arrow_forward_rounded),
+                  onPressed: () => Navigator.of(sheet).pop(),
+                ),
+                const Expanded(
+                  child: Text(
+                    'اختر وضع المساعد',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.w900),
+                  ),
+                ),
+                const SizedBox(width: 48),
+              ],
             ),
+          ),
+          Flexible(
+            child: ListView(
+              shrinkWrap: true,
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              children: [
+                for (final (code, label, icon) in modes)
+                  ListTile(
+                    leading: Icon(icon, color: Eps.blue),
+                    title: Text(label),
+                    trailing: code == mode
+                        ? const Icon(Icons.check_rounded, color: Eps.blue)
+                        : null,
+                    onTap: () {
+                      Navigator.of(sheet).pop();
+                      setState(() => mode = code);
+                      if (code == 'pdf' && pdf == null) {
+                        pickPdf();
+                      }
+                    },
+                  ),
+              ],
+            ),
+          ),
         ],
       ),
     ),
