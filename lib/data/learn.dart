@@ -985,6 +985,51 @@ class LearnRepository {
         .eq('id', id);
   }
 
+  /// A student's request to buy an assistant package, with the receipt.
+  Future<void> submitAssistantRequest({
+    required String userId,
+    required String tier,
+    required String period,
+    required int amount,
+    required String? paymentMethodId,
+    required String receiptUrl,
+    required String transactionRef,
+  }) async {
+    await client.from('assistant_subscriptions').insert({
+      'student_id': userId,
+      'tier': tier,
+      'period': period,
+      'amount': amount,
+      'payment_method_id': paymentMethodId,
+      'receipt_url': receiptUrl,
+      'transaction_ref': transactionRef.trim(),
+      'status': 'pending',
+    });
+  }
+
+  /// Every assistant package request, newest first, with the student's name.
+  Future<List<Map<String, dynamic>>> assistantRequests() async => _list(
+    await client
+        .from('assistant_subscriptions')
+        .select('*, student:users(name, phone)')
+        .order('created_at', ascending: false)
+        .limit(200),
+  );
+
+  Future<void> reviewAssistantRequest({
+    required String id,
+    required bool approve,
+    String reason = '',
+  }) async {
+    await client
+        .from('assistant_subscriptions')
+        .update({
+          'status': approve ? 'active' : 'rejected',
+          'rejection_reason': approve ? '' : reason,
+        })
+        .eq('id', id);
+  }
+
   Future<void> deleteTimetableItem(String id) async {
     await client.from('student_timetable').delete().eq('id', id);
   }

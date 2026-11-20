@@ -188,6 +188,7 @@ class _AdminConsoleState extends State<AdminConsole> {
     ('الإعلانات', Icons.campaign_outlined),
     ('ملفات الطلاب', Icons.folder_shared_outlined),
     ('الخطط والأسعار', Icons.sell_outlined),
+    ('اشتراكات المساعد', Icons.auto_awesome_rounded),
   ];
 
   LearnRepository get repo => LearnScope.read(context).repo;
@@ -460,6 +461,7 @@ class _AdminConsoleState extends State<AdminConsole> {
                       8 => pdfs(),
                       9 => announcements(),
                       10 => studentFilesReview(),
+                      11 => [const AssistantRequestsAdmin()],
                       _ => plans(),
                     },
                   ),

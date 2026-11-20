@@ -1831,9 +1831,12 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
 
 /// Receipt upload (Figma: receipt).
 class ReceiptUploadScreen extends StatefulWidget {
-  const ReceiptUploadScreen({this.paymentMethodId, super.key});
+  const ReceiptUploadScreen({this.paymentMethodId, this.order, super.key});
 
   final String? paymentMethodId;
+
+  /// Set when the receipt pays for an assistant package, not for subjects.
+  final AssistantOrder? order;
 
   @override
   State<ReceiptUploadScreen> createState() => _ReceiptUploadScreenState();
@@ -1872,6 +1875,31 @@ class _ReceiptUploadScreenState extends State<ReceiptUploadScreen> {
     });
     try {
       final dataUri = await paymentProofDataUri(picked.path, picked.name);
+      final order = widget.order;
+      if (order != null) {
+        final userId = learn.userId;
+        if (userId == null) {
+          throw StateError('سجّل دخولك أولاً.');
+        }
+        await learn.repo.submitAssistantRequest(
+          userId: userId,
+          tier: order.tier,
+          period: order.period,
+          amount: order.amount,
+          paymentMethodId: widget.paymentMethodId ?? fallbackMethod,
+          receiptUrl: dataUri,
+          transactionRef: refController.text,
+        );
+        if (mounted) {
+          Navigator.of(context).pushAndRemoveUntil(
+            MaterialPageRoute(
+              builder: (_) => const PaymentConfirmationScreen(),
+            ),
+            (route) => route.isFirst,
+          );
+        }
+        return;
+      }
       final draft = learn.signupDraft;
       if (draft != null && learn.userId == null) {
         // Paid signup: the account is created now, verified by SMS code,

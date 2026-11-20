@@ -3450,12 +3450,9 @@ class _PackageCard extends StatelessWidget {
           EpsPrimaryButton(
             label: 'اختر ${p.name}',
             color: p.highlight ? Eps.blue : Eps.ink,
-            onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text(
-                  'الدفع للباقات يُفعَّل قريباً. تواصل مع الإدارة للاشتراك.',
-                ),
-              ),
+            onPressed: () => pushPage(
+              context,
+              AssistantCheckoutScreen(package: p, yearly: yearly),
             ),
           ),
         ],
