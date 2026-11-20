@@ -80,7 +80,7 @@ class _TimetableScreenState extends State<TimetableScreen> {
     }
   }
 
-  Future<void> addClass() async {
+  Future<void> openSheet({EpsTimetableItem? existing}) async {
     final id = userId;
     if (id == null) return;
     final saved = await showModalBottomSheet<bool>(
@@ -90,12 +90,17 @@ class _TimetableScreenState extends State<TimetableScreen> {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
       ),
-      builder: (_) => _AddClassSheet(userId: id, initialDay: day),
+      builder: (_) =>
+          _ClassSheet(userId: id, initialDay: day, existing: existing),
     );
     if (saved == true) {
       await load();
     }
   }
+
+  Future<void> addClass() => openSheet();
+
+  Future<void> editClass(EpsTimetableItem item) => openSheet(existing: item);
 
   @override
   Widget build(BuildContext context) {
@@ -153,6 +158,7 @@ class _TimetableScreenState extends State<TimetableScreen> {
             Padding(
               padding: const EdgeInsets.only(bottom: 10),
               child: FlatCard(
+                onTap: () => editClass(item),
                 padding: const EdgeInsets.all(12),
                 child: Row(
                   children: [
@@ -218,29 +224,67 @@ class _TimetableScreenState extends State<TimetableScreen> {
   }
 }
 
-class _AddClassSheet extends StatefulWidget {
-  const _AddClassSheet({required this.userId, required this.initialDay});
+class _ClassSheet extends StatefulWidget {
+  const _ClassSheet({
+    required this.userId,
+    required this.initialDay,
+    this.existing,
+  });
 
   final String userId;
   final int initialDay;
+  final EpsTimetableItem? existing;
 
   @override
-  State<_AddClassSheet> createState() => _AddClassSheetState();
+  State<_ClassSheet> createState() => _ClassSheetState();
 }
 
-class _AddClassSheetState extends State<_AddClassSheet> {
-  final subject = TextEditingController();
+class _ClassSheetState extends State<_ClassSheet> {
+  static const _other = 'مادة أخرى';
+
+  final otherName = TextEditingController();
   final room = TextEditingController();
-  late int day = widget.initialDay;
+  String? subject;
+  late int day = widget.existing?.weekday ?? widget.initialDay;
   TimeOfDay? start;
   bool saving = false;
   String error = '';
 
   @override
+  void initState() {
+    super.initState();
+    final e = widget.existing;
+    if (e != null) {
+      room.text = e.room;
+      final parts = e.startsAt.split(':');
+      if (parts.length == 2) {
+        start = TimeOfDay(
+          hour: int.tryParse(parts[0]) ?? 8,
+          minute: int.tryParse(parts[1]) ?? 0,
+        );
+      }
+    }
+  }
+
+  @override
   void dispose() {
-    subject.dispose();
+    otherName.dispose();
     room.dispose();
     super.dispose();
+  }
+
+  /// The subjects the student has access to, plus the one already saved.
+  List<String> subjectOptions(LearnStore learn) {
+    final names = <String>{
+      for (final s in learn.activeSubjects) s.name,
+      if (widget.existing != null) widget.existing!.subjectName,
+    }.toList()..sort();
+    return names;
+  }
+
+  String? currentSubjectName() {
+    if (subject == null) return null;
+    return subject == _other ? otherName.text.trim() : subject;
   }
 
   Future<void> pickTime() async {
@@ -254,28 +298,42 @@ class _AddClassSheetState extends State<_AddClassSheet> {
   }
 
   Future<void> save() async {
-    if (subject.text.trim().isEmpty) {
-      setState(() => error = 'اكتب اسم المادة.');
+    final name = currentSubjectName() ?? '';
+    if (name.isEmpty) {
+      setState(() => error = 'اختر المادة، أو اكتب اسمها.');
       return;
     }
     if (start == null) {
-      setState(() => error = 'اختر وقت بداية الحصة.');
+      setState(() => error = 'حدّد وقت بداية الحصة.');
       return;
     }
     final t = start!;
+    final time =
+        '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
     setState(() {
       saving = true;
       error = '';
     });
+    final learn = LearnScope.of(context);
     try {
-      await LearnScope.of(context).repo.addTimetableItem(
-        userId: widget.userId,
-        weekday: day,
-        startsAt:
-            '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}',
-        subjectName: subject.text,
-        room: room.text,
-      );
+      final existing = widget.existing;
+      if (existing == null) {
+        await learn.repo.addTimetableItem(
+          userId: widget.userId,
+          weekday: day,
+          startsAt: time,
+          subjectName: name,
+          room: room.text,
+        );
+      } else {
+        await learn.repo.updateTimetableItem(
+          id: existing.id,
+          weekday: day,
+          startsAt: time,
+          subjectName: name,
+          room: room.text,
+        );
+      }
       if (mounted) Navigator.of(context).pop(true);
     } on Object catch (e) {
       if (mounted) {
@@ -289,9 +347,23 @@ class _AddClassSheetState extends State<_AddClassSheet> {
 
   @override
   Widget build(BuildContext context) {
+    final learn = LearnScope.of(context);
+    final options = subjectOptions(learn);
+    // Preselect the saved subject when editing.
+    subject ??= widget.existing == null
+        ? null
+        : (options.contains(widget.existing!.subjectName)
+              ? widget.existing!.subjectName
+              : _other);
+    if (subject == _other &&
+        widget.existing != null &&
+        otherName.text.isEmpty) {
+      otherName.text = widget.existing!.subjectName;
+    }
     final time = start == null
         ? 'اختر وقت البداية'
         : '${start!.hour.toString().padLeft(2, '0')}:${start!.minute.toString().padLeft(2, '0')}';
+    final editing = widget.existing != null;
     return Padding(
       padding: EdgeInsets.fromLTRB(
         20,
@@ -304,15 +376,28 @@ class _AddClassSheetState extends State<_AddClassSheet> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            const Text(
-              'حصة جديدة',
-              style: TextStyle(fontSize: 15, fontWeight: FontWeight.w900),
+            Text(
+              editing ? 'تعديل الحصة' : 'حصة جديدة',
+              style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w900),
             ),
             const SizedBox(height: 12),
-            TextField(
-              controller: subject,
-              decoration: const InputDecoration(labelText: 'اسم المادة'),
+            DropdownButtonFormField<String>(
+              initialValue: subject,
+              decoration: const InputDecoration(labelText: 'المادة'),
+              items: [
+                for (final name in options)
+                  DropdownMenuItem(value: name, child: Text(name)),
+                const DropdownMenuItem(value: _other, child: Text(_other)),
+              ],
+              onChanged: (v) => setState(() => subject = v),
             ),
+            if (subject == _other) ...[
+              const SizedBox(height: 10),
+              TextField(
+                controller: otherName,
+                decoration: const InputDecoration(labelText: 'اسم المادة'),
+              ),
+            ],
             const SizedBox(height: 10),
             TextField(
               controller: room,
@@ -340,7 +425,7 @@ class _AddClassSheetState extends State<_AddClassSheet> {
             ],
             const SizedBox(height: 14),
             EpsPrimaryButton(
-              label: 'حفظ الحصة',
+              label: editing ? 'حفظ التعديل' : 'حفظ الحصة',
               loading: saving,
               onPressed: saving ? null : save,
             ),

@@ -966,6 +966,25 @@ class LearnRepository {
     });
   }
 
+  /// Changes a class: its subject, room, day or start time.
+  Future<void> updateTimetableItem({
+    required String id,
+    required int weekday,
+    required String startsAt,
+    required String subjectName,
+    String room = '',
+  }) async {
+    await client
+        .from('student_timetable')
+        .update({
+          'weekday': weekday,
+          'starts_at': startsAt,
+          'subject_name': subjectName.trim(),
+          'room': room.trim(),
+        })
+        .eq('id', id);
+  }
+
   Future<void> deleteTimetableItem(String id) async {
     await client.from('student_timetable').delete().eq('id', id);
   }
