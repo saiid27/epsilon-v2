@@ -3527,91 +3527,134 @@ class _StudentFilesScreenState extends State<StudentFilesScreen> {
 
   /// Files grouped by faculty first, then, inside the chosen faculty, by
   /// track. The student's own faculty opens first.
+  /// The archive as a library: faculties first, then the track, then files.
   List<Widget> _sharedByFacultyThenTrack() {
     final learn = LearnScope.read(context);
     final profileFaculty = learn.profile?.faculty ?? '';
-    final faculties = {
+    // Known faculties first; the offline list keeps the grid from being empty.
+    final labels = facultyLabels.isNotEmpty
+        ? facultyLabels
+        : const {
+            'FST': 'كلية العلوم والتقنيات',
+            'LAW': 'كلية القانون',
+            'ECO': 'كلية الاقتصاد',
+            'FLSH': 'كلية الآداب والعلوم الإنسانية',
+            'MED': 'كلية الطب',
+          };
+    final codes = <String>{
       ...facultyOrder,
+      ...labels.keys,
       for (final f in shared)
-        if (f.faculty.isNotEmpty && !facultyOrder.contains(f.faculty))
-          f.faculty,
-    }.where((f) => shared.any((x) => x.faculty == f)).toList();
-    final selected =
-        faculty ??
-        (faculties.contains(profileFaculty) ? profileFaculty : null) ??
-        (faculties.isEmpty ? null : faculties.first);
-    final tracks = <String>{
-      for (final f in shared)
-        if (f.faculty == selected && f.track.isNotEmpty) f.track,
-    }.toList()..sort();
-    final files = [
-      for (final f in shared)
-        if (f.faculty == selected && (track == null || f.track == track)) f,
-    ];
+        if (f.faculty.isNotEmpty) f.faculty,
+    }.toList();
+    int countFor(String code) => shared.where((f) => f.faculty == code).length;
 
-    Widget pill(String label, bool on, VoidCallback onTap) => Padding(
-      padding: const EdgeInsetsDirectional.only(end: 6),
-      child: GestureDetector(
-        onTap: onTap,
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-          decoration: BoxDecoration(
-            color: on ? Eps.blue : Colors.white,
-            borderRadius: BorderRadius.circular(999),
-            border: Border.all(color: on ? Eps.blue : Eps.line),
-          ),
-          child: Text(
-            label,
-            style: TextStyle(
-              fontSize: 9,
-              fontWeight: FontWeight.w700,
-              color: on ? Colors.white : Eps.ink,
-            ),
-          ),
+    // Step 1: the faculty grid (shown even when a faculty has no files yet).
+    if (faculty == null) {
+      return [
+        const Text(
+          'اختر كليتك لتتصفح ملفاتها',
+          style: TextStyle(fontSize: 10, color: Eps.muted),
         ),
-      ),
-    );
-
-    return [
-      const Text('الكلية', style: TextStyle(fontSize: 10, color: Eps.muted)),
-      const SizedBox(height: 6),
-      SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: Row(
+        const SizedBox(height: 8),
+        GridView.count(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          crossAxisCount: 2,
+          mainAxisSpacing: 10,
+          crossAxisSpacing: 10,
+          childAspectRatio: 1.25,
           children: [
-            for (final f in faculties)
-              pill(
-                facultyLabels[f] ?? f,
-                f == selected,
-                () => setState(() {
-                  faculty = f;
+            for (final code in codes)
+              _LibraryCard(
+                title: labels[code] ?? code,
+                subtitle: '${countFor(code)} ملف',
+                highlighted: code == profileFaculty,
+                onTap: () => setState(() {
+                  faculty = code;
                   track = null;
                 }),
               ),
           ],
         ),
-      ),
-      if (selected != null && tracks.isNotEmpty) ...[
-        const SizedBox(height: 10),
-        const Text('التخصص', style: TextStyle(fontSize: 10, color: Eps.muted)),
-        const SizedBox(height: 6),
-        SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          child: Row(
-            children: [
-              pill('الكل', track == null, () => setState(() => track = null)),
-              for (final t in tracks)
-                pill(t, track == t, () => setState(() => track = t)),
-            ],
+      ];
+    }
+
+    final chosen = faculty!;
+    final chosenName = labels[chosen] ?? chosen;
+    final tracks = <String>{
+      if (chosen == 'MED') ..._StudentFileUploadScreenState.medicineTracks,
+      for (final f in shared)
+        if (f.faculty == chosen && f.track.isNotEmpty) f.track,
+    }.toList();
+    final back = Row(
+      children: [
+        IconButton(
+          tooltip: 'رجوع',
+          icon: const Icon(Icons.arrow_forward_rounded, color: Eps.blue),
+          onPressed: () => setState(() {
+            if (track != null) {
+              track = null;
+            } else {
+              faculty = null;
+            }
+          }),
+        ),
+        Expanded(
+          child: Text(
+            track == null ? chosenName : '$chosenName • $track',
+            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w900),
           ),
         ),
       ],
-      const SizedBox(height: 10),
+    );
+
+    // Step 2: the tracks of the chosen faculty.
+    if (track == null) {
+      return [
+        back,
+        const SizedBox(height: 6),
+        GridView.count(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          crossAxisCount: 2,
+          mainAxisSpacing: 10,
+          crossAxisSpacing: 10,
+          childAspectRatio: 1.6,
+          children: [
+            _LibraryCard(
+              title: 'كل التخصصات',
+              subtitle:
+                  '${shared.where((f) => f.faculty == chosen).length} ملف',
+              highlighted: false,
+              onTap: () => setState(() => track = '*'),
+            ),
+            for (final t in tracks)
+              _LibraryCard(
+                title: t,
+                subtitle:
+                    '${shared.where((f) => f.faculty == chosen && f.track == t).length} ملف',
+                highlighted: false,
+                onTap: () => setState(() => track = t),
+              ),
+          ],
+        ),
+      ];
+    }
+
+    // Step 3: the files of the chosen faculty and track.
+    final files = [
+      for (final f in shared)
+        if (f.faculty == chosen && (track == '*' || f.track == track)) f,
+    ];
+    return [
+      back,
+      const SizedBox(height: 8),
       if (files.isEmpty)
         const Padding(
           padding: EdgeInsets.symmetric(vertical: 12),
           child: Text(
-            'لا توجد ملفات في هذا الاختيار بعد.',
+            'لا توجد ملفات في هذا القسم بعد.',
             style: TextStyle(fontSize: 10, color: Eps.muted),
           ),
         ),
@@ -3669,17 +3712,8 @@ class _StudentFilesScreenState extends State<StudentFilesScreen> {
           Text(error, style: const TextStyle(color: Eps.red, fontSize: 10))
         else ...[
           const HomeSectionTitle('الملفات المشتركة'),
-          if (shared.isEmpty)
-            const Padding(
-              padding: EdgeInsets.symmetric(vertical: 12),
-              child: Text(
-                'لا توجد ملفات بعد. كن أول من يشارك!',
-                style: TextStyle(fontSize: 10, color: Eps.muted),
-              ),
-            )
-          else ...[
-            ..._sharedByFacultyThenTrack(),
-          ],
+          // The library always shows the faculties; empty ones say so inside.
+          ..._sharedByFacultyThenTrack(),
           const SizedBox(height: 10),
           const HomeSectionTitle('ملفاتي'),
           if (mine.isEmpty)
@@ -3693,6 +3727,67 @@ class _StudentFilesScreenState extends State<StudentFilesScreen> {
           for (final f in mine) _StudentFileTile(file: f, mine: true),
         ],
       ],
+    );
+  }
+}
+
+class _LibraryCard extends StatelessWidget {
+  const _LibraryCard({
+    required this.title,
+    required this.subtitle,
+    required this.highlighted,
+    required this.onTap,
+  });
+
+  final String title;
+  final String subtitle;
+  final bool highlighted;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(16),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: highlighted ? Eps.blue : Eps.line,
+              width: highlighted ? 1.5 : 1,
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                title,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w900,
+                  color: Eps.ink,
+                  height: 1.4,
+                ),
+              ),
+              Text(
+                subtitle,
+                style: TextStyle(
+                  fontSize: 9,
+                  color: highlighted ? Eps.blue : Eps.muted,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
