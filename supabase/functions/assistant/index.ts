@@ -16,18 +16,22 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-// Usage budget per student, in US dollars of model cost (1 USD = 40 MRU).
-// A monthly budget and a daily cap. Each answer costs what the model really
-// used, so a Haiku answer uses far less than a Sonnet one.
-type Tier = { monthlyUsd: number; dailyUsd: number };
+// Usage budget per student, in MRU (Mauritanian ouguiya) of model cost.
+// Formula: daily cap = monthly budget / 30; the cost of an answer is
+// (input tokens x input price + output tokens x output price) / 1 000 000 USD,
+// converted to MRU with the rate below.
+const MRU_PER_USD = 40;
+type Tier = { monthlyMru: number };
 const TIERS: Record<string, Tier> = {
   // Paid plans: the student gets about two thirds of the plan price as usage.
-  basic: { monthlyUsd: 2.5, dailyUsd: 0.083 },    // plan 150 MRU, usage 100 MRU
-  standard: { monthlyUsd: 5.0, dailyUsd: 0.167 }, // plan 300 MRU, usage 200 MRU
-  pro: { monthlyUsd: 7.5, dailyUsd: 0.25 },       // plan 450 MRU, usage 300 MRU
+  basic: { monthlyMru: 100 },    // plan 150 MRU
+  standard: { monthlyMru: 200 }, // plan 300 MRU
+  pro: { monthlyMru: 300 },      // plan 450 MRU
   // Free plan: enough to try the assistant, a few answers a day.
-  free: { monthlyUsd: 0.09, dailyUsd: 0.003 },
+  free: { monthlyMru: 3.6 },
 };
+const monthlyUsd = (t: Tier) => t.monthlyMru / MRU_PER_USD;
+const dailyUsd = (t: Tier) => monthlyUsd(t) / 30;
 // Models and prices (USD per million tokens). Sonnet is used for the modes
 // that need careful reasoning on paid plans; everything else runs on Haiku.
 const MODELS = {
@@ -311,8 +315,8 @@ async function remainingBudget(
         (b.output_tokens ?? 0) * MODELS.sonnet.outPrice) / 1_000_000;
   }
   return {
-    dailyUsd: tier.dailyUsd * bonus - dayUsd,
-    monthlyUsd: tier.monthlyUsd * bonus + extraUsd - monthUsd,
+    dailyUsd: dailyUsd(tier) * bonus - dayUsd,
+    monthlyUsd: monthlyUsd(tier) * bonus + extraUsd - monthUsd,
   };
 }
 
@@ -320,8 +324,8 @@ async function remainingBudget(
 function percentLeft(b: Budget, tier: Tier, bonus: number) {
   const share = (left: number, cap: number) => Math.max(0, Math.min(1, left / cap));
   return {
-    dailyLeftPct: Math.floor(share(b.dailyUsd, tier.dailyUsd * bonus) * 100),
-    monthlyLeftPct: Math.floor(share(b.monthlyUsd, tier.monthlyUsd * bonus) * 100),
+    dailyLeftPct: Math.floor(share(b.dailyUsd, dailyUsd(tier) * bonus) * 100),
+    monthlyLeftPct: Math.floor(share(b.monthlyUsd, monthlyUsd(tier) * bonus) * 100),
   };
 }
 
