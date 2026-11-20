@@ -48,6 +48,7 @@ part 'screens/admin.dart';
 part 'screens/university_results.dart';
 
 part 'screens/live_studio.dart';
+part 'screens/timetable.dart';
 
 /// The language picked in settings: 'ar' (default) or 'fr'.
 String appLanguage = 'ar';

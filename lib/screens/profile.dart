@@ -370,6 +370,12 @@ class ProfileTab extends StatelessWidget {
               ),
             ),
             _MenuRow(
+              icon: Icons.calendar_month_outlined,
+              title: 'جدولي الجامعي',
+              subtitle: 'حصص غداً تُرسل لك كل ليلة الساعة 9 مساءً',
+              onTap: () => pushPage(context, const TimetableScreen()),
+            ),
+            _MenuRow(
               icon: Icons.card_giftcard_outlined,
               title: 'ادعُ صديقاً',
               subtitle: 'كودك: ${profile?.referralCode ?? ''}',

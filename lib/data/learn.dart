@@ -255,6 +255,24 @@ class EpsFaculty {
 }
 
 /// A file shared by a student with their specialty; visible once approved.
+/// One class in the student's university timetable.
+class EpsTimetableItem {
+  EpsTimetableItem.fromRow(Map<String, dynamic> r)
+    : id = _str(r['id']),
+      weekday = (r['weekday'] as num?)?.toInt() ?? 0,
+      startsAt = _str(r['starts_at']).length >= 5
+          ? _str(r['starts_at']).substring(0, 5)
+          : _str(r['starts_at']),
+      subjectName = _str(r['subject_name']),
+      room = _str(r['room']);
+
+  final String id;
+  final int weekday; // 0 = Sunday ... 6 = Saturday
+  final String startsAt; // HH:MM
+  final String subjectName;
+  final String room;
+}
+
 class EpsStudentFile {
   EpsStudentFile.fromRow(Map<String, dynamic> r)
     : id = _str(r['id']),
@@ -920,6 +938,36 @@ class LearnRepository {
       await query.order('created_at', ascending: false).limit(200),
     );
     return rows.map(EpsStudentFile.fromRow).toList();
+  }
+
+  /// The student's timetable, ordered by day and start time.
+  Future<List<EpsTimetableItem>> myTimetable(String userId) async => _list(
+    await client
+        .from('student_timetable')
+        .select()
+        .eq('student_id', userId)
+        .order('weekday')
+        .order('starts_at'),
+  ).map(EpsTimetableItem.fromRow).toList();
+
+  Future<void> addTimetableItem({
+    required String userId,
+    required int weekday,
+    required String startsAt,
+    required String subjectName,
+    String room = '',
+  }) async {
+    await client.from('student_timetable').insert({
+      'student_id': userId,
+      'weekday': weekday,
+      'starts_at': startsAt,
+      'subject_name': subjectName.trim(),
+      'room': room.trim(),
+    });
+  }
+
+  Future<void> deleteTimetableItem(String id) async {
+    await client.from('student_timetable').delete().eq('id', id);
   }
 
   /// Every file a student uploaded, whatever its status.
