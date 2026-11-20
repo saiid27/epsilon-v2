@@ -3181,8 +3181,8 @@ const assistantPackages = [
     tagline: 'للتعرّف على المساعد',
     monthly: 100,
     yearly: 1000,
-    questions: 5,
-    files: 3,
+    questions: 3,
+    files: 1,
     perks: ['كل أوضاع المساعد', 'الصور وملفات PDF', 'حفظ الإجابات كملف PDF'],
   ),
   AssistantPackage(
@@ -3190,8 +3190,8 @@ const assistantPackages = [
     tagline: 'الأكثر طلباً من الطلاب',
     monthly: 150,
     yearly: 1500,
-    questions: 10,
-    files: 6,
+    questions: 5,
+    files: 2,
     perks: [
       'كل ما في المبتدئ',
       'السيرة الذاتية والرسائل والتقارير',
@@ -3205,8 +3205,8 @@ const assistantPackages = [
     tagline: 'للطلاب في الماستر والمشاريع',
     monthly: 250,
     yearly: 2500,
-    questions: 20,
-    files: 12,
+    questions: 8,
+    files: 3,
     perks: [
       'كل ما في المتميز',
       'مذكرة التخرج والبرمجة',

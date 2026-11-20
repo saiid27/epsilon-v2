@@ -21,13 +21,22 @@ const corsHeaders = {
 // tokens cost five times more, so they have smaller caps.
 type Tier = { monthlyIn: number; monthlyOut: number; dailyIn: number; dailyOut: number };
 const TIERS: Record<string, Tier> = {
-  basic: { monthlyIn: 2_000_000, monthlyOut: 200_000, dailyIn: 80_000, dailyOut: 8_000 },
-  standard: { monthlyIn: 4_000_000, monthlyOut: 400_000, dailyIn: 160_000, dailyOut: 16_000 },
-  pro: { monthlyIn: 8_000_000, monthlyOut: 800_000, dailyIn: 320_000, dailyOut: 32_000 },
+  // Paid plans, sized so that a full month on Claude Sonnet 5.5 costs about
+  // half the plan price (100 / 150 / 250 MRU). About 3, 5 and 8 questions a day.
+  basic: { monthlyIn: 250_000, monthlyOut: 75_000, dailyIn: 8_000, dailyOut: 2_500 },
+  standard: { monthlyIn: 400_000, monthlyOut: 110_000, dailyIn: 12_500, dailyOut: 3_500 },
+  pro: { monthlyIn: 640_000, monthlyOut: 180_000, dailyIn: 20_000, dailyOut: 6_000 },
   // Free plan: a few questions a day, enough to try the assistant (about
   // 3 to 4 answers a day, or one photo or short PDF).
   free: { monthlyIn: 600_000, monthlyOut: 60_000, dailyIn: 30_000, dailyOut: 3_000 },
 };
+// Models and prices (USD per million tokens). Sonnet is used for the modes
+// that need careful reasoning on paid plans; everything else runs on Haiku.
+const MODELS = {
+  sonnet: { id: 'claude-sonnet-5-5', inPrice: 2.0, outPrice: 10.0 },
+  haiku: { id: 'claude-haiku-5-5', inPrice: 0.1, outPrice: 0.5 },
+} as const;
+const SONNET_MODES = new Set(['solve', 'check', 'exam', 'explain']);
 // Longest answer, in output tokens.
 const MAX_ANSWER_TOKENS = 4000;
 // Below these, a request is refused rather than run on a near-empty balance.
@@ -193,8 +202,11 @@ Deno.serve(async (req) => {
       field(body.lessonSummary) && `Contenu de la leçon (suis ses notations) :\n${field(body.lessonSummary)}`,
     ].filter(Boolean).join('\n');
 
+    // Free plan always uses Haiku; paid plans use Sonnet for the reasoning modes.
+    const useSonnet = tier !== TIERS.free && SONNET_MODES.has(mode);
+    const model = useSonnet ? MODELS.sonnet : MODELS.haiku;
     const response = await anthropic.messages.create({
-      model: 'claude-haiku-5-5',
+      model: model.id,
       // Never more than the student has left today and this month.
       max_tokens: Math.max(500, Math.min(MAX_ANSWER_TOKENS, outputLeft)),
       // Solving and correcting need careful reasoning; the rest less so.
@@ -216,11 +228,11 @@ Deno.serve(async (req) => {
     // Record what this answer really used (tokens and estimated cost).
     const inTok = response.usage?.input_tokens ?? 0;
     const outTok = response.usage?.output_tokens ?? 0;
-    const costUsd = (inTok * 0.1 + outTok * 0.5) / 1_000_000;
+    const costUsd = (inTok * model.inPrice + outTok * model.outPrice) / 1_000_000;
     await supabase.from('assistant_costs').insert({
       user_id: userId,
       kind: attachment ? 'file' : 'question',
-      model: 'claude-haiku-5-5',
+      model: model.id,
       input_tokens: inTok,
       output_tokens: outTok,
       cost_usd: costUsd,
