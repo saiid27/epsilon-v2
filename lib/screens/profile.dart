@@ -3410,22 +3410,6 @@ class _PackageCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 10),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-            decoration: BoxDecoration(
-              color: Eps.blueSoft,
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Text(
-              'رصيد استعمال شهري: ${(p.monthly * 2 / 3).round()} أوقية',
-              style: const TextStyle(
-                fontSize: 10,
-                color: Eps.blue,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ),
-          const SizedBox(height: 10),
           for (final perk in p.perks)
             Padding(
               padding: const EdgeInsets.only(bottom: 5),
