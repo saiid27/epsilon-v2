@@ -16,19 +16,17 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-// Token allowance (like Claude's usage limits). Each subscribed student has a
-// monthly pool and a daily cap, for input and output tokens separately. Output
-// tokens cost five times more, so they have smaller caps.
-type Tier = { monthlyIn: number; monthlyOut: number; dailyIn: number; dailyOut: number };
+// Usage budget per student, in US dollars of model cost (1 USD = 40 MRU).
+// A monthly budget and a daily cap. Each answer costs what the model really
+// used, so a Haiku answer uses far less than a Sonnet one.
+type Tier = { monthlyUsd: number; dailyUsd: number };
 const TIERS: Record<string, Tier> = {
-  // Paid plans, sized so that a full month on Claude Sonnet 5.5 costs about
-  // half the plan price (200 / 300 / 450 MRU). About 3, 5 and 8 questions a day.
-  basic: { monthlyIn: 250_000, monthlyOut: 75_000, dailyIn: 8_000, dailyOut: 2_500 },
-  standard: { monthlyIn: 400_000, monthlyOut: 110_000, dailyIn: 12_500, dailyOut: 3_500 },
-  pro: { monthlyIn: 640_000, monthlyOut: 180_000, dailyIn: 20_000, dailyOut: 6_000 },
-  // Free plan: a few questions a day, enough to try the assistant (about
-  // 3 to 4 answers a day, or one photo or short PDF).
-  free: { monthlyIn: 600_000, monthlyOut: 60_000, dailyIn: 30_000, dailyOut: 3_000 },
+  // Paid plans: the student gets about two thirds of the plan price as usage.
+  basic: { monthlyUsd: 2.5, dailyUsd: 0.083 },    // plan 150 MRU, usage 100 MRU
+  standard: { monthlyUsd: 5.0, dailyUsd: 0.167 }, // plan 300 MRU, usage 200 MRU
+  pro: { monthlyUsd: 7.5, dailyUsd: 0.25 },       // plan 450 MRU, usage 300 MRU
+  // Free plan: enough to try the assistant, a few answers a day.
+  free: { monthlyUsd: 0.09, dailyUsd: 0.003 },
 };
 // Models and prices (USD per million tokens). Sonnet is used for the modes
 // that need careful reasoning on paid plans; everything else runs on Haiku.
@@ -39,11 +37,12 @@ const MODELS = {
 const SONNET_MODES = new Set(['solve', 'check', 'exam', 'explain']);
 // Longest answer, in output tokens.
 const MAX_ANSWER_TOKENS = 4000;
-// Below these, a request is refused rather than run on a near-empty balance.
-const MIN_INPUT_LEFT = 3_000;
-const MIN_OUTPUT_LEFT = 500;
-// Files need room for their pages.
-const MIN_FILE_INPUT_LEFT = 20_000;
+// Below this, a request is refused rather than run on a near-empty balance.
+const MIN_LEFT_USD = 0.002;
+// Files need room for their pages: about 20 000 input tokens on the model.
+const FILE_INPUT_TOKENS = 20_000;
+// Typical input of one question, used to keep the answer within the balance.
+const ASSUMED_INPUT_TOKENS = 3_000;
 const MAX_HISTORY = 20;
 // Base64 length of the largest attachment accepted (~7.5 MB once decoded).
 const MAX_FILE_CHARS = 10_000_000;
@@ -166,12 +165,12 @@ Deno.serve(async (req) => {
     if ((body.image || body.document) && !attachment) {
       return json({ message: 'الملف غير صالح أو كبير جداً (الحد 7 ميغابايت).' }, 422);
     }
-    const inputLeft = Math.min(budget.dailyIn, budget.monthlyIn);
-    const outputLeft = Math.min(budget.dailyOut, budget.monthlyOut);
-    if (inputLeft < MIN_INPUT_LEFT || outputLeft < MIN_OUTPUT_LEFT) {
+    const left = Math.min(budget.dailyUsd, budget.monthlyUsd);
+    if (left < MIN_LEFT_USD) {
       return json({ message: 'نفد رصيدك من الاستعمال. يتجدد الرصيد اليومي غداً.' }, 429);
     }
-    if (attachment && inputLeft < MIN_FILE_INPUT_LEFT) {
+    const fileLeftNeeded = (FILE_INPUT_TOKENS * MODELS.sonnet.inPrice) / 1_000_000;
+    if (attachment && left < fileLeftNeeded) {
       return json({ message: 'رصيدك اليومي لا يكفي لقراءة هذا الملف. جرّب غداً أو ملفاً أصغر.' }, 429);
     }
 
@@ -221,7 +220,7 @@ Deno.serve(async (req) => {
     const response = await anthropic.messages.create({
       model: model.id,
       // Never more than the student has left today and this month.
-      max_tokens: Math.max(500, Math.min(MAX_ANSWER_TOKENS, outputLeft)),
+      max_tokens: Math.max(500, Math.min(MAX_ANSWER_TOKENS, affordableOutput(left, model))),
       // Solving and correcting need careful reasoning; the rest less so.
       output_config: { effort: mode === 'solve' || mode === 'check' ? 'high' : 'medium' },
       system: [SYSTEM_PROMPT, MODES[mode], context].filter(Boolean).join('\n\n'),
@@ -270,15 +269,17 @@ Deno.serve(async (req) => {
   }
 });
 
-type Budget = {
-  dailyIn: number;
-  dailyOut: number;
-  monthlyIn: number;
-  monthlyOut: number;
-};
+type Budget = { dailyUsd: number; monthlyUsd: number };
 
-/// Tokens left today and this month. Bonus tokens (referrals) add to the
-/// monthly pool; the season bonus multiplies both kinds of caps.
+/// Output tokens the balance can pay for on this model, after the typical input.
+function affordableOutput(leftUsd: number, model: { inPrice: number; outPrice: number }) {
+  const inputCost = (ASSUMED_INPUT_TOKENS * model.inPrice) / 1_000_000;
+  return Math.floor(((leftUsd - inputCost) / model.outPrice) * 1_000_000);
+}
+
+/// Dollars left today and this month. Each answer's recorded cost counts;
+/// bonus tokens (referrals) are valued at the Sonnet price and add to the month.
+/// The season bonus multiplies both caps.
 async function remainingBudget(
   supabase: ReturnType<typeof createClient>,
   userId: string,
@@ -290,7 +291,7 @@ async function remainingBudget(
   const monthStart = `${dayStart.slice(0, 8)}01`;
   const { data: costs } = await supabase
     .from('assistant_costs')
-    .select('day, input_tokens, output_tokens')
+    .select('day, cost_usd')
     .eq('user_id', userId)
     .gte('day', monthStart);
   const { data: bonuses } = await supabase
@@ -298,43 +299,29 @@ async function remainingBudget(
     .select('input_tokens, output_tokens')
     .eq('user_id', userId)
     .gte('created_at', `${monthStart}T00:00:00Z`);
-  let dayIn = 0, dayOut = 0, monthIn = 0, monthOut = 0;
+  let dayUsd = 0, monthUsd = 0, extraUsd = 0;
   for (const c of costs ?? []) {
-    monthIn += c.input_tokens ?? 0;
-    monthOut += c.output_tokens ?? 0;
-    if (c.day === dayStart) {
-      dayIn += c.input_tokens ?? 0;
-      dayOut += c.output_tokens ?? 0;
-    }
+    const usd = Number(c.cost_usd ?? 0);
+    monthUsd += usd;
+    if (c.day === dayStart) dayUsd += usd;
   }
-  let extraIn = 0, extraOut = 0;
   for (const b of bonuses ?? []) {
-    extraIn += b.input_tokens ?? 0;
-    extraOut += b.output_tokens ?? 0;
+    extraUsd +=
+      ((b.input_tokens ?? 0) * MODELS.sonnet.inPrice +
+        (b.output_tokens ?? 0) * MODELS.sonnet.outPrice) / 1_000_000;
   }
   return {
-    dailyIn: tier.dailyIn * bonus - dayIn,
-    dailyOut: tier.dailyOut * bonus - dayOut,
-    monthlyIn: tier.monthlyIn * bonus + extraIn - monthIn,
-    monthlyOut: tier.monthlyOut * bonus + extraOut - monthOut,
+    dailyUsd: tier.dailyUsd * bonus - dayUsd,
+    monthlyUsd: tier.monthlyUsd * bonus + extraUsd - monthUsd,
   };
 }
 
-/// What the app shows: how much of today's and this month's allowance is left
-/// (the tighter of input and output), as a percentage.
+/// What the app shows: how much of today's and this month's usage is left.
 function percentLeft(b: Budget, tier: Tier, bonus: number) {
   const share = (left: number, cap: number) => Math.max(0, Math.min(1, left / cap));
-  const daily = Math.min(
-    share(b.dailyIn, tier.dailyIn * bonus),
-    share(b.dailyOut, tier.dailyOut * bonus),
-  );
-  const monthly = Math.min(
-    share(b.monthlyIn, tier.monthlyIn * bonus),
-    share(b.monthlyOut, tier.monthlyOut * bonus),
-  );
   return {
-    dailyLeftPct: Math.floor(daily * 100),
-    monthlyLeftPct: Math.floor(monthly * 100),
+    dailyLeftPct: Math.floor(share(b.dailyUsd, tier.dailyUsd * bonus) * 100),
+    monthlyLeftPct: Math.floor(share(b.monthlyUsd, tier.monthlyUsd * bonus) * 100),
   };
 }
 

@@ -3213,8 +3213,8 @@ const assistantPackages = [
   AssistantPackage(
     name: 'المبتدئ',
     tagline: 'للتعرّف على المساعد',
-    monthly: 200,
-    yearly: 2000,
+    monthly: 150,
+    yearly: 1500,
     questions: 3,
     files: 1,
     perks: ['كل أوضاع المساعد', 'الصور وملفات PDF', 'حفظ الإجابات كملف PDF'],
@@ -3417,7 +3417,7 @@ class _PackageCard extends StatelessWidget {
               borderRadius: BorderRadius.circular(12),
             ),
             child: Text(
-              'كل يوم: ${p.questions} أسئلة • ${p.files} ملفات أو صور',
+              'رصيد استعمال شهري: ${(p.monthly * 2 / 3).round()} أوقية',
               style: const TextStyle(
                 fontSize: 10,
                 color: Eps.blue,
