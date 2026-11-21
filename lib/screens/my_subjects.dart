@@ -196,10 +196,6 @@ class MySubjectsTab extends StatelessWidget {
                 ),
               ),
             ),
-            for (final sub in learn.withStatus(SubscriptionStatus.pending))
-              SubscriptionStateRow(subscription: sub),
-            for (final sub in learn.withStatus(SubscriptionStatus.rejected))
-              SubscriptionStateRow(subscription: sub),
             const SizedBox(height: 8),
             if (active.isEmpty)
               Container(
@@ -623,17 +619,20 @@ class _CourseScreenState extends State<CourseScreen> {
                         padding: const EdgeInsets.only(bottom: 8),
                         child: PdfRow(pdf: pdf),
                       ),
+                    SubjectFiles(subjectId: subject.id),
                     if (learn.pdfsFor(subject.id).isEmpty)
                       const _EmptyNote('لا توجد ملفات لهذه المادة بعد'),
                   ],
                 },
               ],
             ),
-            Positioned(
-              left: 14,
-              bottom: 11,
-              child: AssistantFab(subjectName: subject.name),
-            ),
+            // The assistant opens only after the student subscribes to the subject.
+            if (learn.hasAccess(subject.id))
+              Positioned(
+                left: 14,
+                bottom: 11,
+                child: AssistantFab(subjectName: subject.name),
+              ),
           ],
         ),
       ),
@@ -802,7 +801,6 @@ class LessonRow extends StatelessWidget {
     final meta = [
       if (lesson.url.isNotEmpty) 'فيديو' else 'درس',
       if (lesson.duration.isNotEmpty) lesson.duration,
-      if (lesson.isFree) 'مجاني',
     ].join(' • ');
     return GestureDetector(
       onTap: () => open

@@ -18,7 +18,13 @@ class AuthScreen extends StatefulWidget {
 class _AuthScreenState extends State<AuthScreen> {
   bool registerMode = false;
 
-  void setMode(bool register) => setState(() => registerMode = register);
+  /// Signup from "أنشئ حساباً مجانياً": details only, free plan.
+  bool freeSignup = false;
+
+  void setMode(bool register, {bool free = false}) => setState(() {
+    registerMode = register;
+    freeSignup = register && free;
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -33,10 +39,16 @@ class _AuthScreenState extends State<AuthScreen> {
                 ListView(
                   padding: const EdgeInsets.fromLTRB(22, 0, 22, 57),
                   children: [
-                    if (registerMode)
+                    if (registerMode && freeSignup)
+                      const AuthHeader(
+                        title: 'أنشئ حساباً مجانياً',
+                        subtitle: 'معلوماتك فقط، وابدأ فوراً',
+                        compact: true,
+                      )
+                    else if (registerMode)
                       const AuthHeader(
                         title: 'أنشئ حسابك',
-                        subtitle: 'خطوة واحدة تفصلك عن محتواك الجامعي',
+                        subtitle: 'معلوماتك، ثم اختر قسمك وموادك وادفع',
                         compact: true,
                       )
                     else
@@ -44,7 +56,14 @@ class _AuthScreenState extends State<AuthScreen> {
                         title: 'مرحباً بعودتك',
                         subtitle: 'سجّل الدخول لمتابعة رحلتك التعليمية',
                       ),
-                    if (registerMode)
+                    if (registerMode && freeSignup) ...[
+                      const FreePlanStrip(),
+                      const SizedBox(height: 14),
+                      const RegisterCard(
+                        key: ValueKey('register-free'),
+                        free: true,
+                      ),
+                    ] else if (registerMode)
                       const RegisterCard(key: ValueKey('register'))
                     else
                       const LoginCard(key: ValueKey('login')),
@@ -56,8 +75,11 @@ class _AuthScreenState extends State<AuthScreen> {
                       action: registerMode ? 'تسجيل الدخول' : 'أنشئ حساباً',
                       onTap: () => setMode(!registerMode),
                     ),
-                    SizedBox(height: registerMode ? 11 : 17),
-                    AuthFreeCard(onCreate: () => setMode(true)),
+                    // The free signup card is for the login page only.
+                    if (!registerMode) ...[
+                      const SizedBox(height: 17),
+                      AuthFreeCard(onCreate: () => setMode(true, free: true)),
+                    ],
                   ],
                 ),
                 if (registerMode)
@@ -733,25 +755,102 @@ class LoginMascot extends StatelessWidget {
   }
 }
 
-/// Single-form signup (Figma: signup). After this form the student picks the
-/// section on the existing course selection page.
+/// Free plan summary shown at the top of the free signup form.
+class FreePlanStrip extends StatelessWidget {
+  const FreePlanStrip({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Eps.greenSoft,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFFB5E6CF)),
+      ),
+      child: const Row(
+        children: [
+          Icon(Icons.card_giftcard_rounded, color: Eps.greenInk, size: 24),
+          SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'الخطة المجانية',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w800,
+                    color: Eps.greenInk,
+                  ),
+                ),
+                Text(
+                  'البث المباشر المجاني • ملفات PDF مختارة',
+                  style: TextStyle(fontSize: 9, color: Eps.ink),
+                ),
+              ],
+            ),
+          ),
+          EpsBadge('مجاناً', tone: EpsTone.green),
+        ],
+      ),
+    );
+  }
+}
+
+/// Signup form. Paid (default): details, then section and subjects, then
+/// payment; the account is created when the receipt is sent. Free: details
+/// only, verified by SMS code.
 class RegisterCard extends StatefulWidget {
-  const RegisterCard({super.key});
+  const RegisterCard({this.free = false, super.key});
+
+  final bool free;
 
   @override
   State<RegisterCard> createState() => _RegisterCardState();
 }
 
 class _RegisterCardState extends State<RegisterCard> {
-  static const levels = ['Bac', 'L1', 'L2', 'L3', 'M1', 'M2'];
-
   final nameController = TextEditingController();
   final phoneController = TextEditingController();
   final passwordController = TextEditingController();
   final confirmPasswordController = TextEditingController();
-  String level = 'L1';
+  final referralController = TextEditingController();
   bool submitted = false;
   String? error;
+
+  /// The number already belongs to an account; checked as soon as all 8
+  /// digits are typed, and again on submit.
+  bool phoneTaken = false;
+  String checkedPhone = '';
+
+  @override
+  void initState() {
+    super.initState();
+    phoneController.addListener(checkPhone);
+  }
+
+  Future<void> checkPhone() async {
+    final phone = phoneController.text.trim();
+    if (phone.length != 8) {
+      if (phoneTaken) {
+        setState(() => phoneTaken = false);
+      }
+      return;
+    }
+    if (phone == checkedPhone) {
+      return;
+    }
+    checkedPhone = phone;
+    try {
+      final taken = await StoreScope.of(context).phoneTaken(phone);
+      if (mounted && phoneController.text.trim() == phone) {
+        setState(() => phoneTaken = taken);
+      }
+    } on Object {
+      // Checked again on submit.
+    }
+  }
 
   @override
   void dispose() {
@@ -759,6 +858,7 @@ class _RegisterCardState extends State<RegisterCard> {
     phoneController.dispose();
     passwordController.dispose();
     confirmPasswordController.dispose();
+    referralController.dispose();
     super.dispose();
   }
 
@@ -781,11 +881,34 @@ class _RegisterCardState extends State<RegisterCard> {
     }
     setState(() => sending = true);
     try {
+      final phone = phoneController.text.trim();
+      phoneTaken = await store.phoneTaken(phone);
+      checkedPhone = phone;
+      if (phoneTaken || !mounted) {
+        return;
+      }
+      if (!widget.free) {
+        // Paid signup: keep the details and go pick subjects; the account is
+        // created with the payment.
+        final learn = LearnScope.read(context);
+        learn.signupDraft = (
+          name: nameController.text.trim(),
+          phone: phone,
+          password: passwordController.text,
+          referral: referralController.text.trim(),
+        );
+        learn.cart.clear();
+        unawaited(learn.loadCatalog());
+        Navigator.of(
+          context,
+        ).push(MaterialPageRoute(builder: (_) => const SectionsScreen()));
+        return;
+      }
       await store.registerFreeStudent(
         name: nameController.text.trim(),
         phone: phoneController.text.trim(),
         password: passwordController.text,
-        level: level,
+        referral: referralController.text.trim(),
       );
       if (!mounted) {
         return;
@@ -826,43 +949,11 @@ class _RegisterCardState extends State<RegisterCard> {
           controller: phoneController,
           height: 44,
           textInputAction: TextInputAction.next,
-          errorText: submitted && phoneInvalid ? 'رقم الهاتف غير مكتمل' : null,
-        ),
-        const AuthLabel('المستوى الدراسي', top: 7),
-        Row(
-          children: [
-            for (final item in levels) ...[
-              Expanded(
-                child: GestureDetector(
-                  onTap: () => setState(() => level = item),
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 180),
-                    height: 34,
-                    alignment: Alignment.center,
-                    decoration: BoxDecoration(
-                      color: level == item ? Eps.blue : Colors.white,
-                      borderRadius: BorderRadius.circular(9),
-                      border: Border.all(
-                        color: level == item ? Eps.blue : _authFieldBorder,
-                      ),
-                    ),
-                    child: Text(
-                      item,
-                      style: TextStyle(
-                        fontFamily: Eps.fontNum,
-                        fontSize: 7,
-                        fontWeight: FontWeight.w700,
-                        color: level == item
-                            ? Colors.white
-                            : const Color(0xFF70798B),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-              if (item != levels.last) const SizedBox(width: 4),
-            ],
-          ],
+          errorText: phoneTaken
+              ? 'هذا الرقم مسجل مسبقاً. سجّل الدخول بدلاً من ذلك.'
+              : submitted && phoneInvalid
+              ? 'رقم الهاتف غير مكتمل'
+              : null,
         ),
         const AuthLabel('كلمة المرور', top: 11),
         EpsPasswordField(
@@ -883,9 +974,20 @@ class _RegisterCardState extends State<RegisterCard> {
               ? 'كلمتا المرور غير متطابقتين'
               : null,
         ),
+        // Optional: a friend's code gives them and you a reward later.
+        const AuthLabel('كود الدعوة (اختياري)', top: 7),
+        AuthField(
+          controller: referralController,
+          height: 44,
+          hint: 'كود صديقك إن وُجد',
+          textInputAction: TextInputAction.done,
+          leading: const Icon(Icons.card_giftcard_outlined),
+        ),
         if (error != null) AuthErrorText(error!),
         EpsPrimaryButton(
-          label: 'إنشاء الحساب',
+          label: widget.free
+              ? 'إنشاء الحساب المجاني'
+              : 'التالي: اختيار القسم والمواد',
           loading: sending,
           onPressed: submit,
         ),
@@ -905,9 +1007,6 @@ class AuthFreeCard extends StatelessWidget {
     const features = [
       (Icons.sensors_rounded, 'بث مباشر', true),
       (Icons.description_outlined, 'ملفات PDF', false),
-      (Icons.receipt_long_outlined, 'تمارين مع الحلول', false),
-      (Icons.play_arrow_outlined, 'شروحات', false),
-      (Icons.emoji_events_outlined, 'المسابقة', false),
     ];
 
     return Container(
@@ -1058,11 +1157,16 @@ class SignupOtpScreen extends StatefulWidget {
   const SignupOtpScreen({
     required this.phone,
     required this.password,
+    this.afterLogin,
     super.key,
   });
 
   final String phone;
   final String password;
+
+  /// Paid signup: runs once the account is verified and signed in (sends the
+  /// subscription request with the receipt).
+  final Future<void> Function()? afterLogin;
 
   @override
   State<SignupOtpScreen> createState() => _SignupOtpScreenState();
@@ -1128,7 +1232,31 @@ class _SignupOtpScreenState extends State<SignupOtpScreen> {
         return;
       }
       if (ok) {
-        Navigator.of(context).popUntil((r) => r.isFirst);
+        final after = widget.afterLogin;
+        if (after == null) {
+          Navigator.of(context).popUntil((r) => r.isFirst);
+          return;
+        }
+        final nav = Navigator.of(context);
+        final messenger = ScaffoldMessenger.of(context);
+        try {
+          await after();
+          nav.pushAndRemoveUntil(
+            MaterialPageRoute(
+              builder: (_) => const PaymentConfirmationScreen(),
+            ),
+            (r) => r.isFirst,
+          );
+        } on Object catch (e) {
+          nav.popUntil((r) => r.isFirst);
+          messenger.showSnackBar(
+            SnackBar(
+              content: Text(
+                'تم إنشاء حسابك، لكن تعذر إرسال الوصل: ${friendlyApiError(e)}. أعد إرساله من حسابي.',
+              ),
+            ),
+          );
+        }
       } else {
         setState(() => error = store.lastError ?? 'تعذر تسجيل الدخول.');
       }

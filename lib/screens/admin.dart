@@ -186,6 +186,10 @@ class _AdminConsoleState extends State<AdminConsole> {
     ('الاختبارات', Icons.sports_esports_outlined),
     ('الملفات', Icons.description_outlined),
     ('الإعلانات', Icons.campaign_outlined),
+    ('ملفات الطلاب', Icons.folder_shared_outlined),
+    ('الخطط والأسعار', Icons.sell_outlined),
+    ('اشتراكات المساعد', Icons.auto_awesome_rounded),
+    ('المرفقات', Icons.attach_file_rounded),
   ];
 
   LearnRepository get repo => LearnScope.read(context).repo;
@@ -231,6 +235,9 @@ class _AdminConsoleState extends State<AdminConsole> {
         c.from('pdf_resources').select().order('created_at', ascending: false),
         c.from('announcements').select().order('created_at', ascending: false),
         c.from('courses').select().order('created_at'),
+        c.from('plans').select().order('sort_order'),
+        c.from('student_files').select().order('created_at', ascending: false),
+        c.from('faculties').select().order('created_at'),
       ]);
       universityResultsUrl = await repo.setting(
         'universityResultsUrl',
@@ -247,7 +254,10 @@ class _AdminConsoleState extends State<AdminConsole> {
           ..['quizzes'] = list(r[6])
           ..['pdfs'] = list(r[7])
           ..['announcements'] = list(r[8])
-          ..['courses'] = list(r[9]);
+          ..['courses'] = list(r[9])
+          ..['plans'] = list(r[10])
+          ..['student_files'] = list(r[11])
+          ..['faculties'] = list(r[12]);
         loading = false;
         error = null;
       });
@@ -450,7 +460,11 @@ class _AdminConsoleState extends State<AdminConsole> {
                       6 => students(),
                       7 => quizzes(),
                       8 => pdfs(),
-                      _ => announcements(),
+                      9 => announcements(),
+                      10 => studentFilesReview(),
+                      11 => [const AssistantRequestsAdmin()],
+                      12 => [const AdminAttachments()],
+                      _ => plans(),
                     },
                   ),
                 ),
@@ -713,7 +727,7 @@ class _AdminConsoleState extends State<AdminConsole> {
     const _Field('level', 'المستوى (L1، L2…)'),
     const _Field(
       'monthly_price',
-      'السعر الشهري (MRU)',
+      'سعر الاشتراك السنوي (MRU)',
       kind: _FieldKind.number,
     ),
     const _Field('discount', 'الخصم %', kind: _FieldKind.number),
@@ -755,7 +769,7 @@ class _AdminConsoleState extends State<AdminConsole> {
         subtitle: [
           if ('${s['level']}'.isNotEmpty) '${s['level']}',
           if ('${s['faculty']}'.isNotEmpty) '${s['faculty']}',
-          'MRU ${formatMru((s['monthly_price'] as num?)?.toInt() ?? 0)} / شهر',
+          'MRU ${formatMru((s['monthly_price'] as num?)?.toInt() ?? 0)} / سنة',
           teacherOptions['${s['teacher_id']}'] ?? 'بدون أستاذ',
         ].join(' • '),
         badges: [
@@ -956,14 +970,253 @@ class _AdminConsoleState extends State<AdminConsole> {
       required: true,
     ),
     const _Field('duration_minutes', 'المدة بالدقائق', kind: _FieldKind.number),
-    const _Field('live_url', 'رابط البث (YouTube / Zoom / Meet)'),
+    const _Field(
+      'live_url',
+      'رابط خارجي (اختياري، اتركه فارغاً للبث داخل التطبيق)',
+    ),
     const _Field('recording_url', 'رابط التسجيل بعد الجلسة'),
     const _Field('attendees_count', 'عدد المشاهدين', kind: _FieldKind.number),
     const _Field('is_free', 'جلسة مجانية', kind: _FieldKind.toggle),
     const _Field('is_live', 'البث مباشر الآن', kind: _FieldKind.toggle),
   ];
 
+  /// Files shared by students: approve or reject. Approval gives the uploader
+  /// assistant tokens (once, by a database trigger).
+  List<Widget> studentFilesReview() {
+    final users = {for (final u in rows('students')) '${u['id']}': u};
+    final files = rows('student_files');
+    final pending = files.where((f) => f['status'] == 'pending').toList();
+    final decided = files.where((f) => f['status'] != 'pending').toList();
+    Widget row(Map<String, dynamic> f) {
+      final uploader = users['${f['uploader_id']}'];
+      final status = '${f['status']}';
+      final specialty = [
+        f['faculty'],
+        f['track'],
+        f['level'],
+      ].map((x) => '$x').where((x) => x.isNotEmpty).join(' • ');
+      return rowTile(
+        title: '${f['title']}',
+        subtitle: [
+          if (uploader != null) '${uploader['name']}',
+          if ('${f['subject_name'] ?? ''}'.isNotEmpty) '${f['subject_name']}',
+          if (specialty.isNotEmpty) specialty,
+          if (f['file_url'] != null) 'فتح الملف من الرابط',
+        ].join(' • '),
+        badges: [
+          switch (status) {
+            'approved' => const EpsBadge('مقبول', tone: EpsTone.green),
+            'rejected' => const EpsBadge('مرفوض', tone: EpsTone.red),
+            _ => const EpsBadge('قيد المراجعة', tone: EpsTone.orange),
+          },
+        ],
+        extra: [
+          if (f['file_url'] != null)
+            IconButton(
+              tooltip: 'فتح الملف',
+              icon: const Icon(Icons.open_in_new_rounded, size: 18),
+              onPressed: () => launchUrl(
+                Uri.parse('${f['file_url']}'),
+                mode: LaunchMode.externalApplication,
+              ),
+            ),
+          if (status != 'approved')
+            IconButton(
+              tooltip: 'قبول',
+              icon: const Icon(Icons.check_circle_outline, color: Eps.green),
+              onPressed: () => run(
+                () => repo.setStudentFileStatus('${f['id']}', 'approved'),
+                'تم قبول الملف ومكافأة صاحبه',
+              ),
+            ),
+          if (status != 'rejected')
+            IconButton(
+              tooltip: 'رفض',
+              icon: const Icon(Icons.cancel_outlined, color: Eps.red),
+              onPressed: () => run(
+                () => repo.setStudentFileStatus('${f['id']}', 'rejected'),
+                'تم رفض الملف',
+              ),
+            ),
+        ],
+      );
+    }
+
+    final faculties = rows('faculties');
+    final pendingFaculties = faculties.where((f) => f['status'] == 'pending');
+    Future<void> setFaculty(
+      Map<String, dynamic> f,
+      String status,
+      String done,
+    ) => run(
+      () => repo.client
+          .from('faculties')
+          .update({'status': status})
+          .eq('id', '${f['id']}'),
+      done,
+    );
+    return [
+      if (pendingFaculties.isNotEmpty) ...[
+        const Text(
+          'كليات يقترحها الطلاب',
+          style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700),
+        ),
+        const SizedBox(height: 6),
+        for (final f in pendingFaculties)
+          rowTile(
+            title: '${f['name']}',
+            subtitle: 'عند الموافقة تُضاف للقائمة لجميع الطلاب',
+            badges: const [EpsBadge('قيد المراجعة', tone: EpsTone.orange)],
+            extra: [
+              IconButton(
+                tooltip: 'موافقة',
+                icon: const Icon(Icons.check_circle_outline, color: Eps.green),
+                onPressed: () =>
+                    setFaculty(f, 'approved', 'تمت إضافة الكلية للقائمة'),
+              ),
+              IconButton(
+                tooltip: 'رفض',
+                icon: const Icon(Icons.cancel_outlined, color: Eps.red),
+                onPressed: () => setFaculty(f, 'rejected', 'تم رفض الكلية'),
+              ),
+            ],
+          ),
+        const SizedBox(height: 12),
+      ],
+      FlatCard(
+        shadow: false,
+        radius: 14,
+        color: Eps.blueSoft,
+        border: Colors.transparent,
+        child: const Text(
+          'راجع الملفات قبل نشرها: تأكد أنها مفيدة، وأنها لا تنتهك حقوق الأساتذة. عند القبول سيتم زيادة رصيد المساعد لدى صاحبها فقط.',
+          style: TextStyle(fontSize: 10, color: Eps.ink, height: 1.6),
+        ),
+      ),
+      const SizedBox(height: 10),
+      if (pending.isEmpty)
+        const Padding(
+          padding: EdgeInsets.only(bottom: 10),
+          child: Text(
+            'لا توجد ملفات بانتظار المراجعة.',
+            style: TextStyle(fontSize: 10, color: Eps.muted),
+          ),
+        ),
+      for (final f in pending) row(f),
+      if (decided.isNotEmpty) ...[
+        const SizedBox(height: 10),
+        const Text(
+          'تمت مراجعتها',
+          style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700),
+        ),
+        const SizedBox(height: 6),
+        for (final f in decided) row(f),
+      ],
+    ];
+  }
+
+  /// Plans offered to students. Price = the subjects' price, paid once; the
+  /// months set how long the subscription lasts.
+  List<Widget> plans() {
+    const fields = [
+      _Field('title', 'اسم الخطة', required: true),
+      _Field('subtitle', 'وصف قصير (مثال: سنة دراسية كاملة)'),
+      _Field('badge', 'شارة (مثال: سنوي)'),
+      _Field('months', 'مدة الاشتراك بالأشهر', kind: _FieldKind.number),
+      _Field('discount_percent', 'تخفيض %', kind: _FieldKind.number),
+      _Field('active', 'معروضة للطلاب', kind: _FieldKind.toggle),
+    ];
+    Future<void> save(Map<String, dynamic>? row) async {
+      final values = await _editDialog(
+        context,
+        title: row == null ? 'خطة جديدة' : 'تعديل الخطة',
+        fields: fields,
+        initial: row ?? {'months': 12, 'discount_percent': 0, 'active': true},
+      );
+      if (values == null) {
+        return;
+      }
+      final payload = {for (final f in fields) f.key: values[f.key]};
+      await run(() async {
+        final table = repo.client.from('plans');
+        if (row == null) {
+          await table.insert({
+            ...payload,
+            'code': 'plan-${DateTime.now().millisecondsSinceEpoch}',
+            'sort_order': rows('plans').length + 1,
+          });
+        } else {
+          await table.update(payload).eq('code', '${row['code']}');
+        }
+      }, 'تم حفظ الخطة');
+    }
+
+    final paid = rows('plans').where((p) => p['is_free'] != true).toList();
+    final hasActiveColumn = paid.any((p) => p.containsKey('active'));
+    return [
+      FlatCard(
+        shadow: false,
+        radius: 14,
+        color: Eps.blueSoft,
+        border: Colors.transparent,
+        child: const Text(
+          'سعر أي خطة = سعر المواد التي يختارها الطالب، يدفعه مرة واحدة. مدة الخطة بالأشهر تحدد متى ينتهي الاشتراك. إذا كانت هناك خطة واحدة معروضة ينتقل الطالب مباشرة إلى الدفع.',
+          style: TextStyle(fontSize: 10, color: Eps.ink, height: 1.6),
+        ),
+      ),
+      const SizedBox(height: 10),
+      if (!hasActiveColumn)
+        const Padding(
+          padding: EdgeInsets.only(bottom: 10),
+          child: Text(
+            'لتفعيل إظهار/إخفاء الخطط شغّل كود SQL الخاص بالخطط مرة واحدة في Supabase.',
+            style: TextStyle(fontSize: 10, color: Eps.red),
+          ),
+        ),
+      addButton('خطة جديدة', () => save(null)),
+      for (final p in paid)
+        rowTile(
+          title: '${p['title']}',
+          subtitle: [
+            '${p['months'] ?? 0} شهر',
+            if (((p['discount_percent'] as num?) ?? 0) > 0)
+              'تخفيض ${p['discount_percent']}%',
+            if ('${p['subtitle'] ?? ''}'.isNotEmpty) '${p['subtitle']}',
+          ].join(' • '),
+          badges: [
+            if (p['active'] == false)
+              const EpsBadge('مخفية', tone: EpsTone.gray)
+            else
+              const EpsBadge('معروضة', tone: EpsTone.green),
+          ],
+          extra: [
+            if (hasActiveColumn)
+              Switch(
+                value: p['active'] != false,
+                onChanged: (v) => run(
+                  () => repo.client
+                      .from('plans')
+                      .update({'active': v})
+                      .eq('code', '${p['code']}'),
+                  v ? 'الخطة معروضة للطلاب' : 'تم إخفاء الخطة',
+                ),
+              ),
+          ],
+          onEdit: () => save(p),
+        ),
+    ];
+  }
+
   List<Widget> live() => [
+    Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: EpsPrimaryButton(
+        label: 'استوديو البث المباشر',
+        icon: Icons.sensors_rounded,
+        color: Eps.red,
+        onPressed: () => pushPage(context, const LiveHostPage()),
+      ),
+    ),
     addButton(
       'جدولة جلسة',
       () => edit(
@@ -1272,13 +1525,22 @@ class _AdminConsoleState extends State<AdminConsole> {
     return [
       rowTile(
         leading: const Icon(Icons.fact_check_outlined, color: Eps.green),
-        title: 'رابط نتائج الجامعة',
-        subtitle: universityResultsUrl,
+        title: 'روابط نتائج الكليات',
+        subtitle: parseResultsLinks(
+          universityResultsUrl,
+        ).map((l) => l.name).join(' • '),
         onEdit: () async {
           final v = await _editDialog(
             context,
-            title: 'رابط نتائج الجامعة',
-            fields: const [_Field('url', 'الرابط', required: true)],
+            title: 'روابط نتائج الكليات',
+            fields: const [
+              _Field(
+                'url',
+                'سطر لكل كلية: اسم الكلية | الرابط',
+                kind: _FieldKind.multiline,
+                required: true,
+              ),
+            ],
             initial: {'url': universityResultsUrl},
           );
           if (v != null) {

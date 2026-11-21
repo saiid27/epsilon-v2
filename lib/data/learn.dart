@@ -1,3 +1,4 @@
+import 'dart:typed_data';
 // Data layer for the Figma redesign features: subjects catalog, per-subject
 // subscriptions, plans, lesson progress, PDFs, live sessions, quizzes,
 // leaderboard, announcements, per-user notifications and assistant.
@@ -117,6 +118,7 @@ class EpsPlan {
       months = _int(r['months']),
       discountPercent = _int(r['discount_percent']),
       isFree = _bool(r['is_free']),
+      active = r['active'] == null || _bool(r['active']),
       features = _strings(r['features']);
 
   final String code;
@@ -126,14 +128,19 @@ class EpsPlan {
   final int months;
   final int discountPercent;
   final bool isFree;
+
+  /// Plans switched off by the admin (only the yearly plan is offered).
+  final bool active;
   final List<String> features;
 
-  int priceFor(int monthlyTotal) {
+  /// The plan costs the subjects' price, paid once (less the plan's
+  /// discount, if the admin set one). Its months only set how long the
+  /// subscription lasts.
+  int priceFor(int subjectsTotal) {
     if (isFree) {
       return 0;
     }
-    final full = monthlyTotal * months;
-    return (full * (100 - discountPercent) / 100).round();
+    return (subjectsTotal * (100 - discountPercent) / 100).round();
   }
 }
 
@@ -233,6 +240,93 @@ class EpsExercise {
   final bool isFree;
 }
 
+/// A faculty offered on upload. [label] is the full name shown to students.
+class EpsFaculty {
+  EpsFaculty.fromRow(Map<String, dynamic> r)
+    : id = _str(r['id']),
+      name = _str(r['name']),
+      label = _str(r['label']).isEmpty ? _str(r['name']) : _str(r['label']),
+      status = _str(r['status']);
+
+  final String id;
+  final String name;
+  final String label;
+  final String status;
+}
+
+/// A file shared by a student with their specialty; visible once approved.
+/// One class in the student's university timetable.
+class EpsTimetableItem {
+  EpsTimetableItem.fromRow(Map<String, dynamic> r)
+    : id = _str(r['id']),
+      weekday = (r['weekday'] as num?)?.toInt() ?? 0,
+      startsAt = _str(r['starts_at']).length >= 5
+          ? _str(r['starts_at']).substring(0, 5)
+          : _str(r['starts_at']),
+      subjectName = _str(r['subject_name']),
+      room = _str(r['room']);
+
+  final String id;
+  final int weekday; // 0 = Sunday ... 6 = Saturday
+  final String startsAt; // HH:MM
+  final String subjectName;
+  final String room;
+}
+
+/// A file or image attached to a subject, or to one lesson of it.
+class EpsAttachment {
+  EpsAttachment.fromRow(Map<String, dynamic> r)
+    : id = _str(r['id']),
+      subjectId = _str(r['subject_id']),
+      lessonId = r['lesson_id'] as String?,
+      title = _str(r['title']),
+      kind = _str(r['kind']),
+      url = _str(r['url']);
+
+  final String id;
+  final String subjectId;
+  final String? lessonId;
+  final String title;
+  final String kind; // pdf or image
+  final String url;
+  bool get isImage => kind == 'image';
+}
+
+class EpsStudentFile {
+  EpsStudentFile.fromRow(Map<String, dynamic> r)
+    : id = _str(r['id']),
+      uploaderId = _str(r['uploader_id']),
+      title = _str(r['title']),
+      description = _str(r['description']),
+      subjectId = _str(r['subject_id']),
+      subjectName = _str(r['subject_name']),
+      faculty = _str(r['faculty']),
+      track = _str(r['track']),
+      level = _str(r['level']),
+      url = _str(r['file_url']),
+      fileType = _str(r['file_type']),
+      status = _str(r['status']),
+      downloads = _int(r['downloads']),
+      createdAt = _date(r['created_at']) ?? DateTime.now();
+
+  final String id;
+  final String uploaderId;
+  final String title;
+  final String description;
+  final String subjectId;
+  final String subjectName;
+  final String faculty;
+  final String track;
+  final String level;
+  final String url;
+  final String fileType;
+  final String status;
+  final int downloads;
+  final DateTime createdAt;
+
+  bool get isPdf => fileType == 'pdf';
+}
+
 class EpsPdf {
   EpsPdf.fromRow(Map<String, dynamic> r)
     : id = _str(r['id']),
@@ -266,7 +360,10 @@ class EpsLiveSession {
       recordingUrl = _str(r['recording_url']),
       isFree = _bool(r['is_free']),
       isLiveFlag = _bool(r['is_live']),
-      attendees = _int(r['attendees_count']);
+      attendees = _int(r['attendees_count']),
+      roomName = _str(r['room_name']),
+      startedAt = _date(r['started_at']),
+      endedAt = _date(r['ended_at']);
 
   final String id;
   final String subjectId;
@@ -279,12 +376,24 @@ class EpsLiveSession {
   final bool isFree;
   final bool isLiveFlag;
   final int attendees;
+  final String roomName;
+  final DateTime? startedAt;
+  final DateTime? endedAt;
+
+  /// Broadcast through LiveKit inside the app (no external link set).
+  bool get usesLiveKit => liveUrl.trim().isEmpty;
 
   DateTime get endsAt => startsAt.add(Duration(minutes: durationMinutes));
 
   LiveState get state {
     final now = DateTime.now();
-    if (isLiveFlag || (now.isAfter(startsAt) && now.isBefore(endsAt))) {
+    if (isLiveFlag) {
+      return LiveState.live;
+    }
+    if (endedAt != null) {
+      return LiveState.past;
+    }
+    if (now.isAfter(startsAt) && now.isBefore(endsAt)) {
       return LiveState.live;
     }
     return now.isBefore(startsAt) ? LiveState.upcoming : LiveState.past;
@@ -298,6 +407,7 @@ class EpsLiveMessage {
       userName = _str(r['user_name']),
       isTeacher = _bool(r['is_teacher']),
       isQuestion = _bool(r['is_question']),
+      answered = _bool(r['answered']),
       body = _str(r['body']),
       createdAt = _date(r['created_at']) ?? DateTime.now();
 
@@ -306,6 +416,7 @@ class EpsLiveMessage {
   final String userName;
   final bool isTeacher;
   final bool isQuestion;
+  final bool answered;
   final String body;
   final DateTime createdAt;
 }
@@ -432,11 +543,13 @@ class EpsProfile {
       xp = _int(r['xp']),
       streakDays = _int(r['streak_days']),
       lastActivity = _date(r['last_activity_date']),
-      profileCompleted = _bool(r['profile_completed']);
+      profileCompleted = _bool(r['profile_completed']),
+      referralCode = _str(r['referral_code']);
 
   final String id;
   final String name;
   final String phone;
+  final String referralCode;
   final String university;
   final String faculty;
   final String track;
@@ -769,35 +882,431 @@ class LearnRepository {
     ]);
   }
 
-  Future<int> assistantQuestionsToday(String userId) async {
-    final rows = _list(
-      await client
-          .from('assistant_usage')
-          .select('questions')
-          .eq('user_id', userId)
-          .eq('day', DateTime.now().toIso8601String().substring(0, 10)),
-    );
-    return rows.isEmpty ? 0 : _int(rows.first['questions']);
+  /// The student's assistant allowance left today and this month, as
+  /// percentages (the assistant function works in tokens).
+  Future<({int dailyLeftPct, int monthlyLeftPct})?> assistantBalance(
+    String userId,
+  ) async {
+    try {
+      final response = await client.functions.invoke(
+        'assistant',
+        body: {'userId': userId, 'action': 'balance'},
+      );
+      final data = response.data;
+      if (data is Map && data['dailyLeftPct'] is num) {
+        return (
+          dailyLeftPct: (data['dailyLeftPct'] as num).toInt(),
+          monthlyLeftPct: ((data['monthlyLeftPct'] as num?) ?? 0).toInt(),
+        );
+      }
+    } on Object {
+      // Shown as unknown until the next answer.
+    }
+    return null;
   }
 
-  Future<String> askAssistant({
+  /// Faculties offered to students (approved only).
+  Future<List<EpsFaculty>> approvedFaculties() async =>
+      (await client
+              .from('faculties')
+              .select()
+              .eq('status', 'approved')
+              .order('name'))
+          .map((r) => EpsFaculty.fromRow(Map<String, dynamic>.from(r)))
+          .toList();
+
+  /// Every faculty, for the administration (pending first).
+  Future<List<EpsFaculty>> allFaculties() async => _list(
+    await client.from('faculties').select().order('created_at'),
+  ).map(EpsFaculty.fromRow).toList();
+
+  /// A student suggests a faculty that is missing; it waits for approval.
+  Future<void> suggestFaculty(String name, String userId) async {
+    final existing = _list(
+      await client
+          .from('faculties')
+          .select('id')
+          .eq('name', name.trim())
+          .limit(1),
+    );
+    if (existing.isNotEmpty) {
+      return;
+    }
+    await client.from('faculties').insert({
+      'name': name.trim(),
+      'status': 'pending',
+      'suggested_by': userId,
+    });
+  }
+
+  Future<void> setFacultyStatus(String id, String status) =>
+      client.from('faculties').update({'status': status}).eq('id', id);
+
+  /// Approved files of a specialty (faculty, track and level). An empty
+  /// value leaves that part unfiltered.
+  Future<List<EpsStudentFile>> studentFiles({
+    String faculty = '',
+    String track = '',
+    String level = '',
+  }) async {
+    var query = client.from('student_files').select().eq('status', 'approved');
+    if (faculty.isNotEmpty) query = query.eq('faculty', faculty);
+    if (track.isNotEmpty) query = query.eq('track', track);
+    if (level.isNotEmpty) query = query.eq('level', level);
+    final rows = _list(
+      await query.order('created_at', ascending: false).limit(200),
+    );
+    return rows.map(EpsStudentFile.fromRow).toList();
+  }
+
+  /// The student's timetable, ordered by day and start time.
+  Future<List<EpsTimetableItem>> myTimetable(String userId) async => _list(
+    await client
+        .from('student_timetable')
+        .select()
+        .eq('student_id', userId)
+        .order('weekday')
+        .order('starts_at'),
+  ).map(EpsTimetableItem.fromRow).toList();
+
+  Future<void> addTimetableItem({
+    required String userId,
+    required int weekday,
+    required String startsAt,
+    required String subjectName,
+    String room = '',
+  }) async {
+    await client.from('student_timetable').insert({
+      'student_id': userId,
+      'weekday': weekday,
+      'starts_at': startsAt,
+      'subject_name': subjectName.trim(),
+      'room': room.trim(),
+    });
+  }
+
+  /// Changes a class: its subject, room, day or start time.
+  Future<void> updateTimetableItem({
+    required String id,
+    required int weekday,
+    required String startsAt,
+    required String subjectName,
+    String room = '',
+  }) async {
+    await client
+        .from('student_timetable')
+        .update({
+          'weekday': weekday,
+          'starts_at': startsAt,
+          'subject_name': subjectName.trim(),
+          'room': room.trim(),
+        })
+        .eq('id', id);
+  }
+
+  /// A student's request to buy an assistant package, with the receipt.
+  Future<void> submitAssistantRequest({
+    required String userId,
+    required String tier,
+    required String period,
+    required int amount,
+    required String? paymentMethodId,
+    required String receiptUrl,
+    required String transactionRef,
+  }) async {
+    await client.from('assistant_subscriptions').insert({
+      'student_id': userId,
+      'tier': tier,
+      'period': period,
+      'amount': amount,
+      'payment_method_id': paymentMethodId,
+      'receipt_url': receiptUrl,
+      'transaction_ref': transactionRef.trim(),
+      'status': 'pending',
+    });
+  }
+
+  /// Every assistant package request, newest first, with the student's name.
+  Future<List<Map<String, dynamic>>> assistantRequests() async => _list(
+    await client
+        .from('assistant_subscriptions')
+        .select('*, student:users(name, phone)')
+        .order('created_at', ascending: false)
+        .limit(200),
+  );
+
+  Future<void> reviewAssistantRequest({
+    required String id,
+    required bool approve,
+    String reason = '',
+  }) async {
+    await client
+        .from('assistant_subscriptions')
+        .update({
+          'status': approve ? 'active' : 'rejected',
+          'rejection_reason': approve ? '' : reason,
+        })
+        .eq('id', id);
+  }
+
+  /// Files attached to one lesson.
+  Future<List<EpsAttachment>> lessonAttachments(String lessonId) async => _list(
+    await client
+        .from('lesson_attachments')
+        .select()
+        .eq('lesson_id', lessonId)
+        .order('sort_order')
+        .order('created_at'),
+  ).map(EpsAttachment.fromRow).toList();
+
+  /// Subject files: attached to the subject, not to one lesson.
+  Future<List<EpsAttachment>> subjectFiles(String subjectId) async => _list(
+    await client
+        .from('lesson_attachments')
+        .select()
+        .eq('subject_id', subjectId)
+        .isFilter('lesson_id', null)
+        .order('sort_order')
+        .order('created_at'),
+  ).map(EpsAttachment.fromRow).toList();
+
+  /// Every attachment of a subject (admin view).
+  Future<List<EpsAttachment>> allAttachments(String subjectId) async => _list(
+    await client
+        .from('lesson_attachments')
+        .select()
+        .eq('subject_id', subjectId)
+        .order('created_at', ascending: false),
+  ).map(EpsAttachment.fromRow).toList();
+
+  Future<void> addAttachment({
+    required String subjectId,
+    required String? lessonId,
+    required String title,
+    required Uint8List bytes,
+    required String fileName,
+  }) async {
+    final ext = fileName.contains('.')
+        ? fileName.split('.').last.toLowerCase()
+        : 'pdf';
+    final mime = switch (ext) {
+      'png' => 'image/png',
+      'jpg' || 'jpeg' => 'image/jpeg',
+      'webp' => 'image/webp',
+      _ => 'application/pdf',
+    };
+    final kind = mime == 'application/pdf' ? 'pdf' : 'image';
+    final path =
+        '$subjectId/${DateTime.now().millisecondsSinceEpoch}.${kind == 'pdf' ? 'pdf' : ext}';
+    final bucket = client.storage.from('lesson-files');
+    await bucket.uploadBinary(
+      path,
+      bytes,
+      fileOptions: FileOptions(contentType: mime, upsert: false),
+    );
+    await client.from('lesson_attachments').insert({
+      'subject_id': subjectId,
+      'lesson_id': lessonId,
+      'title': title.trim(),
+      'kind': kind,
+      'url': bucket.getPublicUrl(path),
+    });
+  }
+
+  Future<void> deleteAttachment(String id) async {
+    await client.from('lesson_attachments').delete().eq('id', id);
+  }
+
+  Future<void> deleteTimetableItem(String id) async {
+    await client.from('student_timetable').delete().eq('id', id);
+  }
+
+  /// Every file a student uploaded, whatever its status.
+  Future<List<EpsStudentFile>> myStudentFiles(String userId) async => _list(
+    await client
+        .from('student_files')
+        .select()
+        .eq('uploader_id', userId)
+        .order('created_at', ascending: false),
+  ).map(EpsStudentFile.fromRow).toList();
+
+  /// Uploads a file to the student-files bucket and records it as pending.
+  Future<void> uploadStudentFile({
+    required String userId,
+    required String title,
+    required String description,
+    required String subjectId,
+    required String subjectName,
+    required String faculty,
+    required String track,
+    required String level,
+    required Uint8List bytes,
+    required String fileName,
+  }) async {
+    final ext = fileName.contains('.')
+        ? fileName.split('.').last.toLowerCase()
+        : 'pdf';
+    final mime = switch (ext) {
+      'png' => 'image/png',
+      'jpg' || 'jpeg' => 'image/jpeg',
+      'webp' => 'image/webp',
+      _ => 'application/pdf',
+    };
+    final fileType = mime == 'application/pdf' ? 'pdf' : 'image';
+    final path =
+        '$userId/${DateTime.now().millisecondsSinceEpoch}.${fileType == 'pdf' ? 'pdf' : ext}';
+    final bucket = client.storage.from('student-files');
+    await bucket.uploadBinary(
+      path,
+      bytes,
+      fileOptions: FileOptions(contentType: mime, upsert: false),
+    );
+    await client.from('student_files').insert({
+      'uploader_id': userId,
+      'title': title.trim(),
+      'description': description.trim(),
+      'subject_id': subjectId.isEmpty ? null : subjectId,
+      'subject_name': subjectName.trim(),
+      'faculty': faculty,
+      'track': track,
+      'level': level,
+      'file_path': path,
+      'file_url': bucket.getPublicUrl(path),
+      'file_type': fileType,
+      'size_bytes': bytes.length,
+    });
+  }
+
+  Future<void> setStudentFileStatus(String id, String status) =>
+      client.from('student_files').update({'status': status}).eq('id', id);
+
+  /// Calls the `livekit` edge function: `token`, `start`, `record`, `end`.
+  Future<Map<String, dynamic>> liveKit(
+    String action, {
+    required String userId,
+    required String sessionId,
+    int? peakViewers,
+  }) async {
+    try {
+      final response = await client.functions.invoke(
+        'livekit',
+        body: {
+          'action': action,
+          'userId': userId,
+          'sessionId': sessionId,
+          'peakViewers': ?peakViewers,
+        },
+      );
+      final data = response.data;
+      return data is Map ? Map<String, dynamic>.from(data) : {};
+    } on FunctionException catch (e) {
+      final details = e.details;
+      throw Exception(
+        details is Map && details['message'] != null
+            ? '${details['message']}'
+            : 'تعذر الاتصال بخدمة البث.',
+      );
+    }
+  }
+
+  Future<EpsLiveSession?> liveSession(String id) async {
+    final rows = _list(
+      await client.from('live_sessions').select().eq('id', id).limit(1),
+    );
+    return rows.isEmpty ? null : EpsLiveSession.fromRow(rows.first);
+  }
+
+  /// Sessions a teacher hosts (or every session for an admin).
+  Future<List<EpsLiveSession>> hostedSessions(String? teacherId) async {
+    var query = client.from('live_sessions').select();
+    if (teacherId != null) {
+      query = query.or('teacher_id.eq.$teacherId,teacher_id.is.null');
+    }
+    return _list(
+      await query.order('starts_at', ascending: false).limit(60),
+    ).map(EpsLiveSession.fromRow).toList();
+  }
+
+  Future<void> createLiveSession(Map<String, dynamic> values) =>
+      client.from('live_sessions').insert(values);
+
+  Future<void> setQuestionAnswered(String messageId, bool answered) => client
+      .from('live_messages')
+      .update({'answered': answered})
+      .eq('id', messageId);
+
+  /// Pushes chat changes of one session as they happen.
+  RealtimeChannel watchLiveMessages(String sessionId, VoidCallback onChange) =>
+      client
+          .channel('live-messages-$sessionId')
+          .onPostgresChanges(
+            event: PostgresChangeEvent.all,
+            schema: 'public',
+            table: 'live_messages',
+            filter: PostgresChangeFilter(
+              type: PostgresChangeFilterType.eq,
+              column: 'session_id',
+              value: sessionId,
+            ),
+            callback: (_) => onChange(),
+          )
+          .onPostgresChanges(
+            event: PostgresChangeEvent.update,
+            schema: 'public',
+            table: 'live_sessions',
+            filter: PostgresChangeFilter(
+              type: PostgresChangeFilterType.eq,
+              column: 'id',
+              value: sessionId,
+            ),
+            callback: (_) => onChange(),
+          )
+          .subscribe();
+
+  /// Asks the assistant. [image] (a data URI) goes with the last question.
+  Future<({String reply, int? dailyLeftPct, int? monthlyLeftPct})>
+  askAssistant({
     required String userId,
     required List<Map<String, String>> messages,
     String? lessonTitle,
     String? subjectName,
+    String? image,
+    String? document,
+    String? documentName,
+    String mode = 'solve',
+    String? studentLevel,
+    String? studentName,
+    String? lessonSummary,
   }) async {
-    final response = await client.functions.invoke(
-      'assistant',
-      body: {
-        'userId': userId,
-        'messages': messages,
-        'lessonTitle': lessonTitle,
-        'subjectName': subjectName,
-      },
-    );
-    final data = response.data;
+    Object? data;
+    try {
+      final response = await client.functions.invoke(
+        'assistant',
+        body: {
+          'userId': userId,
+          'messages': messages,
+          'lessonTitle': lessonTitle,
+          'subjectName': subjectName,
+          'image': ?image,
+          'document': ?document,
+          'documentName': ?documentName,
+          'mode': mode,
+          'studentLevel': ?studentLevel,
+          'studentName': ?studentName,
+          'lessonSummary': ?lessonSummary,
+        },
+      );
+      data = response.data;
+    } on FunctionException catch (e) {
+      data = e.details;
+    }
     if (data is Map && data['reply'] != null) {
-      return '${data['reply']}';
+      int? n(Object? v) => v is num ? v.toInt() : null;
+      return (
+        reply: '${data['reply']}',
+        dailyLeftPct: n(data['dailyLeftPct']),
+        monthlyLeftPct: n(data['monthlyLeftPct']),
+      );
     }
     throw Exception(
       data is Map && data['message'] != null
@@ -870,7 +1379,22 @@ class LearnStore extends ChangeNotifier {
 
   /// Subjects chosen in the catalog before checkout.
   final Set<String> cart = {};
-  String selectedPlanCode = 'monthly';
+  String selectedPlanCode = 'yearly';
+
+  /// Offered plans, and the selected one kept among them.
+  void _setPlans(List<EpsPlan> all) {
+    plans = all.where((p) => p.active).toList();
+    if (!plans.any((p) => p.code == selectedPlanCode)) {
+      final paid = plans.where((p) => !p.isFree).firstOrNull;
+      if (paid != null) {
+        selectedPlanCode = paid.code;
+      }
+    }
+  }
+
+  /// Subjects open for subscription: those with at least one lesson. The
+  /// status changes on its own as soon as lessons are uploaded.
+  bool isAvailable(String subjectId) => lessonsFor(subjectId).isNotEmpty;
 
   /// Subject the student is currently browsing.
   String? currentSubjectId;
@@ -924,7 +1448,7 @@ class LearnStore extends ChangeNotifier {
           .where((s) => s.isActive)
           .toList();
       teachers = results[2]! as List<EpsTeacher>;
-      plans = results[3]! as List<EpsPlan>;
+      _setPlans(results[3]! as List<EpsPlan>);
       subscriptions = results[4]! as List<EpsSubscription>;
       lessons = (results[5]! as List<EpsLesson>)
           .where((l) => l.isPublished)
@@ -934,6 +1458,7 @@ class LearnStore extends ChangeNotifier {
       pdfs = results[8]! as List<EpsPdf>;
       liveSessions = results[9]! as List<EpsLiveSession>;
       reminders = results[10]! as Set<String>;
+      _syncReminders();
       quizzes = results[11]! as List<EpsQuiz>;
       attempts = results[12]! as List<EpsAttempt>;
       announcements = results[13]! as List<EpsAnnouncement>;
@@ -953,6 +1478,37 @@ class LearnStore extends ChangeNotifier {
   Future<void> refresh() async {
     if (userId != null) {
       await load(userId!);
+    }
+  }
+
+  /// Paid signup in progress: the details typed in the signup form. The
+  /// account itself is created when the payment receipt is sent.
+  ({String name, String phone, String password, String referral})? signupDraft;
+
+  /// Subjects, teachers and plans for someone not signed in yet (paid
+  /// signup goes through the catalog before the account exists).
+  Future<void> loadCatalog() async {
+    if (!enabled || subjects.isNotEmpty) {
+      return;
+    }
+    try {
+      final results = await Future.wait<Object>([
+        repo.subjects(),
+        repo.teachers(),
+        repo.plans(),
+        repo.lessons(),
+      ]);
+      subjects = (results[0] as List<EpsSubject>)
+          .where((s) => s.isActive)
+          .toList();
+      teachers = results[1] as List<EpsTeacher>;
+      _setPlans(results[2] as List<EpsPlan>);
+      lessons = (results[3] as List<EpsLesson>)
+          .where((l) => l.isPublished)
+          .toList();
+      notifyListeners();
+    } on Object {
+      // The catalog screens show their empty state.
     }
   }
 
@@ -1026,8 +1582,8 @@ class LearnStore extends ChangeNotifier {
     return (done * 100 / items.length).round();
   }
 
-  bool canOpenLesson(EpsLesson lesson) =>
-      lesson.isFree || hasAccess(lesson.subjectId);
+  /// The free plan covers live sessions and PDF files only.
+  bool canOpenLesson(EpsLesson lesson) => hasAccess(lesson.subjectId);
 
   EpsQuiz? get dailyQuiz {
     final today = DateUtils.dateOnly(DateTime.now());
@@ -1051,6 +1607,9 @@ class LearnStore extends ChangeNotifier {
   // Actions ---------------------------------------------------------------
 
   void toggleCart(String subjectId) {
+    if (!cart.contains(subjectId) && !isAvailable(subjectId)) {
+      return;
+    }
     cart.contains(subjectId) ? cart.remove(subjectId) : cart.add(subjectId);
     notifyListeners();
   }
@@ -1125,10 +1684,41 @@ class LearnStore extends ChangeNotifier {
     }
   }
 
+  /// Set by the app to schedule (or cancel) device notifications for a
+  /// session reminder.
+  static void Function(EpsLiveSession session, bool on)? reminderScheduler;
+
+  void _syncReminders() {
+    final schedule = reminderScheduler;
+    if (schedule == null) {
+      return;
+    }
+    for (final s in liveSessions) {
+      if (reminders.contains(s.id) && s.state == LiveState.upcoming) {
+        schedule(s, true);
+      }
+    }
+  }
+
+  /// Replaces a session with fresher data (e.g. after a realtime update).
+  void replaceLiveSession(EpsLiveSession session) {
+    final i = liveSessions.indexWhere((s) => s.id == session.id);
+    if (i < 0) {
+      liveSessions = [...liveSessions, session];
+    } else {
+      liveSessions = [...liveSessions]..[i] = session;
+    }
+    notifyListeners();
+  }
+
   Future<void> toggleReminder(String sessionId) async {
     final on = !reminders.contains(sessionId);
     on ? reminders.add(sessionId) : reminders.remove(sessionId);
     notifyListeners();
+    final session = liveSessions.where((s) => s.id == sessionId).firstOrNull;
+    if (session != null) {
+      reminderScheduler?.call(session, on);
+    }
     if (enabled) {
       await repo.setLiveReminder(userId!, sessionId, on);
     }
@@ -1192,6 +1782,21 @@ class LearnStore extends ChangeNotifier {
     if (enabled) {
       await repo.markNoticesRead(userId!, ids);
     }
+  }
+
+  String? _localAvatar;
+
+  /// The student's photo as a data URI, or empty when none is set.
+  String get avatarUrl => _localAvatar ?? profile?.avatarUrl ?? '';
+
+  /// Saves (or clears, with an empty string) the student's photo.
+  Future<void> setAvatar(String dataUri) async {
+    if (!enabled) {
+      _localAvatar = dataUri;
+      notifyListeners();
+      return;
+    }
+    await saveProfile({'avatar_url': dataUri});
   }
 
   Future<void> saveProfile(Map<String, dynamic> values) async {

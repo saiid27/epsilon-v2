@@ -72,6 +72,9 @@ import UniformTypeIdentifiers
         UTType(filenameExtension: "xls")
       ].compactMap { $0 }
     }
+    if type == "pdf" {
+      return [.pdf]
+    }
     return [.image]
   }
 

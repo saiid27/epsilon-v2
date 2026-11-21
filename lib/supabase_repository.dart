@@ -142,22 +142,54 @@ class SupabaseRepository {
     }
   }
 
+  /// True when [phone] already belongs to an account (an unverified signup
+  /// does not count: the student may start again).
+  Future<bool> phoneTaken(String phone) async {
+    final rows = _list(
+      await client
+          .from('users')
+          .select('status, role')
+          .eq('phone', phone.trim())
+          .limit(1),
+    );
+    if (rows.isEmpty) {
+      return false;
+    }
+    final row = rows.first;
+    return !(row['status'] == 'pending' && row['role'] == 'student');
+  }
+
   /// Free account from the redesigned signup: starts `pending` and becomes
   /// `active` when the phone code is verified (otp function, purpose signup).
   Future<void> registerFreeStudent({
     required String name,
     required String phone,
     required String password,
-    required String level,
+    String referral = '',
   }) async {
     final existing = _list(
       await client
           .from('users')
-          .select('id')
+          .select('id, status, role')
           .eq('phone', phone.trim())
           .limit(1),
     );
     if (existing.isNotEmpty) {
+      final row = existing.first;
+      // An earlier signup that never got its code verified: start again.
+      if (row['status'] == 'pending' && row['role'] == 'student') {
+        await client
+            .from('users')
+            .update({
+              'name': name.trim(),
+              'password': password,
+              if (referral.trim().isNotEmpty)
+                'referred_by': referral.trim().toUpperCase(),
+            })
+            .eq('id', row['id'] as Object);
+        await requestOtp(phone: phone, purpose: 'signup');
+        return;
+      }
       throw const SupabaseAppException('رقم الهاتف مسجل مسبقاً.');
     }
     await client.from('users').insert({
@@ -166,7 +198,8 @@ class SupabaseRepository {
       'password': password,
       'role': 'student',
       'status': 'pending',
-      'level': level,
+      if (referral.trim().isNotEmpty)
+        'referred_by': referral.trim().toUpperCase(),
     });
     await requestOtp(phone: phone, purpose: 'signup');
   }

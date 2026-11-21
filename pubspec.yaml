@@ -24,6 +24,10 @@ dependencies:
   path_provider: ^2.1.6
   share_plus: ^12.0.2
   web: ^1.1.1
+  livekit_client: ^2.13.2
+  timezone: ^0.11.2
+  speech_to_text: ^7.5.0
+  val_latex_flutter: ^0.1.4
 
 dev_dependencies:
   flutter_test:

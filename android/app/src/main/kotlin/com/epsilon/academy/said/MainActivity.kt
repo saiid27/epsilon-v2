@@ -63,7 +63,11 @@ class MainActivity : FlutterActivity() {
                     val type = call.argument<String>("type") ?: "image"
                     val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
                         addCategory(Intent.CATEGORY_OPENABLE)
-                        this.type = if (type == "excel") "*/*" else "image/*"
+                        this.type = when (type) {
+                            "excel" -> "*/*"
+                            "pdf" -> "application/pdf"
+                            else -> "image/*"
+                        }
                         if (type == "excel") {
                             putExtra(
                                 Intent.EXTRA_MIME_TYPES,
