@@ -619,6 +619,7 @@ class _CourseScreenState extends State<CourseScreen> {
                         padding: const EdgeInsets.only(bottom: 8),
                         child: PdfRow(pdf: pdf),
                       ),
+                    SubjectFiles(subjectId: subject.id),
                     if (learn.pdfsFor(subject.id).isEmpty)
                       const _EmptyNote('لا توجد ملفات لهذه المادة بعد'),
                   ],

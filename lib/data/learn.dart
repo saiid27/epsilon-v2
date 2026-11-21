@@ -273,6 +273,25 @@ class EpsTimetableItem {
   final String room;
 }
 
+/// A file or image attached to a subject, or to one lesson of it.
+class EpsAttachment {
+  EpsAttachment.fromRow(Map<String, dynamic> r)
+    : id = _str(r['id']),
+      subjectId = _str(r['subject_id']),
+      lessonId = r['lesson_id'] as String?,
+      title = _str(r['title']),
+      kind = _str(r['kind']),
+      url = _str(r['url']);
+
+  final String id;
+  final String subjectId;
+  final String? lessonId;
+  final String title;
+  final String kind; // pdf or image
+  final String url;
+  bool get isImage => kind == 'image';
+}
+
 class EpsStudentFile {
   EpsStudentFile.fromRow(Map<String, dynamic> r)
     : id = _str(r['id']),
@@ -1028,6 +1047,74 @@ class LearnRepository {
           'rejection_reason': approve ? '' : reason,
         })
         .eq('id', id);
+  }
+
+  /// Files attached to one lesson.
+  Future<List<EpsAttachment>> lessonAttachments(String lessonId) async => _list(
+    await client
+        .from('lesson_attachments')
+        .select()
+        .eq('lesson_id', lessonId)
+        .order('sort_order')
+        .order('created_at'),
+  ).map(EpsAttachment.fromRow).toList();
+
+  /// Subject files: attached to the subject, not to one lesson.
+  Future<List<EpsAttachment>> subjectFiles(String subjectId) async => _list(
+    await client
+        .from('lesson_attachments')
+        .select()
+        .eq('subject_id', subjectId)
+        .isFilter('lesson_id', null)
+        .order('sort_order')
+        .order('created_at'),
+  ).map(EpsAttachment.fromRow).toList();
+
+  /// Every attachment of a subject (admin view).
+  Future<List<EpsAttachment>> allAttachments(String subjectId) async => _list(
+    await client
+        .from('lesson_attachments')
+        .select()
+        .eq('subject_id', subjectId)
+        .order('created_at', ascending: false),
+  ).map(EpsAttachment.fromRow).toList();
+
+  Future<void> addAttachment({
+    required String subjectId,
+    required String? lessonId,
+    required String title,
+    required Uint8List bytes,
+    required String fileName,
+  }) async {
+    final ext = fileName.contains('.')
+        ? fileName.split('.').last.toLowerCase()
+        : 'pdf';
+    final mime = switch (ext) {
+      'png' => 'image/png',
+      'jpg' || 'jpeg' => 'image/jpeg',
+      'webp' => 'image/webp',
+      _ => 'application/pdf',
+    };
+    final kind = mime == 'application/pdf' ? 'pdf' : 'image';
+    final path =
+        '$subjectId/${DateTime.now().millisecondsSinceEpoch}.${kind == 'pdf' ? 'pdf' : ext}';
+    final bucket = client.storage.from('lesson-files');
+    await bucket.uploadBinary(
+      path,
+      bytes,
+      fileOptions: FileOptions(contentType: mime, upsert: false),
+    );
+    await client.from('lesson_attachments').insert({
+      'subject_id': subjectId,
+      'lesson_id': lessonId,
+      'title': title.trim(),
+      'kind': kind,
+      'url': bucket.getPublicUrl(path),
+    });
+  }
+
+  Future<void> deleteAttachment(String id) async {
+    await client.from('lesson_attachments').delete().eq('id', id);
   }
 
   Future<void> deleteTimetableItem(String id) async {

@@ -274,6 +274,7 @@ class _LessonScreenState extends State<LessonScreen> {
                   const SizedBox(height: 9),
                   const FreeUpsell(),
                 ],
+                if (subscribed) LessonAttachments(lessonId: lesson.id),
                 if (lesson.pdfUrl.isNotEmpty) ...[
                   const SizedBox(height: 9),
                   EpsPrimaryButton(
