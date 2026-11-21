@@ -21,6 +21,8 @@ jobs:
 
       - uses: subosito/flutter-action@v2
         with:
+          # The same Flutter version the project is built with locally.
+          flutter-version: '3.50.0'
           channel: stable
           cache: true
 
