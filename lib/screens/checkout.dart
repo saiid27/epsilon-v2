@@ -1951,7 +1951,7 @@ class _ReceiptUploadScreenState extends State<ReceiptUploadScreen> {
         );
       }
     } on Object catch (e) {
-      setState(() => error = 'تعذر إرسال الوصل: $e');
+      setState(() => error = 'تعذر إرسال الوصل: ${friendlyApiError(e)}');
     } finally {
       if (mounted) {
         setState(() => sending = false);

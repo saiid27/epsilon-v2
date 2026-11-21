@@ -331,6 +331,20 @@ String friendlyApiError(Object error) {
   if (text.contains('network') || text.contains('unavailable')) {
     return 'تحقق من الاتصال بالإنترنت ثم حاول مرة أخرى.';
   }
+  // The database is missing a table or column this version needs: not the
+  // student's fault, and the raw message means nothing to them.
+  if (text.contains('pgrst205') ||
+      text.contains('42p01') ||
+      text.contains('schema cache') ||
+      text.contains('does not exist')) {
+    return 'هذه الخدمة تحتاج تحديثاً من الإدارة الآن. أبلغ الإدارة وحاول لاحقاً.';
+  }
+  if (text.contains('row-level security') || text.contains('42501')) {
+    return 'لا تملك صلاحية تنفيذ هذه العملية الآن.';
+  }
+  if (text.contains('postgrestexception')) {
+    return 'تعذر تنفيذ الطلب الآن. حاول مرة أخرى بعد قليل.';
+  }
 
   return 'حدث خطأ أثناء العملية. حاول مرة أخرى.';
 }
