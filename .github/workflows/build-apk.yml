@@ -1,7 +1,8 @@
 name: Build APK
 
 # Run from the Actions tab (Run workflow) or on push to the branch below.
-# The APK is attached to the run as an artifact named "epsilon-apk".
+# The APK is attached as "epsilon-apk" and the bundle as "epsilon-aab".
+# GitHub packs every artifact in a ZIP: open it to get the .apk or .aab file.
 on:
   workflow_dispatch:
   push:
@@ -36,4 +37,13 @@ jobs:
         with:
           name: epsilon-apk
           path: build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: error
+
+      - name: Build app bundle (AAB) for Google Play
+        run: flutter build appbundle --release
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: epsilon-aab
+          path: build/app/outputs/bundle/release/app-release.aab
           if-no-files-found: error
