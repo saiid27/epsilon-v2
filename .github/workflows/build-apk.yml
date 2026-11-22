@@ -8,6 +8,9 @@ on:
   push:
     branches: [ccr-3e135276-npbq5o]
 
+permissions:
+  contents: write
+
 jobs:
   apk:
     runs-on: ubuntu-latest
@@ -47,3 +50,12 @@ jobs:
           name: epsilon-aab
           path: build/app/outputs/bundle/release/app-release.aab
           if-no-files-found: error
+
+      - name: Publish the APK as a direct download (GitHub Release)
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: apk-${{ github.run_number }}
+          name: Epsilon APK ${{ github.run_number }}
+          body: "تنزيل مباشر لملف التطبيق app-release.apk. افتح الرابط من الهاتف ثم ثبّت الملف."
+          files: build/app/outputs/flutter-apk/app-release.apk
+          make_latest: true
