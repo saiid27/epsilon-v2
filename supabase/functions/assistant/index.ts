@@ -268,6 +268,15 @@ Deno.serve(async (req) => {
     }
     if (error instanceof Anthropic.APIError) {
       console.error('anthropic status:', error.status, error.message);
+      // Kept for the admin's AI panel: a failing key or an empty balance shows there.
+      try {
+        await supabase.from('assistant_errors').insert({
+          status: error.status ?? 0,
+          message: String(error.message ?? '').slice(0, 300),
+        });
+      } catch (_) {
+        // Logging must never break the answer.
+      }
       return json({ message: 'تعذر الوصول إلى المساعد.' }, 502);
     }
     return json({ message: error instanceof Error ? error.message : 'Erreur' }, 500);
