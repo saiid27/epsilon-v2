@@ -51,6 +51,7 @@ part 'screens/live_studio.dart';
 part 'screens/timetable.dart';
 part 'screens/assistant_checkout.dart';
 part 'screens/attachments.dart';
+part 'screens/ai_ops.dart';
 
 /// The language picked in settings: 'ar' (default) or 'fr'.
 String appLanguage = 'ar';
