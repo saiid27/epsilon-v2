@@ -1976,7 +1976,7 @@ class _AssistantScreenState extends State<AssistantScreen> {
                       ],
                     ),
                   ),
-                  EpsBadge('اليوم $dailyLeft% • الشهر $monthlyLeft%'),
+                  EpsBadge('اليوم $dailyLeft% • الأسبوع $monthlyLeft%'),
                 ],
               ),
             ),

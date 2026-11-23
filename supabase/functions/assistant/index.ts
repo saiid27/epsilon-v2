@@ -17,21 +17,22 @@ const corsHeaders = {
 };
 
 // Usage budget per student, in MRU (Mauritanian ouguiya) of model cost.
-// Formula: daily cap = monthly budget / 30; the cost of an answer is
-// (input tokens x input price + output tokens x output price) / 1 000 000 USD,
-// converted to MRU with the rate below.
+// The budget renews every week: the usage of the last 7 days counts against
+// the weekly cap. Daily cap = weekly cap / 7, so the week is spread out.
+// The cost of an answer is (input tokens x input price + output tokens x
+// output price) / 1 000 000 USD, converted to MRU with the rate below.
 const MRU_PER_USD = 40;
-type Tier = { monthlyMru: number };
+type Tier = { weeklyMru: number };
 const TIERS: Record<string, Tier> = {
-  // Paid plans: the student gets about two thirds of the plan price as usage.
-  basic: { monthlyMru: 100 },    // plan 150 MRU
-  standard: { monthlyMru: 200 }, // plan 300 MRU
-  pro: { monthlyMru: 300 },      // plan 450 MRU
-  // Free plan: enough to try the assistant, a few answers a day.
-  free: { monthlyMru: 3.6 },
+  // Paid plans: a week of the monthly usage (100 / 200 / 300 MRU a month).
+  basic: { weeklyMru: 23.33 },    // plan 150 MRU a month
+  standard: { weeklyMru: 46.67 }, // plan 300 MRU a month
+  pro: { weeklyMru: 70 },         // plan 450 MRU a month
+  // Free plan: enough to try the assistant, a few answers a week.
+  free: { weeklyMru: 0.84 },
 };
-const monthlyUsd = (t: Tier) => t.monthlyMru / MRU_PER_USD;
-const dailyUsd = (t: Tier) => monthlyUsd(t) / 30;
+const weeklyUsd = (t: Tier) => t.weeklyMru / MRU_PER_USD;
+const dailyUsd = (t: Tier) => weeklyUsd(t) / 7;
 // Models and prices (USD per million tokens). Sonnet is used for the modes
 // that need careful reasoning on paid plans; everything else runs on Haiku.
 const MODELS = {
@@ -169,7 +170,7 @@ Deno.serve(async (req) => {
     if ((body.image || body.document) && !attachment) {
       return json({ message: 'الملف غير صالح أو كبير جداً (الحد 7 ميغابايت).' }, 422);
     }
-    const left = Math.min(budget.dailyUsd, budget.monthlyUsd);
+    const left = Math.min(budget.dailyUsd, budget.weeklyUsd);
     if (left < MIN_LEFT_USD) {
       return json({ message: 'نفد رصيدك من الاستعمال. يتجدد الرصيد اليومي غداً.' }, 429);
     }
@@ -223,7 +224,7 @@ Deno.serve(async (req) => {
     const model = useSonnet ? MODELS.sonnet : MODELS.haiku;
     const response = await anthropic.messages.create({
       model: model.id,
-      // Never more than the student has left today and this month.
+      // Never more than the student has left today and this week.
       max_tokens: Math.max(500, Math.min(MAX_ANSWER_TOKENS, affordableOutput(left, model))),
       // Solving and correcting need careful reasoning; the rest less so.
       output_config: { effort: mode === 'solve' || mode === 'check' ? 'high' : 'medium' },
@@ -273,7 +274,7 @@ Deno.serve(async (req) => {
   }
 });
 
-type Budget = { dailyUsd: number; monthlyUsd: number };
+type Budget = { dailyUsd: number; weeklyUsd: number };
 
 /// Output tokens the balance can pay for on this model, after the typical input.
 function affordableOutput(leftUsd: number, model: { inPrice: number; outPrice: number }) {
@@ -281,8 +282,9 @@ function affordableOutput(leftUsd: number, model: { inPrice: number; outPrice: n
   return Math.floor(((leftUsd - inputCost) / model.outPrice) * 1_000_000);
 }
 
-/// Dollars left today and this month. Each answer's recorded cost counts;
-/// bonus tokens (referrals) are valued at the Sonnet price and add to the month.
+/// Dollars left today and this week (the last 7 days, today included).
+/// Each answer's recorded cost counts; bonus tokens (referrals) are valued at
+/// the Sonnet price and add to the weekly cap for the 7 days after they are granted.
 /// The season bonus multiplies both caps.
 async function remainingBudget(
   supabase: ReturnType<typeof createClient>,
@@ -291,23 +293,23 @@ async function remainingBudget(
   bonus: number,
 ): Promise<Budget> {
   const now = new Date();
-  const dayStart = now.toISOString().slice(0, 10);
-  const monthStart = `${dayStart.slice(0, 8)}01`;
+  const today = now.toISOString().slice(0, 10);
+  const weekAgo = new Date(now.getTime() - 6 * 24 * 3600 * 1000).toISOString().slice(0, 10);
   const { data: costs } = await supabase
     .from('assistant_costs')
     .select('day, cost_usd')
     .eq('user_id', userId)
-    .gte('day', monthStart);
+    .gte('day', weekAgo);
   const { data: bonuses } = await supabase
     .from('assistant_bonus')
     .select('input_tokens, output_tokens')
     .eq('user_id', userId)
-    .gte('created_at', `${monthStart}T00:00:00Z`);
-  let dayUsd = 0, monthUsd = 0, extraUsd = 0;
+    .gte('created_at', new Date(now.getTime() - 7 * 24 * 3600 * 1000).toISOString());
+  let dayUsd = 0, weekUsd = 0, extraUsd = 0;
   for (const c of costs ?? []) {
     const usd = Number(c.cost_usd ?? 0);
-    monthUsd += usd;
-    if (c.day === dayStart) dayUsd += usd;
+    weekUsd += usd;
+    if (c.day === today) dayUsd += usd;
   }
   for (const b of bonuses ?? []) {
     extraUsd +=
@@ -316,16 +318,19 @@ async function remainingBudget(
   }
   return {
     dailyUsd: dailyUsd(tier) * bonus - dayUsd,
-    monthlyUsd: monthlyUsd(tier) * bonus + extraUsd - monthUsd,
+    weeklyUsd: weeklyUsd(tier) * bonus + extraUsd - weekUsd,
   };
 }
 
-/// What the app shows: how much of today's and this month's usage is left.
+/// What the app shows: how much of today's and this week's usage is left.
 function percentLeft(b: Budget, tier: Tier, bonus: number) {
   const share = (left: number, cap: number) => Math.max(0, Math.min(1, left / cap));
+  const weekly = Math.floor(share(b.weeklyUsd, weeklyUsd(tier) * bonus) * 100);
   return {
     dailyLeftPct: Math.floor(share(b.dailyUsd, dailyUsd(tier) * bonus) * 100),
-    monthlyLeftPct: Math.floor(share(b.monthlyUsd, monthlyUsd(tier) * bonus) * 100),
+    weeklyLeftPct: weekly,
+    // Kept for older app builds, which still read this name.
+    monthlyLeftPct: weekly,
   };
 }
 
