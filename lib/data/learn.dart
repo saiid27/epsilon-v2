@@ -685,6 +685,7 @@ class LearnRepository {
   Future<List<EpsSubscription>> requestSubscriptions({
     required String studentId,
     required List<EpsSubject> subjects,
+    Map<String, int>? amounts,
     required EpsPlan plan,
     required String? paymentMethodId,
     required String receiptUrl,
@@ -696,7 +697,7 @@ class LearnRepository {
           'student_id': studentId,
           'subject_id': subject.id,
           'plan_code': plan.code,
-          'amount': plan.priceFor(subject.monthlyPrice),
+          'amount': plan.priceFor(amounts?[subject.id] ?? subject.monthlyPrice),
           'payment_method_id': paymentMethodId,
           'receipt_url': receiptUrl,
           'transaction_ref': transactionRef,
@@ -1625,6 +1626,17 @@ class LearnStore extends ChangeNotifier {
       subjects = (results[1]! as List<EpsSubject>)
           .where((s) => s.isActive)
           .toList();
+      try {
+        final rows = await repo.client
+            .from('courses')
+            .select('id, bundle_price');
+        sectionBundles = {
+          for (final r in rows as List)
+            '${r['id']}': (r['bundle_price'] as num?)?.toInt() ?? 0,
+        };
+      } on Object {
+        sectionBundles = {};
+      }
       teachers = results[2]! as List<EpsTeacher>;
       _setPlans(results[3]! as List<EpsPlan>);
       subscriptions = results[4]! as List<EpsSubscription>;
@@ -1807,8 +1819,44 @@ class LearnStore extends ChangeNotifier {
       if (cart.contains(s.id)) s,
   ];
 
-  int get cartMonthlyTotal =>
-      cartSubjects.fold(0, (sum, s) => sum + s.monthlyPrice);
+  /// Bundle price of each section (course id -> MRU a month). A section whose
+  /// subjects are all in the cart pays this price instead of the sum.
+  Map<String, int> sectionBundles = {};
+
+  /// What each subject in the cart costs this month. A complete section pays
+  /// its bundle price, split between its subjects by their price.
+  Map<String, int> get cartAmounts {
+    final out = <String, int>{
+      for (final s in cartSubjects) s.id: s.monthlyPrice,
+    };
+    final byCourse = <String, List<EpsSubject>>{};
+    for (final s in cartSubjects) {
+      final c = s.courseId;
+      if (c != null) byCourse.putIfAbsent(c, () => []).add(s);
+    }
+    for (final entry in byCourse.entries) {
+      final bundle = sectionBundles[entry.key] ?? 0;
+      final allInSection = subjects
+          .where((s) => s.courseId == entry.key)
+          .length;
+      if (bundle <= 0 || entry.value.length < allInSection) continue;
+      final sum = entry.value.fold<int>(0, (a, s) => a + s.monthlyPrice);
+      var left = bundle;
+      for (var i = 0; i < entry.value.length; i++) {
+        final s = entry.value[i];
+        final share = i == entry.value.length - 1
+            ? left
+            : (sum == 0
+                  ? bundle ~/ entry.value.length
+                  : (bundle * s.monthlyPrice / sum).round());
+        out[s.id] = share;
+        left -= share;
+      }
+    }
+    return out;
+  }
+
+  int get cartMonthlyTotal => cartAmounts.values.fold(0, (sum, v) => sum + v);
 
   Future<void> submitPayment({
     required String? paymentMethodId,
@@ -1825,7 +1873,7 @@ class LearnStore extends ChangeNotifier {
                 'EPS-${DateTime.now().millisecondsSinceEpoch % 1000000}',
             'subject_id': s.id,
             'plan_code': plan.code,
-            'amount': plan.priceFor(s.monthlyPrice),
+            'amount': plan.priceFor(cartAmounts[s.id] ?? s.monthlyPrice),
             'status': 'pending',
           }),
       ];
@@ -1841,6 +1889,7 @@ class LearnStore extends ChangeNotifier {
     lastRequest = await repo.requestSubscriptions(
       studentId: userId!,
       subjects: cartSubjects,
+      amounts: cartAmounts,
       plan: plan,
       paymentMethodId: paymentMethodId,
       receiptUrl: receiptUrl,

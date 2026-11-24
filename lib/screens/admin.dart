@@ -771,7 +771,7 @@ class _AdminConsoleState extends State<AdminConsole> {
         subtitle: [
           if ('${s['level']}'.isNotEmpty) '${s['level']}',
           if ('${s['faculty']}'.isNotEmpty) '${s['faculty']}',
-          'MRU ${formatMru((s['monthly_price'] as num?)?.toInt() ?? 0)} / سنة',
+          'MRU ${formatMru((s['monthly_price'] as num?)?.toInt() ?? 0)} / شهر',
           teacherOptions['${s['teacher_id']}'] ?? 'بدون أستاذ',
         ].join(' • '),
         badges: [
