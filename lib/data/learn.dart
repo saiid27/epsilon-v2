@@ -297,17 +297,20 @@ class EpsChatGroup {
   EpsChatGroup.fromRow(Map<String, dynamic> r)
     : id = _str(r['id']),
       subjectId = _str(r['subject_id']),
-      locked = _bool(r['locked']);
+      locked = _bool(r['locked']),
+      starred = _bool(r['starred']);
 
   final String id;
   final String subjectId;
   final bool locked;
+  final bool starred;
 }
 
 /// One message in a subject's chat group.
 class EpsChatMessage {
   EpsChatMessage.fromRow(Map<String, dynamic> r)
     : id = _str(r['id']),
+      groupId = _str(r['group_id']),
       senderId = _str(r['sender_id']),
       senderName = _str(r['sender_name']),
       body = _str(r['body']),
@@ -317,6 +320,7 @@ class EpsChatMessage {
       createdAt = _date(r['created_at']) ?? DateTime.now().toUtc();
 
   final String id;
+  final String groupId;
   final String senderId;
   final String senderName;
   final String body;
@@ -1286,6 +1290,36 @@ class LearnRepository {
       'user_id': userId,
       'emoji': emoji,
     }, onConflict: 'message_id,user_id');
+  }
+
+  /// The chat groups of some subjects (a group may not exist yet).
+  Future<List<EpsChatGroup>> chatGroupsFor(List<String> subjectIds) async {
+    if (subjectIds.isEmpty) return [];
+    final rows = await client
+        .from('chat_groups')
+        .select()
+        .inFilter('subject_id', subjectIds);
+    return _list(rows).map(EpsChatGroup.fromRow).toList();
+  }
+
+  /// The latest messages of some groups, newest first (used for previews).
+  Future<List<EpsChatMessage>> latestChatMessages(List<String> groupIds) async {
+    if (groupIds.isEmpty) return [];
+    final rows = await client
+        .from('chat_messages')
+        .select()
+        .inFilter('group_id', groupIds)
+        .order('created_at', ascending: false)
+        .limit(300);
+    return _list(rows).map(EpsChatMessage.fromRow).toList();
+  }
+
+  /// Teacher only: put the group first in the students' list, or take it back.
+  Future<void> setChatStarred(String groupId, bool starred) async {
+    await client
+        .from('chat_groups')
+        .update({'starred': starred})
+        .eq('id', groupId);
   }
 
   /// Teacher only: lock the group (students cannot post) or unlock it.

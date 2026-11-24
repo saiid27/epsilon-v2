@@ -61,10 +61,23 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
       me?.role == UserRole.teacher || me?.role == UserRole.admin;
 
   Future<void> load() async {
+    // Show the kept messages at once, then update them from the server.
+    final cachedGroup = group?.id ?? await _cachedGroupId();
+    if (cachedGroup != null && messages.isEmpty) {
+      final cached = await ChatCache.load(cachedGroup);
+      if (cached.isNotEmpty && mounted) {
+        setState(() {
+          messages = cached;
+          loading = false;
+        });
+        scrollToEnd();
+      }
+    }
     try {
       final g = await repo.chatGroupFor(widget.subjectId);
       final list = await repo.chatMessages(g.id);
       final r = await repo.chatReactions([for (final m in list) m.id]);
+      await ChatCache.save(g.id, list);
       if (mounted) {
         setState(() {
           group = g;
@@ -82,6 +95,15 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
           error = 'تعذر فتح المجموعة: ${friendlyApiError(e)}';
         });
       }
+    }
+  }
+
+  Future<String?> _cachedGroupId() async {
+    try {
+      final g = await repo.chatGroupFor(widget.subjectId);
+      return g.id;
+    } on Object {
+      return null;
     }
   }
 

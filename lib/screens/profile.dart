@@ -370,6 +370,12 @@ class ProfileTab extends StatelessWidget {
               ),
             ),
             _MenuRow(
+              icon: Icons.forum_outlined,
+              title: 'محادثات موادي',
+              subtitle: 'مجموعات مواد قسمك، والمحادثات محفوظة على هاتفك',
+              onTap: () => pushPage(context, const ChatListScreen()),
+            ),
+            _MenuRow(
               icon: Icons.calendar_month_outlined,
               title: 'جدولي الجامعي',
               subtitle: 'حصص غداً تُرسل لك كل ليلة الساعة 9 مساءً',
