@@ -312,6 +312,8 @@ class EpsChatMessage {
       senderName = _str(r['sender_name']),
       body = _str(r['body']),
       imageUrl = _str(r['image_url']),
+      audioUrl = _str(r['audio_url']),
+      audioSeconds = (r['audio_seconds'] as num?)?.toInt() ?? 0,
       createdAt = _date(r['created_at']) ?? DateTime.now().toUtc();
 
   final String id;
@@ -319,7 +321,21 @@ class EpsChatMessage {
   final String senderName;
   final String body;
   final String imageUrl;
+  final String audioUrl;
+  final int audioSeconds;
   final DateTime createdAt;
+}
+
+/// One emoji reaction on a chat message (one per user and message).
+class EpsChatReaction {
+  EpsChatReaction.fromRow(Map<String, dynamic> r)
+    : messageId = _str(r['message_id']),
+      userId = _str(r['user_id']),
+      emoji = _str(r['emoji']);
+
+  final String messageId;
+  final String userId;
+  final String emoji;
 }
 
 class EpsStudentFile {
@@ -1203,6 +1219,72 @@ class LearnRepository {
       'body': body.trim(),
       'image_url': url,
     });
+  }
+
+  /// A voice note: the audio file, then the message that points to it.
+  Future<void> sendChatVoice({
+    required String groupId,
+    required String senderId,
+    required String senderName,
+    required Uint8List bytes,
+    required int seconds,
+    required String extension,
+  }) async {
+    final ext = extension.toLowerCase();
+    final mime = switch (ext) {
+      'webm' => 'audio/webm',
+      'ogg' => 'audio/ogg',
+      'wav' => 'audio/wav',
+      _ => 'audio/mp4',
+    };
+    final path = '$groupId/${DateTime.now().millisecondsSinceEpoch}.$ext';
+    final bucket = client.storage.from('chat-audio');
+    await bucket.uploadBinary(
+      path,
+      bytes,
+      fileOptions: FileOptions(contentType: mime, upsert: false),
+    );
+    await client.from('chat_messages').insert({
+      'group_id': groupId,
+      'sender_id': senderId,
+      'sender_name': senderName,
+      'body': '',
+      'audio_url': bucket.getPublicUrl(path),
+      'audio_seconds': seconds,
+    });
+  }
+
+  /// The reactions of some messages (one query for the whole list).
+  Future<List<EpsChatReaction>> chatReactions(List<String> messageIds) async {
+    if (messageIds.isEmpty) return [];
+    final rows = await client
+        .from('chat_reactions')
+        .select()
+        .inFilter('message_id', messageIds);
+    return _list(rows).map(EpsChatReaction.fromRow).toList();
+  }
+
+  /// Tap an emoji: adds it, or removes it when it is the same one again.
+  /// A user has one reaction per message, so a new emoji replaces the old.
+  Future<void> toggleChatReaction({
+    required String messageId,
+    required String userId,
+    required String emoji,
+    required bool removeSame,
+  }) async {
+    if (removeSame) {
+      await client
+          .from('chat_reactions')
+          .delete()
+          .eq('message_id', messageId)
+          .eq('user_id', userId);
+      return;
+    }
+    await client.from('chat_reactions').upsert({
+      'message_id': messageId,
+      'user_id': userId,
+      'emoji': emoji,
+    }, onConflict: 'message_id,user_id');
   }
 
   /// Teacher only: lock the group (students cannot post) or unlock it.
