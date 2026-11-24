@@ -523,12 +523,34 @@ class _CourseScreenState extends State<CourseScreen> {
               children: [
                 EpsPageHeader(
                   title: subject.name,
-                  action: EpsIconButton(
-                    icon: Icons.notifications_none_rounded,
-                    iconSize: 21,
-                    tooltip: 'الإشعارات',
-                    onTap: () =>
-                        pushPage(context, const StudentNotificationsPage()),
+                  action: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (learn.hasAccess(subject.id) ||
+                          StoreScope.of(context).currentUser?.role ==
+                              UserRole.teacher ||
+                          StoreScope.of(context).currentUser?.role ==
+                              UserRole.admin)
+                        EpsIconButton(
+                          icon: Icons.forum_outlined,
+                          iconSize: 21,
+                          tooltip: 'مجموعة المادة',
+                          onTap: () => pushPage(
+                            context,
+                            GroupChatScreen(
+                              subjectId: subject.id,
+                              subjectName: subject.name,
+                            ),
+                          ),
+                        ),
+                      EpsIconButton(
+                        icon: Icons.notifications_none_rounded,
+                        iconSize: 21,
+                        tooltip: 'الإشعارات',
+                        onTap: () =>
+                            pushPage(context, const StudentNotificationsPage()),
+                      ),
+                    ],
                   ),
                 ),
                 Container(

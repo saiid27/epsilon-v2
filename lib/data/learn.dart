@@ -292,6 +292,36 @@ class EpsAttachment {
   bool get isImage => kind == 'image';
 }
 
+/// The chat group of one subject (one per subject).
+class EpsChatGroup {
+  EpsChatGroup.fromRow(Map<String, dynamic> r)
+    : id = _str(r['id']),
+      subjectId = _str(r['subject_id']),
+      locked = _bool(r['locked']);
+
+  final String id;
+  final String subjectId;
+  final bool locked;
+}
+
+/// One message in a subject's chat group.
+class EpsChatMessage {
+  EpsChatMessage.fromRow(Map<String, dynamic> r)
+    : id = _str(r['id']),
+      senderId = _str(r['sender_id']),
+      senderName = _str(r['sender_name']),
+      body = _str(r['body']),
+      imageUrl = _str(r['image_url']),
+      createdAt = _date(r['created_at']) ?? DateTime.now().toUtc();
+
+  final String id;
+  final String senderId;
+  final String senderName;
+  final String body;
+  final String imageUrl;
+  final DateTime createdAt;
+}
+
 class EpsStudentFile {
   EpsStudentFile.fromRow(Map<String, dynamic> r)
     : id = _str(r['id']),
@@ -1115,6 +1145,72 @@ class LearnRepository {
 
   Future<void> deleteAttachment(String id) async {
     await client.from('lesson_attachments').delete().eq('id', id);
+  }
+
+  /// The chat group of a subject, created the first time it is needed.
+  Future<EpsChatGroup> chatGroupFor(String subjectId) async {
+    final row = await client
+        .from('chat_groups')
+        .upsert({'subject_id': subjectId}, onConflict: 'subject_id')
+        .select()
+        .single();
+    return EpsChatGroup.fromRow(Map<String, dynamic>.from(row));
+  }
+
+  /// Messages of a group, or only the ones after [after] when polling.
+  Future<List<EpsChatMessage>> chatMessages(
+    String groupId, {
+    DateTime? after,
+  }) async {
+    var query = client.from('chat_messages').select().eq('group_id', groupId);
+    if (after != null) {
+      query = query.gt('created_at', after.toUtc().toIso8601String());
+    }
+    final rows = await query.order('created_at').limit(300);
+    return _list(rows).map(EpsChatMessage.fromRow).toList();
+  }
+
+  Future<void> sendChatMessage({
+    required String groupId,
+    required String senderId,
+    required String senderName,
+    required String body,
+    Uint8List? image,
+    String? imageName,
+  }) async {
+    var url = '';
+    if (image != null) {
+      final ext = (imageName ?? 'jpg').split('.').last.toLowerCase();
+      final mime = switch (ext) {
+        'png' => 'image/png',
+        'webp' => 'image/webp',
+        _ => 'image/jpeg',
+      };
+      final path =
+          '$groupId/${DateTime.now().millisecondsSinceEpoch}.${ext == 'png' || ext == 'webp' ? ext : 'jpg'}';
+      final bucket = client.storage.from('chat-images');
+      await bucket.uploadBinary(
+        path,
+        image,
+        fileOptions: FileOptions(contentType: mime, upsert: false),
+      );
+      url = bucket.getPublicUrl(path);
+    }
+    await client.from('chat_messages').insert({
+      'group_id': groupId,
+      'sender_id': senderId,
+      'sender_name': senderName,
+      'body': body.trim(),
+      'image_url': url,
+    });
+  }
+
+  /// Teacher only: lock the group (students cannot post) or unlock it.
+  Future<void> setChatLocked(String groupId, bool locked) async {
+    await client
+        .from('chat_groups')
+        .update({'locked': locked})
+        .eq('id', groupId);
   }
 
   Future<void> deleteTimetableItem(String id) async {

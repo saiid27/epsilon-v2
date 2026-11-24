@@ -52,6 +52,7 @@ part 'screens/timetable.dart';
 part 'screens/assistant_checkout.dart';
 part 'screens/attachments.dart';
 part 'screens/ai_ops.dart';
+part 'screens/group_chat.dart';
 
 /// The language picked in settings: 'ar' (default) or 'fr'.
 String appLanguage = 'ar';
