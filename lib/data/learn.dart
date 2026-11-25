@@ -316,12 +316,14 @@ class EpsChatGroup {
     : id = _str(r['id']),
       subjectId = _str(r['subject_id']),
       locked = _bool(r['locked']),
-      starred = _bool(r['starred']);
+      starred = _bool(r['starred']),
+      pinnedId = r['pinned_message_id'] as String?;
 
   final String id;
   final String subjectId;
   final bool locked;
   final bool starred;
+  final String? pinnedId;
 }
 
 /// One message in a subject's chat group.
@@ -1449,6 +1451,14 @@ class LearnRepository {
         .order('created_at', ascending: false)
         .limit(300);
     return _list(rows).map(EpsChatMessage.fromRow).toList();
+  }
+
+  /// Teacher only: pin a message at the top of the group, or unpin it (null).
+  Future<void> setPinnedMessage(String groupId, String? messageId) async {
+    await client
+        .from('chat_groups')
+        .update({'pinned_message_id': messageId})
+        .eq('id', groupId);
   }
 
   /// Teacher only: put the group first in the students' list, or take it back.

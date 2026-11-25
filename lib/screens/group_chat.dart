@@ -83,6 +83,77 @@ class _GroupChatScreenState extends State<_GroupChatBody> {
   bool get isStaff =>
       me?.role == UserRole.teacher || me?.role == UserRole.admin;
 
+  /// Pins a message at the top of the group, or unpins it when it is already pinned.
+  Future<void> pinMessage(EpsChatMessage m) async {
+    final g0 = group;
+    if (g0 == null) return;
+    final unpin = g0.pinnedId == m.id;
+    try {
+      await repo.setPinnedMessage(g0.id, unpin ? null : m.id);
+      await load();
+    } on Object catch (e) {
+      if (mounted) setState(() => error = friendlyApiError(e));
+    }
+  }
+
+  /// The pinned message bar: tap to read the message in full.
+  Widget pinnedBar() {
+    final id = group?.pinnedId;
+    if (id == null) return const SizedBox.shrink();
+    final m = messages.where((x) => x.id == id).firstOrNull;
+    if (m == null) return const SizedBox.shrink();
+    final preview = m.body.isNotEmpty
+        ? m.body
+        : (m.imageUrl.isNotEmpty
+              ? 'صورة'
+              : (m.videoUrl.isNotEmpty ? 'فيديو' : 'رسالة صوتية'));
+    return GestureDetector(
+      onTap: () => showDialog<void>(
+        context: context,
+        builder: (c) => AlertDialog(
+          title: Text(m.senderName),
+          content: Text(m.body.isNotEmpty ? m.body : preview),
+        ),
+      ),
+      child: Container(
+        margin: const EdgeInsets.fromLTRB(10, 4, 10, 4),
+        padding: const EdgeInsets.fromLTRB(10, 6, 8, 6),
+        decoration: BoxDecoration(
+          color: _bar,
+          borderRadius: BorderRadius.circular(10),
+          border: Border(left: BorderSide(color: _accent, width: 4)),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.push_pin_rounded, size: 16, color: _accent),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'رسالة مثبتة • ${m.senderName}',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: _accent,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  Text(
+                    preview,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(fontSize: 12, color: _muted),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   /// Attach a photo, a video from the gallery, or record a video now.
   void pickAttachment() {
     showModalBottomSheet<void>(
@@ -376,6 +447,21 @@ class _GroupChatScreenState extends State<_GroupChatBody> {
                 icon: Icon(Icons.reply_rounded),
                 label: Text('رد'),
               ),
+              if (isStaff)
+                TextButton.icon(
+                  onPressed: () {
+                    Navigator.pop(c);
+                    pinMessage(m);
+                  },
+                  icon: Icon(
+                    group?.pinnedId == m.id
+                        ? Icons.push_pin_outlined
+                        : Icons.push_pin_rounded,
+                  ),
+                  label: Text(
+                    group?.pinnedId == m.id ? 'إلغاء التثبيت' : 'تثبيت',
+                  ),
+                ),
               for (final e in _reactionEmojis)
                 InkWell(
                   onTap: () {
@@ -622,6 +708,7 @@ class _GroupChatScreenState extends State<_GroupChatBody> {
                 ],
               ),
             ),
+            if (!lockedOut) pinnedBar(),
             if (lockedOut)
               Expanded(
                 child: Center(
