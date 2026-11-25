@@ -61,7 +61,17 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
   bool get isStaff =>
       me?.role == UserRole.teacher || me?.role == UserRole.admin;
 
+  bool get lockedOut {
+    final learn = LearnScope.read(context);
+    return !isStaff && !learn.hasAccess(widget.subjectId);
+  }
+
   Future<void> load() async {
+    // A student who did not subscribe to the subject cannot open its group.
+    if (lockedOut) {
+      if (mounted) setState(() => loading = false);
+      return;
+    }
     // Show the kept messages at once, then update them from the server.
     final cachedGroup = group?.id ?? await _cachedGroupId();
     if (cachedGroup != null && messages.isEmpty) {
@@ -419,7 +429,24 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
                 ],
               ),
             ),
-            if (loading)
+            if (lockedOut)
+              const Expanded(
+                child: Center(
+                  child: Padding(
+                    padding: EdgeInsets.all(24),
+                    child: Text(
+                      'هذه المجموعة للمشتركين في المادة. اشترك فيها لفتحها وطرح أسئلتك.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: _muted,
+                        height: 1.6,
+                      ),
+                    ),
+                  ),
+                ),
+              )
+            else if (loading)
               const Expanded(child: Center(child: CircularProgressIndicator()))
             else
               Expanded(

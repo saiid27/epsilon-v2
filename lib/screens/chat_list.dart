@@ -79,18 +79,22 @@ class _ChatListScreenState extends State<ChatListScreen> {
     final user = store.currentUser;
     final staff =
         user?.role == UserRole.teacher || user?.role == UserRole.admin;
-    final subjectIds = [
+    // Every subject's group is listed; only the subscribed ones are opened.
+    final subjectIds = [for (final s in learn.subjects) s.id];
+    final openIds = {
       for (final s in learn.subjects)
         if (staff || learn.hasAccess(s.id)) s.id,
-    ];
+    };
     setState(() {
       loading = true;
       error = '';
     });
     try {
       final gs = await learn.repo.chatGroupsFor(subjectIds);
+      // Previews only for the groups this student can open.
       final ms = await learn.repo.latestChatMessages([
-        for (final g in gs) g.id,
+        for (final g in gs)
+          if (openIds.contains(g.subjectId)) g.id,
       ]);
       final last = <String, EpsChatMessage>{};
       for (final m in ms) {
@@ -129,10 +133,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
     final user = store.currentUser;
     final staff =
         user?.role == UserRole.teacher || user?.role == UserRole.admin;
-    final subjects = [
-      for (final s in learn.subjects)
-        if (staff || learn.hasAccess(s.id)) s,
-    ];
+    final subjects = [...learn.subjects];
     // Sections, each with its subjects. Starred groups first inside a section.
     final bySection = <String?, List<EpsSubject>>{};
     for (final s in subjects) {
@@ -184,6 +185,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
                 last: latest[groups[s.id]?.id ?? ''],
                 timeText: timeText,
                 staff: staff,
+                locked: !staff && !learn.hasAccess(s.id),
                 onStar: () async {
                   final g = groups[s.id];
                   if (g == null) return;
@@ -206,7 +208,12 @@ class _ChatRow extends StatelessWidget {
     required this.timeText,
     required this.staff,
     required this.onStar,
+    this.locked = false,
   });
+
+  /// True when the student has not subscribed to the subject: the group is
+  /// listed, but it cannot be opened.
+  final bool locked;
 
   final EpsSubject subject;
   final EpsChatGroup? group;
@@ -218,7 +225,9 @@ class _ChatRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final starred = group?.starred ?? false;
-    final preview = last == null
+    final preview = locked
+        ? 'مقفلة. اشترك في المادة لفتحها'
+        : last == null
         ? 'لا توجد رسائل بعد'
         : (last!.audioUrl.isNotEmpty
               ? 'رسالة صوتية'
@@ -228,10 +237,20 @@ class _ChatRow extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: FlatCard(
-        onTap: () => pushPage(
-          context,
-          GroupChatScreen(subjectId: subject.id, subjectName: subject.name),
-        ),
+        onTap: () {
+          if (locked) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('اشترك في هذه المادة لفتح مجموعتها.'),
+              ),
+            );
+            return;
+          }
+          pushPage(
+            context,
+            GroupChatScreen(subjectId: subject.id, subjectName: subject.name),
+          );
+        },
         padding: const EdgeInsets.all(12),
         child: Row(
           children: [
@@ -253,6 +272,15 @@ class _ChatRow extends StatelessWidget {
                 children: [
                   Row(
                     children: [
+                      if (locked)
+                        const Padding(
+                          padding: EdgeInsetsDirectional.only(end: 4),
+                          child: Icon(
+                            Icons.lock_rounded,
+                            size: 15,
+                            color: Eps.muted,
+                          ),
+                        ),
                       if (starred)
                         const Padding(
                           padding: EdgeInsetsDirectional.only(end: 4),
@@ -274,7 +302,7 @@ class _ChatRow extends StatelessWidget {
                           ),
                         ),
                       ),
-                      if (last != null)
+                      if (last != null && !locked)
                         Text(
                           timeText(last!.createdAt),
                           style: const TextStyle(fontSize: 9, color: Eps.muted),
