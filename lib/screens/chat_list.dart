@@ -53,6 +53,22 @@ class ChatCache {
   }
 }
 
+/// The groups a user sees: a teacher or admin sees all of them. A student sees
+/// the subjects of the sections they subscribed to (a section is chosen by
+/// subscribing to one of its subjects); the groups they did not subscribe to
+/// are listed with a lock.
+List<EpsSubject> visibleChatSubjects(LearnStore learn, bool staff) {
+  if (staff) return [...learn.subjects];
+  final mySections = <String?>{
+    for (final s in learn.subjects)
+      if (learn.hasAccess(s.id)) s.courseId,
+  };
+  return [
+    for (final s in learn.subjects)
+      if (mySections.contains(s.courseId)) s,
+  ];
+}
+
 /// The student's subject chats, grouped by section. Starred groups come first.
 class ChatListScreen extends StatefulWidget {
   const ChatListScreen({super.key});
@@ -79,10 +95,11 @@ class _ChatListScreenState extends State<ChatListScreen> {
     final user = store.currentUser;
     final staff =
         user?.role == UserRole.teacher || user?.role == UserRole.admin;
-    // Every subject's group is listed; only the subscribed ones are opened.
-    final subjectIds = [for (final s in learn.subjects) s.id];
+    // Only the groups of the student's sections; the ones not subscribed are locked.
+    final visible = visibleChatSubjects(learn, staff);
+    final subjectIds = [for (final s in visible) s.id];
     final openIds = {
-      for (final s in learn.subjects)
+      for (final s in visible)
         if (staff || learn.hasAccess(s.id)) s.id,
     };
     setState(() {
@@ -133,7 +150,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
     final user = store.currentUser;
     final staff =
         user?.role == UserRole.teacher || user?.role == UserRole.admin;
-    final subjects = [...learn.subjects];
+    final subjects = visibleChatSubjects(learn, staff);
     // Sections, each with its subjects. Starred groups first inside a section.
     final bySection = <String?, List<EpsSubject>>{};
     for (final s in subjects) {
@@ -166,7 +183,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
           const Padding(
             padding: EdgeInsets.all(20),
             child: Text(
-              'اشترك في مادة لتظهر مجموعتها هنا.',
+              'اشترك في مادة من قسمك لتظهر مجموعات قسمك هنا.',
               style: TextStyle(fontSize: 10, color: Eps.muted),
             ),
           )
