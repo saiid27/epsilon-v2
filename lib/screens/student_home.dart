@@ -1,7 +1,7 @@
 part of '../main.dart';
 
-/// Student app shell with the five-tab bottom navigation (Figma: home,
-/// subjects, live, quizzes, profile).
+/// Student app shell with the bottom navigation: home, subjects, live,
+/// groups, quizzes, profile.
 class StudentShell extends StatefulWidget {
   const StudentShell({super.key});
 
@@ -61,6 +61,7 @@ class StudentShellState extends State<StudentShell> {
       const StudentHomeTab(),
       const MySubjectsTab(),
       const LiveTab(),
+      const ChatListScreen(),
       const QuizzesTab(),
       const ProfileTab(),
     ];
@@ -84,6 +85,7 @@ class StudentShellState extends State<StudentShell> {
             Icons.sensors_rounded,
             dot: hasLive,
           ),
+          EpsNavItem(tr('المجموعات', 'Groupes'), Icons.forum_outlined),
           EpsNavItem(tr('الاختبارات', 'Quiz'), Icons.sports_esports_outlined),
           EpsNavItem(tr('حسابي', 'Compte'), Icons.person_outline_rounded),
         ],
@@ -430,7 +432,7 @@ class _StudentHomeTabState extends State<StudentHomeTab> {
             _HomeHead(
               name: firstName(user.name),
               unread: learn.unreadNotices,
-              onProfile: () => shell?.goTab(4),
+              onProfile: () => shell?.goTab(5),
               onBell: () => pushPage(context, const StudentNotificationsPage()),
             ),
             if (!learn.isSubscribed) ...[

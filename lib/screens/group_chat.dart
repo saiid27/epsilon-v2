@@ -54,6 +54,8 @@ class _GroupChatScreenState extends State<_GroupChatBody> {
   bool sending = false;
   String error = '';
   Timer? poll;
+  Timer? presence;
+  int online = 0;
 
   @override
   void initState() {
@@ -63,11 +65,29 @@ class _GroupChatScreenState extends State<_GroupChatBody> {
       await load();
       // New messages arrive every few seconds without leaving the screen.
       poll = Timer.periodic(Duration(seconds: 4), (_) => refresh());
+      // Presence: this user is shown in the group, and the count of people is kept fresh.
+      presence = Timer.periodic(Duration(minutes: 1), (_) => beat());
+      beat();
     });
   }
 
   @override
+  Future<void> beat() async {
+    final g0 = group;
+    final user = me;
+    if (g0 == null || user == null || !mounted) return;
+    try {
+      await repo.touchPresence(g0.id, user.id);
+      final n = await repo.onlineCount(g0.id);
+      if (mounted) setState(() => online = n);
+    } on Object {
+      // Presence is a convenience; a missed beat is retried next minute.
+    }
+  }
+
+  @override
   void dispose() {
+    presence?.cancel();
     poll?.cancel();
     recorder.dispose();
     player.dispose();
@@ -681,7 +701,7 @@ class _GroupChatScreenState extends State<_GroupChatBody> {
                             ),
                           ),
                           Text(
-                            locked ? 'مقفلة • الأستاذ يتكلم' : 'مفتوحة للأسئلة',
+                            '${online > 0 ? '$online متصل • ' : ''}${locked ? 'مقفلة • الأستاذ يتكلم' : 'مفتوحة للأسئلة'}',
                             style: TextStyle(color: _muted, fontSize: 11),
                           ),
                         ],
@@ -834,7 +854,7 @@ class _GroupChatScreenState extends State<_GroupChatBody> {
               ),
             if (canPost && group != null)
               Padding(
-                padding: EdgeInsets.fromLTRB(8, 4, 8, 10),
+                padding: EdgeInsets.fromLTRB(8, 4, 8, 22),
                 child: Row(
                   children: [
                     Expanded(

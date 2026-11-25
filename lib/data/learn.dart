@@ -1453,6 +1453,28 @@ class LearnRepository {
     return _list(rows).map(EpsChatMessage.fromRow).toList();
   }
 
+  /// Marks this user as present in the group (called about once a minute).
+  Future<void> touchPresence(String groupId, String userId) async {
+    await client.from('chat_presence').upsert({
+      'group_id': groupId,
+      'user_id': userId,
+      'seen_at': DateTime.now().toUtc().toIso8601String(),
+    }, onConflict: 'group_id,user_id');
+  }
+
+  /// How many people were in the group in the last two minutes.
+  Future<int> onlineCount(String groupId) async {
+    final since = DateTime.now().toUtc().subtract(const Duration(minutes: 2));
+    final rows = _list(
+      await client
+          .from('chat_presence')
+          .select('user_id')
+          .eq('group_id', groupId)
+          .gte('seen_at', since.toIso8601String()),
+    );
+    return rows.length;
+  }
+
   /// Teacher only: pin a message at the top of the group, or unpin it (null).
   Future<void> setPinnedMessage(String groupId, String? messageId) async {
     await client
