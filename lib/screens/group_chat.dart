@@ -4,7 +4,8 @@ const _reactionEmojis = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
 
 /// The chat group of one subject, like a WhatsApp group. The teacher posts
 /// text and images, and can lock the group; students ask while it is open.
-class GroupChatScreen extends StatefulWidget {
+/// The chat screen: applies the chosen look (colours and font) to everything in it.
+class GroupChatScreen extends StatelessWidget {
   const GroupChatScreen({
     required this.subjectId,
     required this.subjectName,
@@ -15,10 +16,28 @@ class GroupChatScreen extends StatefulWidget {
   final String subjectName;
 
   @override
-  State<GroupChatScreen> createState() => _GroupChatScreenState();
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<ChatLook>(
+      valueListenable: chatLook,
+      builder: (context, look, _) => DefaultTextStyle(
+        style: look.textStyle,
+        child: _GroupChatBody(subjectId: subjectId, subjectName: subjectName),
+      ),
+    );
+  }
 }
 
-class _GroupChatScreenState extends State<GroupChatScreen> {
+class _GroupChatBody extends StatefulWidget {
+  const _GroupChatBody({required this.subjectId, required this.subjectName});
+
+  final String subjectId;
+  final String subjectName;
+
+  @override
+  State<_GroupChatBody> createState() => _GroupChatScreenState();
+}
+
+class _GroupChatScreenState extends State<_GroupChatBody> {
   final input = TextEditingController();
   final scroll = ScrollController();
   EpsChatGroup? group;
@@ -39,10 +58,11 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
   @override
   void initState() {
     super.initState();
+    loadChatLook();
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       await load();
       // New messages arrive every few seconds without leaving the screen.
-      poll = Timer.periodic(const Duration(seconds: 4), (_) => refresh());
+      poll = Timer.periodic(Duration(seconds: 4), (_) => refresh());
     });
   }
 
@@ -63,6 +83,36 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
   bool get isStaff =>
       me?.role == UserRole.teacher || me?.role == UserRole.admin;
 
+  /// Choose the look of the chat: dark (Tajawal), day (Cairo), or pinned (Almarai).
+  void pickLook() {
+    showModalBottomSheet<void>(
+      context: context,
+      builder: (c) => SafeArea(
+        child: ValueListenableBuilder<ChatLook>(
+          valueListenable: chatLook,
+          builder: (c2, current, _) => Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              for (final look in ChatLook.all)
+                ListTile(
+                  leading: CircleAvatar(backgroundColor: look.accent),
+                  title: Text(look.title),
+                  subtitle: Text(look.font),
+                  trailing: current.id == look.id
+                      ? const Icon(Icons.check_rounded, color: Eps.blue)
+                      : null,
+                  onTap: () {
+                    saveChatLook(look);
+                    Navigator.pop(c);
+                  },
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   /// The class: every student with an active subscription to this subject.
   Future<void> showMembers() async {
     final members = await repo.subjectStudents(widget.subjectId);
@@ -73,13 +123,13 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
       builder: (c) => SafeArea(
         child: ListView(
           shrinkWrap: true,
-          padding: const EdgeInsets.all(12),
+          padding: EdgeInsets.all(12),
           children: [
             Padding(
-              padding: const EdgeInsets.fromLTRB(4, 4, 4, 10),
+              padding: EdgeInsets.fromLTRB(4, 4, 4, 10),
               child: Text(
                 'أفراد المجموعة (${members.length})',
-                style: const TextStyle(
+                style: TextStyle(
                   color: Colors.white,
                   fontSize: 15,
                   fontWeight: FontWeight.w800,
@@ -87,7 +137,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
               ),
             ),
             if (members.isEmpty)
-              const Padding(
+              Padding(
                 padding: EdgeInsets.all(12),
                 child: Text(
                   'لا يوجد طلاب مشتركون بعد.',
@@ -97,10 +147,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
             for (final m in members)
               ListTile(
                 leading: _Avatar(name: m.name, photo: m.photo, radius: 20),
-                title: Text(
-                  m.name,
-                  style: const TextStyle(color: Colors.white),
-                ),
+                title: Text(m.name, style: TextStyle(color: Colors.white)),
               ),
           ],
         ),
@@ -226,7 +273,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
       context: context,
       builder: (c) => SafeArea(
         child: Padding(
-          padding: const EdgeInsets.all(16),
+          padding: EdgeInsets.all(16),
           child: Wrap(
             alignment: WrapAlignment.center,
             spacing: 14,
@@ -237,8 +284,8 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
                   Navigator.pop(c);
                   setState(() => replyingTo = m);
                 },
-                icon: const Icon(Icons.reply_rounded),
-                label: const Text('رد'),
+                icon: Icon(Icons.reply_rounded),
+                label: Text('رد'),
               ),
               for (final e in _reactionEmojis)
                 InkWell(
@@ -246,7 +293,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
                     Navigator.pop(c);
                     react(m, e);
                   },
-                  child: Text(e, style: const TextStyle(fontSize: 30)),
+                  child: Text(e, style: TextStyle(fontSize: 30)),
                 ),
             ],
           ),
@@ -273,7 +320,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
         final path =
             '${dir.path}/voice_${DateTime.now().millisecondsSinceEpoch}.m4a';
         await recorder.start(
-          const RecordConfig(encoder: AudioEncoder.aacLc),
+          RecordConfig(encoder: AudioEncoder.aacLc),
           path: path,
         );
         recordStarted = DateTime.now();
@@ -332,7 +379,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
       if (scroll.hasClients) {
         scroll.animateTo(
           scroll.position.maxScrollExtent,
-          duration: const Duration(milliseconds: 250),
+          duration: Duration(milliseconds: 250),
           curve: Curves.easeOut,
         );
       }
@@ -395,11 +442,6 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
     }
   }
 
-  static const _wall = Color(0xFF0B141A);
-  static const _bar = Color(0xFF1F2C34);
-  static const _accent = Color(0xFF00A884);
-  static const _muted = Color(0xFF8696A0);
-
   @override
   Widget build(BuildContext context) {
     final g = group;
@@ -427,14 +469,11 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
             // Header: back, group name and state, and the lock for the teacher.
             Container(
               color: _bar,
-              padding: const EdgeInsets.fromLTRB(4, 6, 8, 8),
+              padding: EdgeInsets.fromLTRB(4, 6, 8, 8),
               child: Row(
                 children: [
                   IconButton(
-                    icon: const Icon(
-                      Icons.arrow_back_rounded,
-                      color: Colors.white,
-                    ),
+                    icon: Icon(Icons.arrow_back_rounded, color: Colors.white),
                     onPressed: () => Navigator.of(context).maybePop(),
                   ),
                   CircleAvatar(
@@ -442,13 +481,13 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
                     backgroundColor: _accent,
                     child: Text(
                       widget.subjectName.characters.first,
-                      style: const TextStyle(
+                      style: TextStyle(
                         color: Colors.white,
                         fontWeight: FontWeight.w900,
                       ),
                     ),
                   ),
-                  const SizedBox(width: 10),
+                  SizedBox(width: 10),
                   Expanded(
                     child: GestureDetector(
                       onTap: showMembers,
@@ -460,7 +499,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
                             widget.subjectName,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
+                            style: TextStyle(
                               color: Colors.white,
                               fontSize: 15,
                               fontWeight: FontWeight.w800,
@@ -468,11 +507,19 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
                           ),
                           Text(
                             locked ? 'مقفلة • الأستاذ يتكلم' : 'مفتوحة للأسئلة',
-                            style: const TextStyle(color: _muted, fontSize: 11),
+                            style: TextStyle(color: _muted, fontSize: 11),
                           ),
                         ],
                       ),
                     ),
+                  ),
+                  IconButton(
+                    tooltip: 'شكل المحادثة',
+                    icon: const Icon(
+                      Icons.palette_outlined,
+                      color: Colors.white,
+                    ),
+                    onPressed: pickLook,
                   ),
                   if (isStaff)
                     IconButton(
@@ -487,7 +534,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
               ),
             ),
             if (lockedOut)
-              const Expanded(
+              Expanded(
                 child: Center(
                   child: Padding(
                     padding: EdgeInsets.all(24),
@@ -504,12 +551,12 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
                 ),
               )
             else if (loading)
-              const Expanded(child: Center(child: CircularProgressIndicator()))
+              Expanded(child: Center(child: CircularProgressIndicator()))
             else
               Expanded(
                 child: ListView.builder(
                   controller: scroll,
-                  padding: const EdgeInsets.fromLTRB(10, 10, 10, 10),
+                  padding: EdgeInsets.fromLTRB(10, 10, 10, 10),
                   itemCount: rows.length,
                   itemBuilder: (context, i) {
                     final row = rows[i];
@@ -530,7 +577,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
                       avatarName: who?.name ?? m.senderName,
                       avatarPhoto: who?.photo ?? '',
                       mine: user != null && m.senderId == user.id,
-                      reactions: reactions[m.id] ?? const [],
+                      reactions: reactions[m.id] ?? [],
                       quoted: m.replyTo == null
                           ? null
                           : messages
@@ -545,14 +592,12 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
               ),
             if (replyingTo != null)
               Container(
-                margin: const EdgeInsets.fromLTRB(10, 0, 10, 4),
-                padding: const EdgeInsets.fromLTRB(10, 6, 4, 6),
+                margin: EdgeInsets.fromLTRB(10, 0, 10, 4),
+                padding: EdgeInsets.fromLTRB(10, 6, 4, 6),
                 decoration: BoxDecoration(
                   color: _bar,
                   borderRadius: BorderRadius.circular(10),
-                  border: const Border(
-                    left: BorderSide(color: _accent, width: 4),
-                  ),
+                  border: Border(left: BorderSide(color: _accent, width: 4)),
                 ),
                 child: Row(
                   children: [
@@ -562,7 +607,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
                         children: [
                           Text(
                             replyingTo!.senderName,
-                            style: const TextStyle(
+                            style: TextStyle(
                               color: _accent,
                               fontSize: 12,
                               fontWeight: FontWeight.w800,
@@ -576,13 +621,13 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
                                       : 'رسالة صوتية'),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(color: _muted, fontSize: 12),
+                            style: TextStyle(color: _muted, fontSize: 12),
                           ),
                         ],
                       ),
                     ),
                     IconButton(
-                      icon: const Icon(Icons.close_rounded, color: _muted),
+                      icon: Icon(Icons.close_rounded, color: _muted),
                       onPressed: () => setState(() => replyingTo = null),
                     ),
                   ],
@@ -591,13 +636,13 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
             if (locked && !isStaff)
               Container(
                 width: double.infinity,
-                margin: const EdgeInsets.fromLTRB(12, 0, 12, 6),
-                padding: const EdgeInsets.all(10),
+                margin: EdgeInsets.fromLTRB(12, 0, 12, 6),
+                padding: EdgeInsets.all(10),
                 decoration: BoxDecoration(
                   color: _bar,
                   borderRadius: BorderRadius.circular(10),
                 ),
-                child: const Text(
+                child: Text(
                   'المجموعة مقفلة الآن. سيفتحها الأستاذ لتطرح أسئلتك.',
                   textAlign: TextAlign.center,
                   style: TextStyle(fontSize: 11, color: _muted),
@@ -605,33 +650,27 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
               ),
             if (error.isNotEmpty)
               Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 14,
-                  vertical: 2,
-                ),
+                padding: EdgeInsets.symmetric(horizontal: 14, vertical: 2),
                 child: Text(
                   error,
-                  style: const TextStyle(
-                    fontSize: 11,
-                    color: Color(0xFFFF6B6B),
-                  ),
+                  style: TextStyle(fontSize: 11, color: Color(0xFFFF6B6B)),
                 ),
               ),
             if (canPost && group != null)
               Padding(
-                padding: const EdgeInsets.fromLTRB(8, 4, 8, 10),
+                padding: EdgeInsets.fromLTRB(8, 4, 8, 10),
                 child: Row(
                   children: [
                     Expanded(
                       child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 6),
+                        padding: EdgeInsets.symmetric(horizontal: 6),
                         decoration: BoxDecoration(
                           color: _bar,
                           borderRadius: BorderRadius.circular(26),
                         ),
                         child: Row(
                           children: [
-                            const Padding(
+                            Padding(
                               padding: EdgeInsets.all(8),
                               child: Icon(
                                 Icons.sentiment_satisfied_alt_outlined,
@@ -644,12 +683,12 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
                                 minLines: 1,
                                 maxLines: 4,
                                 onChanged: (_) => setState(() {}),
-                                style: const TextStyle(color: Colors.white),
+                                style: TextStyle(color: Colors.white),
                                 decoration: InputDecoration(
                                   hintText: isStaff
                                       ? 'اكتب للمجموعة'
                                       : 'اطرح سؤالك',
-                                  hintStyle: const TextStyle(color: _muted),
+                                  hintStyle: TextStyle(color: _muted),
                                   border: InputBorder.none,
                                   isDense: true,
                                 ),
@@ -658,7 +697,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
                             if (isStaff)
                               IconButton(
                                 tooltip: 'صورة',
-                                icon: const Icon(
+                                icon: Icon(
                                   Icons.attach_file_rounded,
                                   color: _muted,
                                 ),
@@ -668,7 +707,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
                         ),
                       ),
                     ),
-                    const SizedBox(width: 6),
+                    SizedBox(width: 6),
                     GestureDetector(
                       onTap: sending
                           ? null
@@ -676,10 +715,10 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
                       child: CircleAvatar(
                         radius: 24,
                         backgroundColor: recording
-                            ? const Color(0xFFE53935)
+                            ? Color(0xFFE53935)
                             : _accent,
                         child: sending
-                            ? const SizedBox(
+                            ? SizedBox(
                                 width: 18,
                                 height: 18,
                                 child: CircularProgressIndicator(
@@ -730,7 +769,6 @@ class _Bubble extends StatelessWidget {
   final VoidCallback onLongPress;
   final void Function(String url) onPlay;
 
-  static const _muted = Color(0xFF8696A0);
   static const _nameColors = [
     Color(0xFF53BDEB),
     Color(0xFFFFD279),
@@ -783,8 +821,8 @@ class _Bubble extends StatelessWidget {
                     constraints: BoxConstraints(
                       maxWidth: MediaQuery.of(context).size.width * 0.78,
                     ),
-                    margin: const EdgeInsets.only(bottom: 6),
-                    padding: const EdgeInsets.fromLTRB(8, 6, 8, 6),
+                    margin: EdgeInsets.only(bottom: 6),
+                    padding: EdgeInsets.fromLTRB(8, 6, 8, 6),
                     decoration: BoxDecoration(
                       color: mine ? _ChatStyle.outgoing : _ChatStyle.incoming,
                       borderRadius: BorderRadius.circular(9),
@@ -795,12 +833,12 @@ class _Bubble extends StatelessWidget {
                         if (quoted != null)
                           Container(
                             width: double.infinity,
-                            margin: const EdgeInsets.only(bottom: 6),
-                            padding: const EdgeInsets.fromLTRB(8, 4, 8, 4),
+                            margin: EdgeInsets.only(bottom: 6),
+                            padding: EdgeInsets.fromLTRB(8, 4, 8, 4),
                             decoration: BoxDecoration(
                               color: Colors.black.withValues(alpha: 0.18),
                               borderRadius: BorderRadius.circular(6),
-                              border: const Border(
+                              border: Border(
                                 left: BorderSide(
                                   color: Color(0xFF53BDEB),
                                   width: 3,
@@ -812,7 +850,7 @@ class _Bubble extends StatelessWidget {
                               children: [
                                 Text(
                                   quoted!.senderName,
-                                  style: const TextStyle(
+                                  style: TextStyle(
                                     fontSize: 11,
                                     fontWeight: FontWeight.w800,
                                     color: Color(0xFF53BDEB),
@@ -826,7 +864,7 @@ class _Bubble extends StatelessWidget {
                                             : 'رسالة صوتية'),
                                   maxLines: 2,
                                   overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(
+                                  style: TextStyle(
                                     fontSize: 11,
                                     color: Color(0xFFB0BEC5),
                                   ),
@@ -836,7 +874,7 @@ class _Bubble extends StatelessWidget {
                           ),
                         if (!mine && showName && message.senderName.isNotEmpty)
                           Padding(
-                            padding: const EdgeInsets.only(bottom: 2),
+                            padding: EdgeInsets.only(bottom: 2),
                             child: Text(
                               message.senderName,
                               style: TextStyle(
@@ -873,10 +911,10 @@ class _Bubble extends StatelessWidget {
                           ),
                         if (message.body.isNotEmpty)
                           Padding(
-                            padding: const EdgeInsets.only(top: 3),
+                            padding: EdgeInsets.only(top: 3),
                             child: Text(
                               message.body,
-                              style: const TextStyle(
+                              style: TextStyle(
                                 fontSize: 15,
                                 height: 1.4,
                                 color: Color(0xFFE9EDEF),
@@ -887,7 +925,7 @@ class _Bubble extends StatelessWidget {
                           alignment: AlignmentDirectional.centerEnd,
                           child: Text(
                             timeText,
-                            style: const TextStyle(fontSize: 10, color: _muted),
+                            style: TextStyle(fontSize: 10, color: _muted),
                           ),
                         ),
                       ],
@@ -895,11 +933,8 @@ class _Bubble extends StatelessWidget {
                   ),
                   if (counts.isNotEmpty)
                     Container(
-                      margin: const EdgeInsets.only(bottom: 8, top: 2),
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 3,
-                      ),
+                      margin: EdgeInsets.only(bottom: 8, top: 2),
+                      padding: EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                       decoration: BoxDecoration(
                         color: _ChatStyle.bar,
                         borderRadius: BorderRadius.circular(999),
@@ -911,7 +946,7 @@ class _Bubble extends StatelessWidget {
                                   e.value > 1 ? '${e.key} ${e.value}' : e.key,
                             )
                             .join('  '),
-                        style: const TextStyle(fontSize: 12),
+                        style: TextStyle(fontSize: 12),
                       ),
                     ),
                 ],
@@ -937,7 +972,7 @@ class _Avatar extends StatelessWidget {
     final letter = name.trim().isEmpty ? '?' : name.trim().characters.first;
     return CircleAvatar(
       radius: radius,
-      backgroundColor: const Color(0xFF00A884),
+      backgroundColor: Color(0xFF00A884),
       backgroundImage: photo.isNotEmpty ? NetworkImage(photo) : null,
       child: photo.isEmpty
           ? Text(
@@ -971,15 +1006,15 @@ class _DaySeparator extends StatelessWidget {
         : '${day.day}/${day.month}/${day.year}';
     return Center(
       child: Container(
-        margin: const EdgeInsets.symmetric(vertical: 8),
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        margin: EdgeInsets.symmetric(vertical: 8),
+        padding: EdgeInsets.symmetric(horizontal: 10, vertical: 4),
         decoration: BoxDecoration(
           color: _ChatStyle.bar,
           borderRadius: BorderRadius.circular(8),
         ),
         child: Text(
           label,
-          style: const TextStyle(fontSize: 12, color: Color(0xFF8696A0)),
+          style: TextStyle(fontSize: 12, color: Color(0xFF8696A0)),
         ),
       ),
     );
@@ -988,10 +1023,15 @@ class _DaySeparator extends StatelessWidget {
 
 /// Colours of the chat screen, shared by the bubbles.
 class _ChatStyle {
-  static const incoming = Color(0xFF1F2C34);
-  static const outgoing = Color(0xFF005C4B);
-  static const bar = Color(0xFF1F2C34);
+  static Color get incoming => chatLook.value.incoming;
+  static Color get outgoing => chatLook.value.outgoing;
+  static Color get bar => chatLook.value.bar;
 }
+
+Color get _wall => chatLook.value.wall;
+Color get _bar => chatLook.value.bar;
+Color get _accent => chatLook.value.accent;
+Color get _muted => chatLook.value.muted;
 
 /// A voice note row: play button, a waveform, and the length.
 class _VoiceRow extends StatelessWidget {
@@ -1012,18 +1052,18 @@ class _VoiceRow extends StatelessWidget {
       children: [
         GestureDetector(
           onTap: onPlay,
-          child: const CircleAvatar(
+          child: CircleAvatar(
             radius: 19,
             backgroundColor: Color(0xFF00A884),
             child: Icon(Icons.play_arrow_rounded, color: Colors.white),
           ),
         ),
-        const SizedBox(width: 6),
-        CustomPaint(size: const Size(130, 28), painter: _WavePainter(seed)),
-        const SizedBox(width: 6),
+        SizedBox(width: 6),
+        CustomPaint(size: Size(130, 28), painter: _WavePainter(seed)),
+        SizedBox(width: 6),
         Text(
           '${seconds ~/ 60}:${(seconds % 60).toString().padLeft(2, '0')}',
-          style: const TextStyle(fontSize: 11, color: Color(0xFF8696A0)),
+          style: TextStyle(fontSize: 11, color: Color(0xFF8696A0)),
         ),
       ],
     );
@@ -1038,7 +1078,7 @@ class _WavePainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final paint = Paint()
-      ..color = const Color(0xFF8696A0)
+      ..color = Color(0xFF8696A0)
       ..strokeCap = StrokeCap.round
       ..strokeWidth = 2.4;
     final bars = 28;

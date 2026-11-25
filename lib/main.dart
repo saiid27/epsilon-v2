@@ -6,6 +6,7 @@ import 'dart:ui' show ImageFilter;
 import 'dart:ui' as ui;
 
 import 'package:audioplayers/audioplayers.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:record/record.dart';
 import 'package:flutter/foundation.dart'
     show TargetPlatform, defaultTargetPlatform, kIsWeb;
@@ -56,6 +57,7 @@ part 'screens/ai_ops.dart';
 part 'screens/group_chat.dart';
 part 'screens/chat_list.dart';
 part 'screens/admin_sections.dart';
+part 'screens/chat_look.dart';
 
 /// The language picked in settings: 'ar' (default) or 'fr'.
 String appLanguage = 'ar';
