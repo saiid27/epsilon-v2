@@ -512,12 +512,28 @@ class _AdminConsoleState extends State<AdminConsole> {
           (bySubject['${s['subject_id']}'] ?? 0) +
           ((s['amount'] as num?)?.toInt() ?? 0);
     }
+    // Active students: at least one subject subscription that has not expired.
+    final now = DateTime.now();
+    final activeStudents = active
+        .where((s) {
+          final exp = DateTime.tryParse('${s['expires_at']}');
+          return exp == null || exp.isAfter(now);
+        })
+        .map((s) => '${s['student_id']}')
+        .toSet()
+        .length;
     final cards = [
       _StatCard(
         Icons.group_outlined,
         'الطلاب',
         '${rows('students').length}',
         '+$newStudents هذا الشهر',
+      ),
+      _StatCard(
+        Icons.person_pin_circle_outlined,
+        'الطلاب النشطون',
+        '$activeStudents',
+        'لديهم اشتراك ساري',
       ),
       _StatCard(
         Icons.check_rounded,
