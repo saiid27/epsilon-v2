@@ -1183,12 +1183,24 @@ class LearnRepository {
     String groupId, {
     DateTime? after,
   }) async {
-    var query = client.from('chat_messages').select().eq('group_id', groupId);
-    if (after != null) {
-      query = query.gt('created_at', after.toUtc().toIso8601String());
+    // The whole history, oldest first, in pages: a new subscriber must see
+    // everything the teacher posted, including the voice notes and images.
+    const page = 500;
+    final out = <EpsChatMessage>[];
+    var from = 0;
+    while (true) {
+      var query = client.from('chat_messages').select().eq('group_id', groupId);
+      if (after != null) {
+        query = query.gt('created_at', after.toUtc().toIso8601String());
+      }
+      final rows = _list(
+        await query.order('created_at').range(from, from + page - 1),
+      );
+      out.addAll(rows.map(EpsChatMessage.fromRow));
+      if (rows.length < page) break;
+      from += page;
     }
-    final rows = await query.order('created_at').limit(300);
-    return _list(rows).map(EpsChatMessage.fromRow).toList();
+    return out;
   }
 
   Future<void> sendChatMessage({

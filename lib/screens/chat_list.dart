@@ -1,7 +1,7 @@
 part of '../main.dart';
 
 /// The messages of one group kept on the phone, so the chat opens at once and
-/// reads offline. The newest 200 messages are kept per group.
+/// reads offline. The newest 1000 messages are kept per group.
 class ChatCache {
   static String _key(String groupId) => 'chat_cache_$groupId';
 
@@ -26,8 +26,8 @@ class ChatCache {
   ) async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final keep = messages.length > 200
-          ? messages.sublist(messages.length - 200)
+      final keep = messages.length > 1000
+          ? messages.sublist(messages.length - 1000)
           : messages;
       await prefs.setString(
         _key(groupId),
