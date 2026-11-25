@@ -28,6 +28,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
   final recorder = AudioRecorder();
   final player = AudioPlayer();
   bool recording = false;
+  EpsChatMessage? replyingTo;
   bool loading = true;
   bool sending = false;
   String error = '';
@@ -168,6 +169,14 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
             spacing: 14,
             runSpacing: 14,
             children: [
+              TextButton.icon(
+                onPressed: () {
+                  Navigator.pop(c);
+                  setState(() => replyingTo = m);
+                },
+                icon: const Icon(Icons.reply_rounded),
+                label: const Text('رد'),
+              ),
               for (final e in _reactionEmojis)
                 InkWell(
                   onTap: () {
@@ -285,7 +294,9 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
         body: text,
         image: image,
         imageName: imageName,
+        replyToId: replyingTo?.id,
       );
+      replyingTo = null;
       input.clear();
       await refresh();
     } on Object catch (e) {
@@ -333,6 +344,18 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
     final locked = g?.locked ?? false;
     final canPost = isStaff || !locked;
     final typing = input.text.trim().isNotEmpty;
+    // The list: a date line before the first message of each day.
+    final rows = <Object>[];
+    DateTime? lastDay;
+    for (final m in messages) {
+      final d = m.createdAt.toLocal();
+      final day = DateTime(d.year, d.month, d.day);
+      if (lastDay != day) {
+        rows.add(day);
+        lastDay = day;
+      }
+      rows.add(m);
+    }
     return Scaffold(
       backgroundColor: _wall,
       body: SafeArea(
@@ -403,14 +426,79 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
                 child: ListView.builder(
                   controller: scroll,
                   padding: const EdgeInsets.fromLTRB(10, 10, 10, 10),
-                  itemCount: messages.length,
-                  itemBuilder: (context, i) => _Bubble(
-                    message: messages[i],
-                    mine: user != null && messages[i].senderId == user.id,
-                    reactions: reactions[messages[i].id] ?? const [],
-                    onLongPress: () => showReactions(messages[i]),
-                    onPlay: playVoice,
+                  itemCount: rows.length,
+                  itemBuilder: (context, i) {
+                    final row = rows[i];
+                    if (row is DateTime) {
+                      return _DaySeparator(day: row);
+                    }
+                    final m = row as EpsChatMessage;
+                    final idx = messages.indexOf(m);
+                    final prev = idx > 0 ? messages[idx - 1] : null;
+                    // Same sender within 5 minutes: no repeated name, like WhatsApp.
+                    final sameRun =
+                        prev != null &&
+                        prev.senderId == m.senderId &&
+                        m.createdAt.difference(prev.createdAt).inMinutes < 5;
+                    return _Bubble(
+                      message: m,
+                      mine: user != null && m.senderId == user.id,
+                      reactions: reactions[m.id] ?? const [],
+                      quoted: m.replyTo == null
+                          ? null
+                          : messages
+                                .where((x) => x.id == m.replyTo)
+                                .firstOrNull,
+                      showName: !sameRun,
+                      onLongPress: () => showReactions(m),
+                      onPlay: playVoice,
+                    );
+                  },
+                ),
+              ),
+            if (replyingTo != null)
+              Container(
+                margin: const EdgeInsets.fromLTRB(10, 0, 10, 4),
+                padding: const EdgeInsets.fromLTRB(10, 6, 4, 6),
+                decoration: BoxDecoration(
+                  color: _bar,
+                  borderRadius: BorderRadius.circular(10),
+                  border: const Border(
+                    left: BorderSide(color: _accent, width: 4),
                   ),
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            replyingTo!.senderName,
+                            style: const TextStyle(
+                              color: _accent,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                          Text(
+                            replyingTo!.body.isNotEmpty
+                                ? replyingTo!.body
+                                : (replyingTo!.imageUrl.isNotEmpty
+                                      ? 'صورة'
+                                      : 'رسالة صوتية'),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(color: _muted, fontSize: 12),
+                          ),
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close_rounded, color: _muted),
+                      onPressed: () => setState(() => replyingTo = null),
+                    ),
+                  ],
                 ),
               ),
             if (locked && !isStaff)
@@ -539,11 +627,15 @@ class _Bubble extends StatelessWidget {
     required this.reactions,
     required this.onLongPress,
     required this.onPlay,
+    this.quoted,
+    this.showName = true,
   });
 
   final EpsChatMessage message;
   final bool mine;
   final List<EpsChatReaction> reactions;
+  final EpsChatMessage? quoted;
+  final bool showName;
   final VoidCallback onLongPress;
   final void Function(String url) onPlay;
 
@@ -591,7 +683,46 @@ class _Bubble extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  if (!mine && message.senderName.isNotEmpty)
+                  if (quoted != null)
+                    Container(
+                      width: double.infinity,
+                      margin: const EdgeInsets.only(bottom: 6),
+                      padding: const EdgeInsets.fromLTRB(8, 4, 8, 4),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: 0.18),
+                        borderRadius: BorderRadius.circular(6),
+                        border: const Border(
+                          left: BorderSide(color: Color(0xFF53BDEB), width: 3),
+                        ),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            quoted!.senderName,
+                            style: const TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w800,
+                              color: Color(0xFF53BDEB),
+                            ),
+                          ),
+                          Text(
+                            quoted!.body.isNotEmpty
+                                ? quoted!.body
+                                : (quoted!.imageUrl.isNotEmpty
+                                      ? 'صورة'
+                                      : 'رسالة صوتية'),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 11,
+                              color: Color(0xFFB0BEC5),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  if (!mine && showName && message.senderName.isNotEmpty)
                     Padding(
                       padding: const EdgeInsets.only(bottom: 2),
                       child: Text(
@@ -666,6 +797,39 @@ class _Bubble extends StatelessWidget {
                 ),
               ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// A line with the day of the messages below it ("اليوم", "أمس", or the date).
+class _DaySeparator extends StatelessWidget {
+  const _DaySeparator({required this.day});
+
+  final DateTime day;
+
+  @override
+  Widget build(BuildContext context) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final diff = today.difference(day).inDays;
+    final label = diff == 0
+        ? 'اليوم'
+        : diff == 1
+        ? 'أمس'
+        : '${day.day}/${day.month}/${day.year}';
+    return Center(
+      child: Container(
+        margin: const EdgeInsets.symmetric(vertical: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        decoration: BoxDecoration(
+          color: _ChatStyle.bar,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Text(
+          label,
+          style: const TextStyle(fontSize: 12, color: Color(0xFF8696A0)),
         ),
       ),
     );

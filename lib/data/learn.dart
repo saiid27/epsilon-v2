@@ -317,6 +317,7 @@ class EpsChatMessage {
       imageUrl = _str(r['image_url']),
       audioUrl = _str(r['audio_url']),
       audioSeconds = (r['audio_seconds'] as num?)?.toInt() ?? 0,
+      replyTo = r['reply_to'] as String?,
       createdAt = _date(r['created_at']) ?? DateTime.now().toUtc();
 
   final String id;
@@ -327,6 +328,7 @@ class EpsChatMessage {
   final String imageUrl;
   final String audioUrl;
   final int audioSeconds;
+  final String? replyTo;
   final DateTime createdAt;
 }
 
@@ -1210,6 +1212,7 @@ class LearnRepository {
     required String body,
     Uint8List? image,
     String? imageName,
+    String? replyToId,
   }) async {
     var url = '';
     if (image != null) {
@@ -1235,6 +1238,7 @@ class LearnRepository {
       'sender_name': senderName,
       'body': body.trim(),
       'image_url': url,
+      'reply_to': replyToId,
     });
   }
 
