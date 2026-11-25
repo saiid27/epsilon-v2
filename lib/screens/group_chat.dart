@@ -71,7 +71,6 @@ class _GroupChatScreenState extends State<_GroupChatBody> {
     });
   }
 
-  @override
   Future<void> beat() async {
     final g0 = group;
     final user = me;
