@@ -539,7 +539,7 @@ class _CourseScreenState extends State<CourseScreen> {
                             context,
                             GroupChatScreen(
                               subjectId: subject.id,
-                              subjectName: subject.name,
+                              subjectName: subject.displayName,
                             ),
                           ),
                         ),

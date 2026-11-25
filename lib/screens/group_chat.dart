@@ -49,6 +49,8 @@ class _GroupChatScreenState extends State<_GroupChatBody> {
   bool recording = false;
   // sender id -> name and photo, for the avatars in the chat
   Map<String, ({String name, String photo})> people = {};
+  // poll message id -> the votes on it
+  Map<String, List<({String userId, int option})>> pollVotes = {};
   EpsChatMessage? replyingTo;
   bool loading = true;
   bool sending = false;
@@ -190,6 +192,18 @@ class _GroupChatScreenState extends State<_GroupChatBody> {
                 pickImage();
               },
             ),
+            if (isStaff)
+              ListTile(
+                leading: Icon(Icons.poll_outlined, color: _accent),
+                title: Text(
+                  'استطلاع رأي',
+                  style: TextStyle(color: chatLook.value.text),
+                ),
+                onTap: () {
+                  Navigator.pop(c);
+                  showPollSheet();
+                },
+              ),
             // Videos are the teacher's: the students send text, photos and voice.
             if (isStaff)
               ListTile(
@@ -361,6 +375,10 @@ class _GroupChatScreenState extends State<_GroupChatBody> {
       final g = await repo.chatGroupFor(widget.subjectId);
       final list = await repo.chatMessages(g.id);
       final r = await repo.chatReactions([for (final m in list) m.id]);
+      final pv = await repo.pollVotes([
+        for (final m in list)
+          if (m.pollQuestion.isNotEmpty) m.id,
+      ]);
       await ChatCache.save(g.id, list);
       final who = await repo.usersById([for (final m in list) m.senderId]);
       if (mounted) {
@@ -369,6 +387,7 @@ class _GroupChatScreenState extends State<_GroupChatBody> {
           group = g;
           messages = list;
           reactions = groupReactions(r);
+          pollVotes = groupPollVotes(pv);
           loading = false;
           error = '';
         });
@@ -401,6 +420,10 @@ class _GroupChatScreenState extends State<_GroupChatBody> {
       final fresh = await repo.chatMessages(g.id, after: last);
       final lockNow = await repo.chatGroupFor(widget.subjectId);
       final r = await repo.chatReactions([for (final m in messages) m.id]);
+      final pv = await repo.pollVotes([
+        for (final m in [...messages, ...fresh])
+          if (m.pollQuestion.isNotEmpty) m.id,
+      ]);
       final newPeople = fresh.any((m) => !people.containsKey(m.senderId))
           ? await repo.usersById([for (final m in fresh) m.senderId])
           : <String, ({String name, String photo})>{};
@@ -410,6 +433,7 @@ class _GroupChatScreenState extends State<_GroupChatBody> {
           messages = [...messages, ...fresh];
           group = lockNow;
           reactions = groupReactions(r);
+          pollVotes = groupPollVotes(pv);
         });
         if (fresh.isNotEmpty) scrollToEnd();
       }
@@ -442,6 +466,126 @@ class _GroupChatScreenState extends State<_GroupChatBody> {
         removeSame: mine?.emoji == emoji,
       );
       await refresh();
+    } on Object catch (e) {
+      if (mounted) setState(() => error = friendlyApiError(e));
+    }
+  }
+
+  /// The teacher writes a question and its options, then sends it to the group.
+  void showPollSheet() {
+    final question = TextEditingController();
+    final options = [TextEditingController(), TextEditingController()];
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: _bar,
+      builder: (c) => StatefulBuilder(
+        builder: (c, setSheet) => Padding(
+          padding: EdgeInsets.fromLTRB(
+            16,
+            16,
+            16,
+            16 + MediaQuery.of(c).viewInsets.bottom,
+          ),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  'استطلاع رأي',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w900,
+                    fontSize: 16,
+                  ),
+                ),
+                SizedBox(height: 10),
+                TextField(
+                  controller: question,
+                  style: TextStyle(color: Colors.white),
+                  decoration: InputDecoration(
+                    hintText: 'السؤال',
+                    hintStyle: TextStyle(color: _muted),
+                  ),
+                ),
+                for (var i = 0; i < options.length; i++)
+                  Padding(
+                    padding: EdgeInsets.only(top: 8),
+                    child: TextField(
+                      controller: options[i],
+                      style: TextStyle(color: Colors.white),
+                      decoration: InputDecoration(
+                        hintText: 'الخيار ${i + 1}',
+                        hintStyle: TextStyle(color: _muted),
+                      ),
+                    ),
+                  ),
+                if (options.length < 5)
+                  TextButton.icon(
+                    onPressed: () =>
+                        setSheet(() => options.add(TextEditingController())),
+                    icon: Icon(Icons.add_rounded, color: _accent),
+                    label: Text('إضافة خيار', style: TextStyle(color: _accent)),
+                  ),
+                SizedBox(height: 8),
+                FilledButton(
+                  onPressed: () {
+                    final q = question.text.trim();
+                    final list = [
+                      for (final o in options) o.text.trim(),
+                    ].where((o) => o.isNotEmpty).toList();
+                    if (q.isEmpty || list.length < 2) {
+                      ScaffoldMessenger.of(c).showSnackBar(
+                        SnackBar(
+                          content: Text('اكتب السؤال وخيارين على الأقل'),
+                        ),
+                      );
+                      return;
+                    }
+                    Navigator.pop(c);
+                    sendPoll(q, list);
+                  },
+                  child: Text('إرسال الاستطلاع'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> sendPoll(String question, List<String> options) async {
+    final g = group;
+    final user = me;
+    if (g == null || user == null) return;
+    try {
+      await repo.sendChatPoll(
+        groupId: g.id,
+        senderId: user.id,
+        senderName: user.name,
+        question: question,
+        options: options,
+      );
+      await refresh();
+    } on Object catch (e) {
+      if (mounted) setState(() => error = friendlyApiError(e));
+    }
+  }
+
+  /// A student or teacher picks an option; choosing again changes the vote.
+  Future<void> vote(EpsChatMessage m, int option) async {
+    final user = me;
+    if (user == null) return;
+    try {
+      await repo.votePoll(messageId: m.id, userId: user.id, option: option);
+      final pv = await repo.pollVotes([m.id]);
+      if (mounted) {
+        setState(() {
+          pollVotes = {...pollVotes, m.id: groupPollVotes(pv)[m.id] ?? []};
+        });
+      }
     } on Object catch (e) {
       if (mounted) setState(() => error = friendlyApiError(e));
     }
@@ -670,17 +814,7 @@ class _GroupChatScreenState extends State<_GroupChatBody> {
                     icon: Icon(Icons.arrow_back_rounded, color: Colors.white),
                     onPressed: () => Navigator.of(context).maybePop(),
                   ),
-                  CircleAvatar(
-                    radius: 18,
-                    backgroundColor: _accent,
-                    child: Text(
-                      widget.subjectName.characters.first,
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w900,
-                      ),
-                    ),
-                  ),
+                  _GroupLogo(name: widget.subjectName, color: _accent),
                   SizedBox(width: 10),
                   Expanded(
                     child: GestureDetector(
@@ -779,6 +913,12 @@ class _GroupChatScreenState extends State<_GroupChatBody> {
                                 .where((x) => x.id == m.replyTo)
                                 .firstOrNull,
                       showName: !sameRun,
+                      votes: pollVotes[m.id] ?? const [],
+                      myVote: pollVotes[m.id]
+                          ?.where((v) => v.userId == user?.id)
+                          .firstOrNull
+                          ?.option,
+                      onVote: m.pollQuestion.isEmpty ? null : (i) => vote(m, i),
                       onLongPress: () => showReactions(m),
                       onPlay: playVoice,
                     );
@@ -951,9 +1091,15 @@ class _Bubble extends StatelessWidget {
     this.showName = true,
     this.avatarName = '',
     this.avatarPhoto = '',
+    this.votes = const [],
+    this.myVote,
+    this.onVote,
   });
 
   final EpsChatMessage message;
+  final List<({String userId, int option})> votes;
+  final int? myVote;
+  final void Function(int option)? onVote;
   final bool mine;
   final List<EpsChatReaction> reactions;
   final EpsChatMessage? quoted;
@@ -1024,6 +1170,14 @@ class _Bubble extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
+                        if (message.pollQuestion.isNotEmpty)
+                          _PollBox(
+                            question: message.pollQuestion,
+                            options: message.pollOptions,
+                            votes: votes,
+                            myVote: myVote,
+                            onVote: onVote,
+                          ),
                         if (quoted != null)
                           Container(
                             width: double.infinity,
@@ -1359,6 +1513,173 @@ class _VideoDialogState extends State<_VideoDialog> {
               )
             : const Center(child: CircularProgressIndicator()),
       ),
+    );
+  }
+}
+
+/// The votes of each poll, grouped by the poll's message id.
+Map<String, List<({String userId, int option})>> groupPollVotes(
+  List<({String messageId, String userId, int option})> rows,
+) {
+  final out = <String, List<({String userId, int option})>>{};
+  for (final r in rows) {
+    (out[r.messageId] ??= []).add((userId: r.userId, option: r.option));
+  }
+  return out;
+}
+
+/// The group's logo: the subject's name (in French when given) on a colored tile.
+class _GroupLogo extends StatelessWidget {
+  const _GroupLogo({required this.name, required this.color});
+
+  final String name;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 44,
+      height: 44,
+      padding: EdgeInsets.all(4),
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [color, Color.lerp(color, Colors.black, 0.3)!],
+        ),
+        borderRadius: BorderRadius.circular(13),
+        boxShadow: [
+          BoxShadow(
+            color: color.withValues(alpha: 0.35),
+            blurRadius: 8,
+            offset: Offset(0, 3),
+          ),
+        ],
+      ),
+      child: FittedBox(
+        fit: BoxFit.scaleDown,
+        child: SizedBox(
+          width: 80,
+          child: Text(
+            name,
+            textAlign: TextAlign.center,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 13,
+              fontWeight: FontWeight.w900,
+              height: 1.05,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// A poll inside a bubble: the question, each option with its share, and the
+/// tap to vote.
+class _PollBox extends StatelessWidget {
+  const _PollBox({
+    required this.question,
+    required this.options,
+    required this.votes,
+    required this.myVote,
+    required this.onVote,
+  });
+
+  final String question;
+  final List<String> options;
+  final List<({String userId, int option})> votes;
+  final int? myVote;
+  final void Function(int option)? onVote;
+
+  @override
+  Widget build(BuildContext context) {
+    final look = chatLook.value;
+    final total = votes.length;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(Icons.poll_rounded, size: 16, color: Color(0xFF53BDEB)),
+            SizedBox(width: 6),
+            Expanded(
+              child: Text(
+                question,
+                style: TextStyle(
+                  color: look.text,
+                  fontWeight: FontWeight.w800,
+                  fontSize: 14,
+                ),
+              ),
+            ),
+          ],
+        ),
+        SizedBox(height: 8),
+        for (var i = 0; i < options.length; i++)
+          Padding(
+            padding: EdgeInsets.only(bottom: 6),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(8),
+              onTap: onVote == null ? null : () => onVote!(i),
+              child: Container(
+                padding: EdgeInsets.fromLTRB(10, 8, 10, 8),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                    color: myVote == i ? Color(0xFF53BDEB) : Colors.white24,
+                  ),
+                ),
+                child: Builder(
+                  builder: (_) {
+                    final count = votes.where((v) => v.option == i).length;
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                options[i],
+                                style: TextStyle(
+                                  color: look.text,
+                                  fontSize: 13,
+                                ),
+                              ),
+                            ),
+                            Text(
+                              '$count',
+                              style: TextStyle(
+                                color: look.muted,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ],
+                        ),
+                        SizedBox(height: 5),
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(4),
+                          child: LinearProgressIndicator(
+                            minHeight: 5,
+                            value: total == 0 ? 0 : count / total,
+                            backgroundColor: Colors.white12,
+                            color: Color(0xFF53BDEB),
+                          ),
+                        ),
+                      ],
+                    );
+                  },
+                ),
+              ),
+            ),
+          ),
+        Text('$total صوت', style: TextStyle(color: look.muted, fontSize: 11)),
+      ],
     );
   }
 }

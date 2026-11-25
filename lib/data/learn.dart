@@ -44,6 +44,7 @@ class EpsSubject {
     : id = _str(r['id']),
       courseId = r['course_id'] == null ? null : _str(r['course_id']),
       name = _str(r['name']),
+      nameFr = _str(r['name_fr']),
       icon = _str(r['icon']).isEmpty ? '∑' : _str(r['icon']),
       colorHex = _str(r['color']).isEmpty ? '#DBEAFE' : _str(r['color']),
       faculty = _str(r['faculty']),
@@ -58,6 +59,7 @@ class EpsSubject {
   final String id;
   final String? courseId;
   final String name;
+  final String nameFr;
   final String icon;
   final String colorHex;
   final String faculty;
@@ -74,8 +76,12 @@ class EpsSubject {
     return Color(int.tryParse('FF$hex', radix: 16) ?? 0xFFDBEAFE);
   }
 
+  /// The French name when the admin wrote one, else the Arabic name.
+  String get displayName => nameFr.isNotEmpty ? nameFr : name;
+
   Map<String, dynamic> toRow() => {
     'course_id': courseId,
+    'name_fr': nameFr,
     'name': name,
     'icon': icon,
     'color': colorHex,
@@ -338,6 +344,10 @@ class EpsChatMessage {
       audioUrl = _str(r['audio_url']),
       audioSeconds = (r['audio_seconds'] as num?)?.toInt() ?? 0,
       videoUrl = _str(r['video_url']),
+      pollQuestion = _str(r['poll_question']),
+      pollOptions = [
+        for (final o in (r['poll_options'] as List? ?? const [])) '$o',
+      ],
       replyTo = r['reply_to'] as String?,
       createdAt = _date(r['created_at']) ?? DateTime.now().toUtc();
 
@@ -350,6 +360,8 @@ class EpsChatMessage {
   final String audioUrl;
   final int audioSeconds;
   final String videoUrl;
+  final String pollQuestion;
+  final List<String> pollOptions;
   final String? replyTo;
   final DateTime createdAt;
 }
@@ -1451,6 +1463,58 @@ class LearnRepository {
         .order('created_at', ascending: false)
         .limit(300);
     return _list(rows).map(EpsChatMessage.fromRow).toList();
+  }
+
+  /// A poll: a question and its options.
+  Future<void> sendChatPoll({
+    required String groupId,
+    required String senderId,
+    required String senderName,
+    required String question,
+    required List<String> options,
+  }) async {
+    await client.from('chat_messages').insert({
+      'group_id': groupId,
+      'sender_id': senderId,
+      'sender_name': senderName,
+      'body': '',
+      'poll_question': question.trim(),
+      'poll_options': options,
+    });
+  }
+
+  /// The votes of some polls.
+  Future<List<({String messageId, String userId, int option})>> pollVotes(
+    List<String> messageIds,
+  ) async {
+    if (messageIds.isEmpty) return [];
+    final rows = _list(
+      await client
+          .from('chat_poll_votes')
+          .select()
+          .inFilter('message_id', messageIds),
+    );
+    return [
+      for (final r in rows)
+        (
+          messageId: _str(r['message_id']),
+          userId: _str(r['user_id']),
+          option: (r['option_index'] as num?)?.toInt() ?? 0,
+        ),
+    ];
+  }
+
+  /// One vote per user and poll: voting again changes the choice.
+  Future<void> votePoll({
+    required String messageId,
+    required String userId,
+    required int option,
+  }) async {
+    await client.from('chat_poll_votes').upsert({
+      'message_id': messageId,
+      'user_id': userId,
+      'option_index': option,
+    }, onConflict: 'message_id,user_id');
   }
 
   /// Marks this user as present in the group (called about once a minute).

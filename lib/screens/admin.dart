@@ -741,6 +741,7 @@ class _AdminConsoleState extends State<AdminConsole> {
 
   List<_Field> get subjectFields => [
     const _Field('name', 'اسم المادة', required: true),
+    const _Field('name_fr', 'اسم المادة بالفرنسية (يظهر في المجموعة)'),
     const _Field('icon', 'الرمز (مثل ∑ أو </>)'),
     const _Field('color', 'لون البطاقة (#DBEAFE)'),
     const _Field('faculty', 'الكلية'),

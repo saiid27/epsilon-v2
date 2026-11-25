@@ -44,6 +44,8 @@ class ChatCache {
               'audio_seconds': m.audioSeconds,
               'video_url': m.videoUrl,
               'reply_to': m.replyTo,
+              'poll_question': m.pollQuestion,
+              'poll_options': m.pollOptions,
               'created_at': m.createdAt.toUtc().toIso8601String(),
             },
         ]),
@@ -266,7 +268,10 @@ class _ChatRow extends StatelessWidget {
           }
           pushPage(
             context,
-            GroupChatScreen(subjectId: subject.id, subjectName: subject.name),
+            GroupChatScreen(
+              subjectId: subject.id,
+              subjectName: subject.displayName,
+            ),
           );
         },
         padding: const EdgeInsets.all(12),
@@ -276,7 +281,7 @@ class _ChatRow extends StatelessWidget {
               radius: 22,
               backgroundColor: Eps.blue,
               child: Text(
-                subject.name.characters.first,
+                subject.displayName.characters.first,
                 style: const TextStyle(
                   color: Colors.white,
                   fontWeight: FontWeight.w900,
@@ -310,7 +315,7 @@ class _ChatRow extends StatelessWidget {
                         ),
                       Expanded(
                         child: Text(
-                          subject.name,
+                          subject.displayName,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
