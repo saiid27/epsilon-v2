@@ -28,6 +28,8 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
   final recorder = AudioRecorder();
   final player = AudioPlayer();
   bool recording = false;
+  // sender id -> name and photo, for the avatars in the chat
+  Map<String, ({String name, String photo})> people = {};
   EpsChatMessage? replyingTo;
   bool loading = true;
   bool sending = false;
@@ -61,6 +63,51 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
   bool get isStaff =>
       me?.role == UserRole.teacher || me?.role == UserRole.admin;
 
+  /// The class: every student with an active subscription to this subject.
+  Future<void> showMembers() async {
+    final members = await repo.subjectStudents(widget.subjectId);
+    if (!mounted) return;
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: _bar,
+      builder: (c) => SafeArea(
+        child: ListView(
+          shrinkWrap: true,
+          padding: const EdgeInsets.all(12),
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(4, 4, 4, 10),
+              child: Text(
+                'أفراد المجموعة (${members.length})',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ),
+            if (members.isEmpty)
+              const Padding(
+                padding: EdgeInsets.all(12),
+                child: Text(
+                  'لا يوجد طلاب مشتركون بعد.',
+                  style: TextStyle(color: _muted),
+                ),
+              ),
+            for (final m in members)
+              ListTile(
+                leading: _Avatar(name: m.name, photo: m.photo, radius: 20),
+                title: Text(
+                  m.name,
+                  style: const TextStyle(color: Colors.white),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
   bool get lockedOut {
     final learn = LearnScope.read(context);
     return !isStaff && !learn.hasAccess(widget.subjectId);
@@ -89,8 +136,10 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
       final list = await repo.chatMessages(g.id);
       final r = await repo.chatReactions([for (final m in list) m.id]);
       await ChatCache.save(g.id, list);
+      final who = await repo.usersById([for (final m in list) m.senderId]);
       if (mounted) {
         setState(() {
+          people = who;
           group = g;
           messages = list;
           reactions = groupReactions(r);
@@ -126,8 +175,12 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
       final fresh = await repo.chatMessages(g.id, after: last);
       final lockNow = await repo.chatGroupFor(widget.subjectId);
       final r = await repo.chatReactions([for (final m in messages) m.id]);
+      final newPeople = fresh.any((m) => !people.containsKey(m.senderId))
+          ? await repo.usersById([for (final m in fresh) m.senderId])
+          : <String, ({String name, String photo})>{};
       if (mounted) {
         setState(() {
+          people = {...people, ...newPeople};
           messages = [...messages, ...fresh];
           group = lockNow;
           reactions = groupReactions(r);
@@ -397,24 +450,28 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
                   ),
                   const SizedBox(width: 10),
                   Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          widget.subjectName,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 15,
-                            fontWeight: FontWeight.w800,
+                    child: GestureDetector(
+                      onTap: showMembers,
+                      behavior: HitTestBehavior.opaque,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            widget.subjectName,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 15,
+                              fontWeight: FontWeight.w800,
+                            ),
                           ),
-                        ),
-                        Text(
-                          locked ? 'مقفلة • الأستاذ يتكلم' : 'مفتوحة للأسئلة',
-                          style: const TextStyle(color: _muted, fontSize: 11),
-                        ),
-                      ],
+                          Text(
+                            locked ? 'مقفلة • الأستاذ يتكلم' : 'مفتوحة للأسئلة',
+                            style: const TextStyle(color: _muted, fontSize: 11),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                   if (isStaff)
@@ -467,8 +524,11 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
                         prev != null &&
                         prev.senderId == m.senderId &&
                         m.createdAt.difference(prev.createdAt).inMinutes < 5;
+                    final who = people[m.senderId];
                     return _Bubble(
                       message: m,
+                      avatarName: who?.name ?? m.senderName,
+                      avatarPhoto: who?.photo ?? '',
                       mine: user != null && m.senderId == user.id,
                       reactions: reactions[m.id] ?? const [],
                       quoted: m.replyTo == null
@@ -656,6 +716,8 @@ class _Bubble extends StatelessWidget {
     required this.onPlay,
     this.quoted,
     this.showName = true,
+    this.avatarName = '',
+    this.avatarPhoto = '',
   });
 
   final EpsChatMessage message;
@@ -663,6 +725,8 @@ class _Bubble extends StatelessWidget {
   final List<EpsChatReaction> reactions;
   final EpsChatMessage? quoted;
   final bool showName;
+  final String avatarName;
+  final String avatarPhoto;
   final VoidCallback onLongPress;
   final void Function(String url) onPlay;
 
@@ -690,142 +754,201 @@ class _Bubble extends StatelessWidget {
       alignment: mine
           ? AlignmentDirectional.centerEnd
           : AlignmentDirectional.centerStart,
-      child: GestureDetector(
-        onLongPress: onLongPress,
-        child: Column(
-          crossAxisAlignment: mine
-              ? CrossAxisAlignment.end
-              : CrossAxisAlignment.start,
-          children: [
-            Container(
-              constraints: BoxConstraints(
-                maxWidth: MediaQuery.of(context).size.width * 0.78,
-              ),
-              margin: const EdgeInsets.only(bottom: 6),
-              padding: const EdgeInsets.fromLTRB(8, 6, 8, 6),
-              decoration: BoxDecoration(
-                color: mine ? _ChatStyle.outgoing : _ChatStyle.incoming,
-                borderRadius: BorderRadius.circular(9),
-              ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          if (!mine)
+            SizedBox(
+              width: 36,
+              child: showName
+                  ? _Avatar(
+                      name: avatarName.isNotEmpty
+                          ? avatarName
+                          : message.senderName,
+                      photo: avatarPhoto,
+                      radius: 15,
+                    )
+                  : null,
+            ),
+          Flexible(
+            child: GestureDetector(
+              onLongPress: onLongPress,
               child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+                crossAxisAlignment: mine
+                    ? CrossAxisAlignment.end
+                    : CrossAxisAlignment.start,
                 children: [
-                  if (quoted != null)
-                    Container(
-                      width: double.infinity,
-                      margin: const EdgeInsets.only(bottom: 6),
-                      padding: const EdgeInsets.fromLTRB(8, 4, 8, 4),
-                      decoration: BoxDecoration(
-                        color: Colors.black.withValues(alpha: 0.18),
-                        borderRadius: BorderRadius.circular(6),
-                        border: const Border(
-                          left: BorderSide(color: Color(0xFF53BDEB), width: 3),
-                        ),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            quoted!.senderName,
-                            style: const TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w800,
-                              color: Color(0xFF53BDEB),
+                  Container(
+                    constraints: BoxConstraints(
+                      maxWidth: MediaQuery.of(context).size.width * 0.78,
+                    ),
+                    margin: const EdgeInsets.only(bottom: 6),
+                    padding: const EdgeInsets.fromLTRB(8, 6, 8, 6),
+                    decoration: BoxDecoration(
+                      color: mine ? _ChatStyle.outgoing : _ChatStyle.incoming,
+                      borderRadius: BorderRadius.circular(9),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (quoted != null)
+                          Container(
+                            width: double.infinity,
+                            margin: const EdgeInsets.only(bottom: 6),
+                            padding: const EdgeInsets.fromLTRB(8, 4, 8, 4),
+                            decoration: BoxDecoration(
+                              color: Colors.black.withValues(alpha: 0.18),
+                              borderRadius: BorderRadius.circular(6),
+                              border: const Border(
+                                left: BorderSide(
+                                  color: Color(0xFF53BDEB),
+                                  width: 3,
+                                ),
+                              ),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  quoted!.senderName,
+                                  style: const TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w800,
+                                    color: Color(0xFF53BDEB),
+                                  ),
+                                ),
+                                Text(
+                                  quoted!.body.isNotEmpty
+                                      ? quoted!.body
+                                      : (quoted!.imageUrl.isNotEmpty
+                                            ? 'صورة'
+                                            : 'رسالة صوتية'),
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    fontSize: 11,
+                                    color: Color(0xFFB0BEC5),
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
-                          Text(
-                            quoted!.body.isNotEmpty
-                                ? quoted!.body
-                                : (quoted!.imageUrl.isNotEmpty
-                                      ? 'صورة'
-                                      : 'رسالة صوتية'),
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              fontSize: 11,
-                              color: Color(0xFFB0BEC5),
+                        if (!mine && showName && message.senderName.isNotEmpty)
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 2),
+                            child: Text(
+                              message.senderName,
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w800,
+                                color: nameColor,
+                              ),
                             ),
                           ),
-                        ],
-                      ),
-                    ),
-                  if (!mine && showName && message.senderName.isNotEmpty)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 2),
-                      child: Text(
-                        message.senderName,
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w800,
-                          color: nameColor,
-                        ),
-                      ),
-                    ),
-                  if (message.audioUrl.isNotEmpty)
-                    _VoiceRow(
-                      seed: message.id,
-                      seconds: message.audioSeconds,
-                      onPlay: () => onPlay(message.audioUrl),
-                    ),
-                  if (message.imageUrl.isNotEmpty)
-                    GestureDetector(
-                      onTap: () => showDialog<void>(
-                        context: context,
-                        builder: (c) => Dialog(
-                          child: InteractiveViewer(
-                            child: Image.network(message.imageUrl),
+                        if (message.audioUrl.isNotEmpty)
+                          _VoiceRow(
+                            seed: message.id,
+                            seconds: message.audioSeconds,
+                            onPlay: () => onPlay(message.audioUrl),
+                          ),
+                        if (message.imageUrl.isNotEmpty)
+                          GestureDetector(
+                            onTap: () => showDialog<void>(
+                              context: context,
+                              builder: (c) => Dialog(
+                                child: InteractiveViewer(
+                                  child: Image.network(message.imageUrl),
+                                ),
+                              ),
+                            ),
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(7),
+                              child: Image.network(
+                                message.imageUrl,
+                                fit: BoxFit.cover,
+                                width: 230,
+                              ),
+                            ),
+                          ),
+                        if (message.body.isNotEmpty)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 3),
+                            child: Text(
+                              message.body,
+                              style: const TextStyle(
+                                fontSize: 15,
+                                height: 1.4,
+                                color: Color(0xFFE9EDEF),
+                              ),
+                            ),
+                          ),
+                        Align(
+                          alignment: AlignmentDirectional.centerEnd,
+                          child: Text(
+                            timeText,
+                            style: const TextStyle(fontSize: 10, color: _muted),
                           ),
                         ),
-                      ),
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(7),
-                        child: Image.network(
-                          message.imageUrl,
-                          fit: BoxFit.cover,
-                          width: 230,
-                        ),
-                      ),
-                    ),
-                  if (message.body.isNotEmpty)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 3),
-                      child: Text(
-                        message.body,
-                        style: const TextStyle(
-                          fontSize: 15,
-                          height: 1.4,
-                          color: Color(0xFFE9EDEF),
-                        ),
-                      ),
-                    ),
-                  Align(
-                    alignment: AlignmentDirectional.centerEnd,
-                    child: Text(
-                      timeText,
-                      style: const TextStyle(fontSize: 10, color: _muted),
+                      ],
                     ),
                   ),
+                  if (counts.isNotEmpty)
+                    Container(
+                      margin: const EdgeInsets.only(bottom: 8, top: 2),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 3,
+                      ),
+                      decoration: BoxDecoration(
+                        color: _ChatStyle.bar,
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                      child: Text(
+                        counts.entries
+                            .map(
+                              (e) =>
+                                  e.value > 1 ? '${e.key} ${e.value}' : e.key,
+                            )
+                            .join('  '),
+                        style: const TextStyle(fontSize: 12),
+                      ),
+                    ),
                 ],
               ),
             ),
-            if (counts.isNotEmpty)
-              Container(
-                margin: const EdgeInsets.only(bottom: 8, top: 2),
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                decoration: BoxDecoration(
-                  color: _ChatStyle.bar,
-                  borderRadius: BorderRadius.circular(999),
-                ),
-                child: Text(
-                  counts.entries
-                      .map((e) => e.value > 1 ? '${e.key} ${e.value}' : e.key)
-                      .join('  '),
-                  style: const TextStyle(fontSize: 12),
-                ),
-              ),
-          ],
-        ),
+          ),
+        ],
       ),
+    );
+  }
+}
+
+/// A person's photo, or the first letter of the name when there is no photo.
+class _Avatar extends StatelessWidget {
+  const _Avatar({required this.name, required this.photo, this.radius = 16});
+
+  final String name;
+  final String photo;
+  final double radius;
+
+  @override
+  Widget build(BuildContext context) {
+    final letter = name.trim().isEmpty ? '?' : name.trim().characters.first;
+    return CircleAvatar(
+      radius: radius,
+      backgroundColor: const Color(0xFF00A884),
+      backgroundImage: photo.isNotEmpty ? NetworkImage(photo) : null,
+      child: photo.isEmpty
+          ? Text(
+              letter,
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: radius * 0.9,
+                fontWeight: FontWeight.w900,
+              ),
+            )
+          : null,
     );
   }
 }

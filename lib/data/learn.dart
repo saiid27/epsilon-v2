@@ -1351,6 +1351,50 @@ class LearnRepository {
     }, onConflict: 'message_id,user_id');
   }
 
+  /// Name and photo of some users (the senders of a chat).
+  Future<Map<String, ({String name, String photo})>> usersById(
+    List<String> ids,
+  ) async {
+    if (ids.isEmpty) return {};
+    final rows = _list(
+      await client
+          .from('users')
+          .select('id, name, avatar_url')
+          .inFilter('id', ids.toSet().toList()),
+    );
+    return {
+      for (final r in rows)
+        _str(r['id']): (name: _str(r['name']), photo: _str(r['avatar_url'])),
+    };
+  }
+
+  /// The students with an active subscription to a subject: the class of the
+  /// group, shown to the members.
+  Future<List<({String id, String name, String photo})>> subjectStudents(
+    String subjectId,
+  ) async {
+    final rows = _list(
+      await client
+          .from('subject_subscriptions')
+          .select('student:users(id, name, avatar_url)')
+          .eq('subject_id', subjectId)
+          .eq('status', 'active'),
+    );
+    final out = <({String id, String name, String photo})>[];
+    for (final r in rows) {
+      final u = r['student'];
+      if (u is Map) {
+        out.add((
+          id: _str(u['id']),
+          name: _str(u['name']),
+          photo: _str(u['avatar_url']),
+        ));
+      }
+    }
+    out.sort((a, b) => a.name.compareTo(b.name));
+    return out;
+  }
+
   /// The chat groups of some subjects (a group may not exist yet).
   Future<List<EpsChatGroup>> chatGroupsFor(List<String> subjectIds) async {
     if (subjectIds.isEmpty) return [];
