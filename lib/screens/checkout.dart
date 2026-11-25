@@ -26,9 +26,15 @@ class SectionsScreen extends StatelessWidget {
       for (final id in ids)
         (
           id,
-          store.courseById(id)?.title ?? 'قسم',
-          store.courseById(id)?.description ?? '',
+          learn.sectionById(id)?.title.isNotEmpty ?? false
+              ? learn.sectionById(id)!.title
+              : (store.courseById(id)?.title ?? 'قسم'),
+          learn.sectionById(id)?.description.isNotEmpty ?? false
+              ? learn.sectionById(id)!.description
+              : (store.courseById(id)?.description ?? ''),
           learn.subjects.where((s) => s.courseId == id).toList(),
+          learn.sectionById(id)?.features ?? const <String>[],
+          learn.sectionById(id)?.bundlePrice ?? 0,
         ),
     ]..sort((a, b) => a.$2.compareTo(b.$2));
     final other = learn.subjects.where((s) => s.courseId == null).toList();
@@ -45,13 +51,16 @@ class SectionsScreen extends StatelessWidget {
           onTap: () => pushPage(context, const AssistantPlansScreen()),
         ),
         const SizedBox(height: 10),
-        for (final (id, title, description, subjects) in sections)
+        for (final (id, title, description, subjects, features, bundle)
+            in sections)
           Padding(
             padding: const EdgeInsets.only(bottom: 10),
             child: _SectionCard(
               title: title,
               description: description,
               subjects: subjects,
+              features: features,
+              bundlePrice: bundle,
               onTap: () =>
                   pushPage(context, CatalogScreen(courseId: id, title: title)),
             ),
@@ -82,12 +91,20 @@ class _SectionCard extends StatelessWidget {
     required this.description,
     required this.subjects,
     required this.onTap,
+    this.features = const [],
+    this.bundlePrice = 0,
   });
 
   final String title;
   final String description;
   final List<EpsSubject> subjects;
   final VoidCallback onTap;
+
+  /// What the section offers, written by the admin.
+  final List<String> features;
+
+  /// Price of the whole section a month (all its subjects).
+  final int bundlePrice;
 
   @override
   Widget build(BuildContext context) {
@@ -135,6 +152,41 @@ class _SectionCard extends StatelessWidget {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(fontSize: 8, color: Eps.muted),
+                  ),
+                // What the section offers (set by the admin).
+                for (final f in features.take(4))
+                  Padding(
+                    padding: const EdgeInsets.only(top: 3),
+                    child: Row(
+                      children: [
+                        const Icon(
+                          Icons.check_circle_rounded,
+                          size: 11,
+                          color: Eps.green,
+                        ),
+                        const SizedBox(width: 4),
+                        Expanded(
+                          child: Text(
+                            f,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(fontSize: 8, color: Eps.ink),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                if (bundlePrice > 0)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: Text(
+                      'القسم كاملاً: ${formatMru(bundlePrice)} MRU / شهر',
+                      style: const TextStyle(
+                        fontSize: 9,
+                        fontWeight: FontWeight.w800,
+                        color: Eps.blue,
+                      ),
+                    ),
                   ),
                 const SizedBox(height: 6),
                 Wrap(

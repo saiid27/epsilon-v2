@@ -55,6 +55,7 @@ part 'screens/attachments.dart';
 part 'screens/ai_ops.dart';
 part 'screens/group_chat.dart';
 part 'screens/chat_list.dart';
+part 'screens/admin_sections.dart';
 
 /// The language picked in settings: 'ar' (default) or 'fr'.
 String appLanguage = 'ar';

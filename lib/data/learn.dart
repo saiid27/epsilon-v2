@@ -292,6 +292,24 @@ class EpsAttachment {
   bool get isImage => kind == 'image';
 }
 
+/// A section (course): its title, what it offers, and its bundle price.
+class EpsSection {
+  EpsSection.fromRow(Map<String, dynamic> r)
+    : id = _str(r['id']),
+      title = _str(r['title']),
+      description = _str(r['description']),
+      features = [
+        for (final f in (r['features'] as List? ?? const [])) '$f'.trim(),
+      ].where((f) => f.isNotEmpty).toList(),
+      bundlePrice = (r['bundle_price'] as num?)?.toInt() ?? 0;
+
+  final String id;
+  final String title;
+  final String description;
+  final List<String> features;
+  final int bundlePrice;
+}
+
 /// The chat group of one subject (one per subject).
 class EpsChatGroup {
   EpsChatGroup.fromRow(Map<String, dynamic> r)
@@ -672,6 +690,31 @@ class LearnRepository {
   Future<List<EpsTeacher>> teachers() async => _list(
     await client.from('users').select().eq('role', 'teacher'),
   ).map(EpsTeacher.fromRow).toList();
+
+  Future<List<EpsSection>> sections() async => (await _select(
+    'courses',
+    order: 'created_at',
+  )).map(EpsSection.fromRow).toList();
+
+  /// The admin's changes to a section: title, description, what it offers,
+  /// and the bundle price.
+  Future<void> saveSection({
+    required String id,
+    required String title,
+    required String description,
+    required List<String> features,
+    required int bundlePrice,
+  }) async {
+    await client
+        .from('courses')
+        .update({
+          'title': title.trim(),
+          'description': description.trim(),
+          'features': features,
+          'bundle_price': bundlePrice,
+        })
+        .eq('id', id);
+  }
 
   Future<List<EpsPlan>> plans() async => (await _select(
     'plans',
@@ -1677,14 +1720,10 @@ class LearnStore extends ChangeNotifier {
           .where((s) => s.isActive)
           .toList();
       try {
-        final rows = await repo.client
-            .from('courses')
-            .select('id, bundle_price');
-        sectionBundles = {
-          for (final r in rows as List)
-            '${r['id']}': (r['bundle_price'] as num?)?.toInt() ?? 0,
-        };
+        sections = await repo.sections();
+        sectionBundles = {for (final c in sections) c.id: c.bundlePrice};
       } on Object {
+        sections = [];
         sectionBundles = {};
       }
       teachers = results[2]! as List<EpsTeacher>;
@@ -1872,6 +1911,10 @@ class LearnStore extends ChangeNotifier {
   /// Bundle price of each section (course id -> MRU a month). A section whose
   /// subjects are all in the cart pays this price instead of the sum.
   Map<String, int> sectionBundles = {};
+  List<EpsSection> sections = [];
+
+  EpsSection? sectionById(String id) =>
+      sections.where((c) => c.id == id).firstOrNull;
 
   /// What each subject in the cart costs this month. A complete section pays
   /// its bundle price, split between its subjects by their price.
