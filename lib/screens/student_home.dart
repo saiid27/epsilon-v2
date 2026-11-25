@@ -440,6 +440,7 @@ class _StudentHomeTabState extends State<StudentHomeTab> {
               const SizedBox(height: 3),
             ],
             const UniversityResultsCard(),
+            const SectionsCard(),
             const ArchiveCard(),
             const SizedBox(height: 4),
             if (heroes.isNotEmpty) ...[
@@ -1417,6 +1418,61 @@ class AnnouncementsPage extends StatelessWidget {
             child: _AnnouncementCard(item: item),
           ),
       ],
+    );
+  }
+}
+
+/// Home card to the sections: what each section offers, and how to subscribe.
+class SectionsCard extends StatelessWidget {
+  const SectionsCard({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 9),
+      child: FlatCard(
+        onTap: () => pushPage(context, const SectionsScreen()),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        child: Row(
+          children: [
+            Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: Eps.blueSoft,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: const Icon(
+                Icons.category_outlined,
+                color: Eps.blue,
+                size: 21,
+              ),
+            ),
+            const SizedBox(width: 10),
+            const Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'الأقسام والاشتراك',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      color: Eps.ink,
+                      height: 1.5,
+                    ),
+                  ),
+                  Text(
+                    'اختر قسمك، وشاهد ما يقدمه، واشترك في موادك',
+                    style: TextStyle(fontSize: 9, color: Eps.muted),
+                  ),
+                ],
+              ),
+            ),
+            const Icon(Icons.chevron_left_rounded, color: Eps.muted),
+          ],
+        ),
+      ),
     );
   }
 }
