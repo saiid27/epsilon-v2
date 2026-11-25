@@ -83,6 +83,95 @@ class _GroupChatScreenState extends State<_GroupChatBody> {
   bool get isStaff =>
       me?.role == UserRole.teacher || me?.role == UserRole.admin;
 
+  /// Attach a photo, a video from the gallery, or record a video now.
+  void pickAttachment() {
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: _bar,
+      builder: (c) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: Icon(Icons.image_outlined, color: _accent),
+              title: Text('صورة', style: TextStyle(color: chatLook.value.text)),
+              onTap: () {
+                Navigator.pop(c);
+                pickImage();
+              },
+            ),
+            // Videos are the teacher's: the students send text, photos and voice.
+            if (isStaff)
+              ListTile(
+                leading: Icon(Icons.video_library_outlined, color: _accent),
+                title: Text(
+                  'فيديو من المعرض',
+                  style: TextStyle(color: chatLook.value.text),
+                ),
+                onTap: () {
+                  Navigator.pop(c);
+                  pickVideo(ImageSource.gallery);
+                },
+              ),
+            if (isStaff)
+              ListTile(
+                leading: Icon(Icons.videocam_outlined, color: _accent),
+                title: Text(
+                  'تسجيل فيديو الآن',
+                  style: TextStyle(color: chatLook.value.text),
+                ),
+                onTap: () {
+                  Navigator.pop(c);
+                  pickVideo(ImageSource.camera);
+                },
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// A video from the gallery, or recorded with the camera. Up to 50 MB.
+  Future<void> pickVideo(ImageSource source) async {
+    final g0 = group;
+    final user = me;
+    if (g0 == null || user == null) return;
+    if (kIsWeb) {
+      setState(() => error = 'رفع الفيديو متاح في التطبيق على الهاتف.');
+      return;
+    }
+    try {
+      final picked = await ImagePicker().pickVideo(source: source);
+      if (picked == null) return;
+      final bytes = await picked.readAsBytes();
+      if (bytes.length > 50 * 1024 * 1024) {
+        setState(() => error = 'الفيديو أكبر من 50 ميغابايت. سجّله بجودة أقل.');
+        return;
+      }
+      final ext = picked.name.contains('.')
+          ? picked.name.split('.').last
+          : 'mp4';
+      setState(() {
+        sending = true;
+        error = '';
+      });
+      await repo.sendChatVideo(
+        groupId: g0.id,
+        senderId: user.id,
+        senderName: user.name,
+        bytes: bytes,
+        extension: ext,
+        caption: input.text,
+      );
+      input.clear();
+      await refresh();
+    } on Object catch (e) {
+      if (mounted) setState(() => error = friendlyApiError(e));
+    } finally {
+      if (mounted) setState(() => sending = false);
+    }
+  }
+
   /// Choose the look of the chat: dark (Tajawal), day (Cairo), or pinned (Almarai).
   void pickLook() {
     showModalBottomSheet<void>(
@@ -694,15 +783,14 @@ class _GroupChatScreenState extends State<_GroupChatBody> {
                                 ),
                               ),
                             ),
-                            if (isStaff)
-                              IconButton(
-                                tooltip: 'صورة',
-                                icon: Icon(
-                                  Icons.attach_file_rounded,
-                                  color: _muted,
-                                ),
-                                onPressed: sending ? null : pickImage,
+                            IconButton(
+                              tooltip: 'إرفاق',
+                              icon: Icon(
+                                Icons.attach_file_rounded,
+                                color: _muted,
                               ),
+                              onPressed: sending ? null : pickAttachment,
+                            ),
                           ],
                         ),
                       ),
@@ -889,6 +977,28 @@ class _Bubble extends StatelessWidget {
                             seed: message.id,
                             seconds: message.audioSeconds,
                             onPlay: () => onPlay(message.audioUrl),
+                          ),
+                        if (message.videoUrl.isNotEmpty)
+                          GestureDetector(
+                            onTap: () => showDialog<void>(
+                              context: context,
+                              builder: (c) =>
+                                  _VideoDialog(url: message.videoUrl),
+                            ),
+                            child: Container(
+                              width: 220,
+                              height: 130,
+                              alignment: Alignment.center,
+                              decoration: BoxDecoration(
+                                color: Colors.black,
+                                borderRadius: BorderRadius.circular(7),
+                              ),
+                              child: const Icon(
+                                Icons.play_circle_fill_rounded,
+                                color: Colors.white,
+                                size: 52,
+                              ),
+                            ),
                           ),
                         if (message.imageUrl.isNotEmpty)
                           GestureDetector(
@@ -1099,4 +1209,50 @@ class _WavePainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _WavePainter old) => old.seed != seed;
+}
+
+/// Plays a chat video in a dialog.
+class _VideoDialog extends StatefulWidget {
+  const _VideoDialog({required this.url});
+
+  final String url;
+
+  @override
+  State<_VideoDialog> createState() => _VideoDialogState();
+}
+
+class _VideoDialogState extends State<_VideoDialog> {
+  late final VideoPlayerController controller =
+      VideoPlayerController.networkUrl(Uri.parse(widget.url))
+        ..initialize().then((_) {
+          if (mounted) setState(() {});
+          controller.play();
+        });
+
+  @override
+  void dispose() {
+    controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      child: AspectRatio(
+        aspectRatio: controller.value.isInitialized
+            ? controller.value.aspectRatio
+            : 16 / 9,
+        child: controller.value.isInitialized
+            ? GestureDetector(
+                onTap: () => setState(() {
+                  controller.value.isPlaying
+                      ? controller.pause()
+                      : controller.play();
+                }),
+                child: VideoPlayer(controller),
+              )
+            : const Center(child: CircularProgressIndicator()),
+      ),
+    );
+  }
 }

@@ -42,6 +42,7 @@ class ChatCache {
               'image_url': m.imageUrl,
               'audio_url': m.audioUrl,
               'audio_seconds': m.audioSeconds,
+              'video_url': m.videoUrl,
               'reply_to': m.replyTo,
               'created_at': m.createdAt.toUtc().toIso8601String(),
             },

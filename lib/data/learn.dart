@@ -335,6 +335,7 @@ class EpsChatMessage {
       imageUrl = _str(r['image_url']),
       audioUrl = _str(r['audio_url']),
       audioSeconds = (r['audio_seconds'] as num?)?.toInt() ?? 0,
+      videoUrl = _str(r['video_url']),
       replyTo = r['reply_to'] as String?,
       createdAt = _date(r['created_at']) ?? DateTime.now().toUtc();
 
@@ -346,6 +347,7 @@ class EpsChatMessage {
   final String imageUrl;
   final String audioUrl;
   final int audioSeconds;
+  final String videoUrl;
   final String? replyTo;
   final DateTime createdAt;
 }
@@ -1282,6 +1284,38 @@ class LearnRepository {
       'body': body.trim(),
       'image_url': url,
       'reply_to': replyToId,
+    });
+  }
+
+  /// A video (uploaded or recorded by the teacher), sent to the group.
+  Future<void> sendChatVideo({
+    required String groupId,
+    required String senderId,
+    required String senderName,
+    required Uint8List bytes,
+    required String extension,
+    String caption = '',
+  }) async {
+    final ext = extension.toLowerCase();
+    final mime = switch (ext) {
+      'mov' => 'video/quicktime',
+      'webm' => 'video/webm',
+      '3gp' => 'video/3gpp',
+      _ => 'video/mp4',
+    };
+    final path = '$groupId/${DateTime.now().millisecondsSinceEpoch}.$ext';
+    final bucket = client.storage.from('chat-videos');
+    await bucket.uploadBinary(
+      path,
+      bytes,
+      fileOptions: FileOptions(contentType: mime, upsert: false),
+    );
+    await client.from('chat_messages').insert({
+      'group_id': groupId,
+      'sender_id': senderId,
+      'sender_name': senderName,
+      'body': caption.trim(),
+      'video_url': bucket.getPublicUrl(path),
     });
   }
 
