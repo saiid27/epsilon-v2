@@ -84,7 +84,7 @@ class SectionsScreen extends StatelessWidget {
               features: features,
               bundlePrice: bundle,
               onTap: () =>
-                  pushPage(context, CatalogScreen(courseId: id, title: title)),
+                  pushPage(context, SectionScreen(courseId: id, title: title)),
             ),
           ),
         if (other.isNotEmpty)
@@ -1931,6 +1931,7 @@ class ReceiptUploadScreen extends StatefulWidget {
     this.paymentMethodId,
     this.order,
     this.groupSubject,
+    this.featureOrder,
     super.key,
   });
 
@@ -1940,6 +1941,8 @@ class ReceiptUploadScreen extends StatefulWidget {
   final AssistantOrder? order;
   // A group-only subscription to this subject.
   final EpsSubject? groupSubject;
+  // A section feature (videos, live or assistant).
+  final SectionFeatureOrder? featureOrder;
 
   @override
   State<ReceiptUploadScreen> createState() => _ReceiptUploadScreenState();
@@ -1978,6 +1981,31 @@ class _ReceiptUploadScreenState extends State<ReceiptUploadScreen> {
     });
     try {
       final dataUri = await paymentProofDataUri(picked.path, picked.name);
+      final featureOrder = widget.featureOrder;
+      if (featureOrder != null) {
+        final userId = learn.userId;
+        if (userId == null) {
+          throw StateError('سجّل دخولك أولاً.');
+        }
+        await learn.repo.requestSectionFeature(
+          studentId: userId,
+          courseId: featureOrder.courseId,
+          feature: featureOrder.feature,
+          amount: featureOrder.amount,
+          paymentMethodId: widget.paymentMethodId ?? fallbackMethod,
+          receiptUrl: dataUri,
+          transactionRef: refController.text,
+        );
+        if (mounted) {
+          Navigator.of(context).pushAndRemoveUntil(
+            MaterialPageRoute(
+              builder: (_) => const PaymentConfirmationScreen(),
+            ),
+            (route) => route.isFirst,
+          );
+        }
+        return;
+      }
       final groupSubject = widget.groupSubject;
       if (groupSubject != null) {
         final userId = learn.userId;

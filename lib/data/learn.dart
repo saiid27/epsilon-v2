@@ -449,6 +449,31 @@ class EpsPdf {
 
 enum LiveState { live, upcoming, past }
 
+/// A student's subscription to one feature of a section (videos, live,
+/// assistant or groups); the subject's group is kept separately.
+class EpsSectionFeatureSub {
+  EpsSectionFeatureSub.fromRow(Map<String, dynamic> r)
+    : id = _str(r['id']),
+      courseId = _str(r['course_id']),
+      feature = _str(r['feature']),
+      amount = _int(r['amount']),
+      status = _str(r['status']),
+      expiresAt = _date(r['expires_at']);
+
+  final String id;
+  final String courseId;
+  final String feature;
+  final int amount;
+  final String status;
+  final DateTime? expiresAt;
+
+  bool get isActive =>
+      status == 'active' &&
+      (expiresAt == null || expiresAt!.isAfter(DateTime.now()));
+
+  bool get isPending => status == 'pending';
+}
+
 class EpsLiveSession {
   EpsLiveSession.fromRow(Map<String, dynamic> r)
     : id = _str(r['id']),
@@ -807,6 +832,46 @@ class LearnRepository {
         .insert(payload)
         .select();
     return _list(rows).map(EpsSubscription.fromRow).toList();
+  }
+
+  Future<List<EpsSectionFeatureSub>> sectionFeatureSubscriptions({
+    required String studentId,
+  }) async => _list(
+    await client
+        .from('section_feature_subscriptions')
+        .select()
+        .eq('student_id', studentId)
+        .order('created_at', ascending: false),
+  ).map(EpsSectionFeatureSub.fromRow).toList();
+
+  /// One request per student, section and feature; a new request replaces an
+  /// earlier pending or rejected one.
+  Future<void> requestSectionFeature({
+    required String studentId,
+    required String courseId,
+    required String feature,
+    required int amount,
+    required String? paymentMethodId,
+    required String receiptUrl,
+    required String transactionRef,
+  }) async {
+    await client
+        .from('section_feature_subscriptions')
+        .delete()
+        .eq('student_id', studentId)
+        .eq('course_id', courseId)
+        .eq('feature', feature)
+        .inFilter('status', ['pending', 'rejected']);
+    await client.from('section_feature_subscriptions').insert({
+      'student_id': studentId,
+      'course_id': courseId,
+      'feature': feature,
+      'amount': amount,
+      'payment_method_id': paymentMethodId,
+      'receipt_url': receiptUrl,
+      'transaction_ref': transactionRef,
+      'status': 'pending',
+    });
   }
 
   Future<void> reviewSubscription({
@@ -1837,6 +1902,7 @@ class LearnStore extends ChangeNotifier {
   List<EpsPlan> plans = [];
   List<EpsSubscription> subscriptions = [];
   List<EpsLesson> lessons = [];
+  List<EpsSectionFeatureSub> featureSubs = [];
   Set<String> completedLessonIds = {};
   List<EpsExercise> exercises = [];
   List<EpsPdf> pdfs = [];
@@ -1929,6 +1995,12 @@ class LearnStore extends ChangeNotifier {
       teachers = results[2]! as List<EpsTeacher>;
       _setPlans(results[3]! as List<EpsPlan>);
       subscriptions = results[4]! as List<EpsSubscription>;
+      // Kept apart: a missing table must not stop the rest of the app.
+      try {
+        featureSubs = await repo.sectionFeatureSubscriptions(studentId: id);
+      } on Object {
+        featureSubs = [];
+      }
       lessons = (results[5]! as List<EpsLesson>)
           .where((l) => l.isPublished)
           .toList();
@@ -2027,6 +2099,11 @@ class LearnStore extends ChangeNotifier {
       );
 
   /// Lessons and files: only a full subscription opens them.
+  /// Whether the student has an active subscription to a feature of a section.
+  bool hasFeature(String courseId, String feature) => featureSubs.any(
+    (f) => f.courseId == courseId && f.feature == feature && f.isActive,
+  );
+
   bool hasGroupAccess(String? subjectId) =>
       subjectId != null &&
       subscriptions.any(
