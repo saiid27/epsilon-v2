@@ -9983,6 +9983,18 @@ class TeacherDashboard extends StatelessWidget {
           const CreateLessonForm(),
           const SizedBox(height: 16),
           SectionCard(
+            title: 'مجموعات موادي',
+            icon: Icons.forum_rounded,
+            child: ListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('فتح مجموعات المواد'),
+              subtitle: const Text('الرسائل والاستطلاعات مع الطلاب'),
+              trailing: const Icon(Icons.chevron_left_rounded),
+              onTap: () => pushPage(context, const ChatListScreen()),
+            ),
+          ),
+          const SizedBox(height: 16),
+          SectionCard(
             title: 'إدارة دروسي',
             icon: Icons.video_library_rounded,
             child: teacherLessons.isEmpty
