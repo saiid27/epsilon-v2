@@ -314,11 +314,20 @@ class EpsSection {
       features = [
         for (final f in (r['features'] as List? ?? const [])) '$f'.trim(),
       ].where((f) => f.isNotEmpty).toList(),
-      bundlePrice = (r['bundle_price'] as num?)?.toInt() ?? 0;
+      bundlePrice = (r['bundle_price'] as num?)?.toInt() ?? 0,
+      featurePrices = {
+        'groups': _int(r['feature_groups_price']),
+        'videos': _int(r['feature_videos_price']),
+        'live': _int(r['feature_live_price']),
+        'assistant': _int(r['feature_assistant_price']),
+      };
 
   final String id;
   final String title;
   final String description;
+  // The price of each feature of the section (groups, videos, live, assistant).
+  // A price of 0 means the feature is not activated for this section yet.
+  final Map<String, int> featurePrices;
   final List<String> features;
   final int bundlePrice;
 }
@@ -727,6 +736,7 @@ class LearnRepository {
     required String description,
     required List<String> features,
     required int bundlePrice,
+    Map<String, int> featurePrices = const {},
   }) async {
     await client
         .from('courses')
@@ -735,6 +745,10 @@ class LearnRepository {
           'description': description.trim(),
           'features': features,
           'bundle_price': bundlePrice,
+          'feature_groups_price': featurePrices['groups'] ?? 0,
+          'feature_videos_price': featurePrices['videos'] ?? 0,
+          'feature_live_price': featurePrices['live'] ?? 0,
+          'feature_assistant_price': featurePrices['assistant'] ?? 0,
         })
         .eq('id', id);
   }

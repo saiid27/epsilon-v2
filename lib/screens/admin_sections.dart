@@ -49,6 +49,10 @@ class _AdminSectionsState extends State<AdminSections> {
     final desc = TextEditingController(text: c.description);
     final features = TextEditingController(text: c.features.join('\n'));
     final price = TextEditingController(text: c.bundlePrice.toString());
+    final featureCtl = {
+      for (final f in const ['groups', 'videos', 'live', 'assistant'])
+        f: TextEditingController(text: '${c.featurePrices[f] ?? 0}'),
+    };
     final saved = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
@@ -80,6 +84,25 @@ class _AdminSectionsState extends State<AdminSections> {
                   labelText: 'سعر القسم كاملاً في الشهر (MRU)',
                 ),
               ),
+              const SizedBox(height: 10),
+              const Align(
+                alignment: AlignmentDirectional.centerStart,
+                child: Text(
+                  'سعر كل خاصية في هذا القسم (0 = غير مفعلة بعد)',
+                  style: TextStyle(fontSize: 12),
+                ),
+              ),
+              for (final entry in const [
+                ('groups', 'مجموعات المواد (MRU / شهر)'),
+                ('videos', 'الفيديوهات المسجلة (MRU / شهر)'),
+                ('live', 'البث المباشر (MRU / شهر)'),
+                ('assistant', 'مساعد Epsilon AI (MRU / شهر)'),
+              ])
+                TextField(
+                  controller: featureCtl[entry.$1],
+                  keyboardType: TextInputType.number,
+                  decoration: InputDecoration(labelText: entry.$2),
+                ),
             ],
           ),
         ),
@@ -106,6 +129,10 @@ class _AdminSectionsState extends State<AdminSections> {
             if (l.trim().isNotEmpty) l.trim(),
         ],
         bundlePrice: int.tryParse(price.text.trim()) ?? 0,
+        featurePrices: {
+          for (final e in featureCtl.entries)
+            e.key: int.tryParse(e.value.text.trim()) ?? 0,
+        },
       );
       await load();
     } on Object catch (e) {
