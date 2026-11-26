@@ -183,32 +183,6 @@ class _StartupSplashScreenState extends State<StartupSplashScreen>
                       ],
                     ),
                   ),
-                  if (widget.onSkip != null)
-                    Positioned(
-                      top: 18,
-                      left: 18,
-                      child: GestureDetector(
-                        onTap: widget.onSkip,
-                        child: Container(
-                          width: 42,
-                          height: 24,
-                          alignment: Alignment.center,
-                          decoration: BoxDecoration(
-                            color: const Color(0x9EFFFFFF),
-                            borderRadius: BorderRadius.circular(9),
-                          ),
-                          child: const Text(
-                            'تخطي',
-                            textDirection: TextDirection.rtl,
-                            style: TextStyle(
-                              fontSize: 8,
-                              fontWeight: FontWeight.w700,
-                              color: Eps.blue,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
                 ],
               ),
             ),
@@ -474,17 +448,6 @@ class _EpsOnboardingState extends State<EpsOnboarding> {
                   padding: const EdgeInsets.symmetric(horizontal: 20),
                   child: Row(
                     children: [
-                      GestureDetector(
-                        key: const ValueKey('onboarding-skip'),
-                        onTap: widget.onFinish,
-                        child: const Text(
-                          'تخطي',
-                          style: TextStyle(
-                            fontSize: 10,
-                            color: Color(0xFF818B9E),
-                          ),
-                        ),
-                      ),
                       const Spacer(),
                       const EpsLogo(
                         size: 43,
