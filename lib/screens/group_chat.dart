@@ -350,7 +350,7 @@ class _GroupChatScreenState extends State<_GroupChatBody> {
 
   bool get lockedOut {
     final learn = LearnScope.read(context);
-    return !isStaff && !learn.hasAccess(widget.subjectId);
+    return !isStaff && !learn.hasGroupAccess(widget.subjectId);
   }
 
   Future<void> load() async {

@@ -45,6 +45,7 @@ class EpsSubject {
       courseId = r['course_id'] == null ? null : _str(r['course_id']),
       name = _str(r['name']),
       nameFr = _str(r['name_fr']),
+      groupPrice = _int(r['group_price']),
       icon = _str(r['icon']).isEmpty ? '∑' : _str(r['icon']),
       colorHex = _str(r['color']).isEmpty ? '#DBEAFE' : _str(r['color']),
       faculty = _str(r['faculty']),
@@ -60,6 +61,8 @@ class EpsSubject {
   final String? courseId;
   final String name;
   final String nameFr;
+  // The price of the group alone (no lessons), set by the admin.
+  final int groupPrice;
   final String icon;
   final String colorHex;
   final String faculty;
@@ -82,6 +85,7 @@ class EpsSubject {
   Map<String, dynamic> toRow() => {
     'course_id': courseId,
     'name_fr': nameFr,
+    'group_price': groupPrice,
     'name': name,
     'icon': icon,
     'color': colorHex,
@@ -157,6 +161,7 @@ class EpsSubscription {
       studentId = _str(r['student_id']),
       subjectId = _str(r['subject_id']),
       planCode = _str(r['plan_code']),
+      access = _str(r['access']) == 'groups' ? 'groups' : 'full',
       amount = _int(r['amount']),
       paymentMethodId = r['payment_method_id'] == null
           ? null
@@ -173,6 +178,8 @@ class EpsSubscription {
   final String ref;
   final String studentId;
   final String subjectId;
+  // 'full' (lessons, files and group) or 'groups' (the group only).
+  final String access;
   final String planCode;
   final int amount;
   final String? paymentMethodId;
@@ -755,14 +762,21 @@ class LearnRepository {
     required String? paymentMethodId,
     required String receiptUrl,
     required String transactionRef,
+    String access = 'full',
   }) async {
     final payload = [
       for (final subject in subjects)
         {
           'student_id': studentId,
           'subject_id': subject.id,
+          'access': access,
           'plan_code': plan.code,
-          'amount': plan.priceFor(amounts?[subject.id] ?? subject.monthlyPrice),
+          'amount': plan.priceFor(
+            amounts?[subject.id] ??
+                (access == 'groups'
+                    ? subject.groupPrice
+                    : subject.monthlyPrice),
+          ),
           'payment_method_id': paymentMethodId,
           'receipt_url': receiptUrl,
           'transaction_ref': transactionRef,
@@ -1994,6 +2008,14 @@ class LearnStore extends ChangeNotifier {
       subscriptions.where((s) => s.status == status).toList();
 
   bool hasAccess(String? subjectId) =>
+      subjectId != null &&
+      subscriptions.any(
+        (s) =>
+            s.subjectId == subjectId && s.status == SubscriptionStatus.active,
+      );
+
+  /// Lessons and files: only a full subscription opens them.
+  bool hasGroupAccess(String? subjectId) =>
       subjectId != null &&
       subscriptions.any(
         (s) =>

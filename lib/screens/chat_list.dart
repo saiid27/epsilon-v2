@@ -64,7 +64,7 @@ List<EpsSubject> visibleChatSubjects(LearnStore learn, bool staff) {
   if (staff) return [...learn.subjects];
   final mySections = <String?>{
     for (final s in learn.subjects)
-      if (learn.hasAccess(s.id)) s.courseId,
+      if (learn.hasGroupAccess(s.id)) s.courseId,
   };
   return [
     for (final s in learn.subjects)
@@ -103,7 +103,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
     final subjectIds = [for (final s in visible) s.id];
     final openIds = {
       for (final s in visible)
-        if (staff || learn.hasAccess(s.id)) s.id,
+        if (staff || learn.hasGroupAccess(s.id)) s.id,
     };
     setState(() {
       loading = true;
@@ -205,7 +205,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
                 last: latest[groups[s.id]?.id ?? ''],
                 timeText: timeText,
                 staff: staff,
-                locked: !staff && !learn.hasAccess(s.id),
+                locked: !staff && !learn.hasGroupAccess(s.id),
                 onStar: () async {
                   final g = groups[s.id];
                   if (g == null) return;
