@@ -474,6 +474,40 @@ class EpsSectionFeatureSub {
   bool get isPending => status == 'pending';
 }
 
+/// A private conversation between a student and a teacher.
+class EpsDirectThread {
+  EpsDirectThread.fromRow(Map<String, dynamic> r)
+    : id = _str(r['id']),
+      studentId = _str(r['student_id']),
+      teacherId = _str(r['teacher_id']),
+      lastAt = _date(r['last_message_at']) ?? DateTime.now();
+
+  final String id;
+  final String studentId;
+  final String teacherId;
+  final DateTime lastAt;
+}
+
+/// One private message; `forwarded` when the teacher posted it in the group.
+class EpsDirectMessage {
+  EpsDirectMessage.fromRow(Map<String, dynamic> r)
+    : id = _str(r['id']),
+      threadId = _str(r['thread_id']),
+      senderId = _str(r['sender_id']),
+      body = _str(r['body']),
+      imageUrl = _str(r['image_url']),
+      forwarded = _bool(r['forwarded']),
+      createdAt = _date(r['created_at']) ?? DateTime.now();
+
+  final String id;
+  final String threadId;
+  final String senderId;
+  final String body;
+  final String imageUrl;
+  final bool forwarded;
+  final DateTime createdAt;
+}
+
 class EpsLiveSession {
   EpsLiveSession.fromRow(Map<String, dynamic> r)
     : id = _str(r['id']),
@@ -872,6 +906,87 @@ class LearnRepository {
       'transaction_ref': transactionRef,
       'status': 'pending',
     });
+  }
+
+  /// Sets the student's username: lowercase letters, digits or _, 3 to 20.
+  Future<void> setUsername(String userId, String username) async {
+    final u = username.trim().toLowerCase();
+    if (!RegExp(r'^[a-z0-9_]{3,20}$').hasMatch(u)) {
+      throw StateError(
+        'اسم المستخدم من 3 إلى 20 حرفاً إنجليزياً أو رقماً أو _',
+      );
+    }
+    await client.from('users').update({'username': u}).eq('id', userId);
+  }
+
+  /// The private conversation of a student and a teacher, created on first use.
+  Future<EpsDirectThread> directThread({
+    required String studentId,
+    required String teacherId,
+  }) async {
+    final rows = _list(
+      await client.from('direct_threads').upsert({
+        'student_id': studentId,
+        'teacher_id': teacherId,
+      }, onConflict: 'student_id,teacher_id').select(),
+    );
+    return EpsDirectThread.fromRow(rows.first);
+  }
+
+  /// The conversations of a user, newest first (as a student or a teacher).
+  Future<List<EpsDirectThread>> directThreadsFor(String userId) async {
+    final rows = _list(
+      await client
+          .from('direct_threads')
+          .select()
+          .or('student_id.eq.$userId,teacher_id.eq.$userId')
+          .order('last_message_at', ascending: false),
+    );
+    return rows.map(EpsDirectThread.fromRow).toList();
+  }
+
+  Future<List<EpsDirectMessage>> directMessages(String threadId) async => _list(
+    await client
+        .from('direct_messages')
+        .select()
+        .eq('thread_id', threadId)
+        .order('created_at', ascending: true),
+  ).map(EpsDirectMessage.fromRow).toList();
+
+  Future<void> sendDirectMessage({
+    required String threadId,
+    required String senderId,
+    required String body,
+  }) async {
+    await client.from('direct_messages').insert({
+      'thread_id': threadId,
+      'sender_id': senderId,
+      'body': body.trim(),
+    });
+    await client
+        .from('direct_threads')
+        .update({'last_message_at': DateTime.now().toUtc().toIso8601String()})
+        .eq('id', threadId);
+  }
+
+  /// The teacher posts a private message in the group, with the sender's
+  /// username, and the private message is marked as forwarded.
+  Future<void> forwardDirectToGroup({
+    required EpsDirectMessage message,
+    required String groupId,
+    required String teacherId,
+    required String teacherName,
+  }) async {
+    await client.from('chat_messages').insert({
+      'group_id': groupId,
+      'sender_id': teacherId,
+      'sender_name': teacherName,
+      'body': message.body,
+    });
+    await client
+        .from('direct_messages')
+        .update({'forwarded': true})
+        .eq('id', message.id);
   }
 
   Future<List<Map<String, dynamic>>> assistantPackageRows() async => _list(
