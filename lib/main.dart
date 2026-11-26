@@ -9983,6 +9983,7 @@ class TeacherDashboard extends StatelessWidget {
           const SizedBox(height: 16),
           const CreateLessonForm(),
           const SizedBox(height: 16),
+          const HomeBanner(),
           SectionCard(
             title: 'مجموعات موادي',
             icon: Icons.forum_rounded,

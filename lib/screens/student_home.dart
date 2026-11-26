@@ -435,6 +435,7 @@ class _StudentHomeTabState extends State<StudentHomeTab> {
               onProfile: () => shell?.goTab(5),
               onBell: () => pushPage(context, const StudentNotificationsPage()),
             ),
+            const HomeBanner(),
             if (!learn.isSubscribed) ...[
               _UpgradeCard(
                 onTap: () => pushPage(context, const UpgradeScreen()),
@@ -1474,6 +1475,67 @@ class SectionsCard extends StatelessWidget {
             const Icon(Icons.chevron_left_rounded, color: Eps.muted),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// The welcome banner with the three student illustrations.
+class HomeBanner extends StatelessWidget {
+  const HomeBanner({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(Eps.radius),
+        boxShadow: Eps.cardShadow,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            tr(
+              'ادرس بذكاء، وتقدّم خطوة كل يوم',
+              'Étudie malin, avance chaque jour',
+            ),
+            style: const TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w900,
+              color: Eps.ink,
+            ),
+          ),
+          const SizedBox(height: 10),
+          const Row(
+            children: [
+              Expanded(child: _BannerImage('assets/home/student_girl.png')),
+              SizedBox(width: 8),
+              Expanded(child: _BannerImage('assets/home/student_boy.png')),
+              SizedBox(width: 8),
+              Expanded(child: _BannerImage('assets/home/graduation.png')),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _BannerImage extends StatelessWidget {
+  const _BannerImage(this.asset);
+
+  final String asset;
+
+  @override
+  Widget build(BuildContext context) {
+    return AspectRatio(
+      aspectRatio: 0.72,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(12),
+        child: Image.asset(asset, fit: BoxFit.cover),
       ),
     );
   }
