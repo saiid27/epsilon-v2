@@ -1147,25 +1147,47 @@ class _SubjectDetailScreenState extends State<SubjectDetailScreen> {
                     colors: [Color(0x00F7F8FC), Eps.bg],
                   ),
                 ),
-                child: EpsPrimaryButton(
-                  label: subscribed
-                      ? 'افتح المادة'
-                      : learn.isAvailable(s.id)
-                      ? 'متابعة للدفع'
-                      : 'الاشتراك غير متوفر حالياً',
-                  icon: Icons.chevron_right_rounded,
-                  onPressed: !subscribed && !learn.isAvailable(s.id)
-                      ? null
-                      : () {
-                          if (subscribed) {
-                            pushPage(context, CourseScreen(subjectId: s.id));
-                            return;
-                          }
-                          if (!learn.cart.contains(s.id)) {
-                            learn.toggleCart(s.id);
-                          }
-                          openPlansOrCheckout(context);
-                        },
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (!subscribed && s.groupPrice > 0)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: EpsPrimaryButton(
+                          label:
+                              'مجموعات تدريس الأستاذ · ${formatMru(s.groupPrice)} MRU / شهر',
+                          icon: Icons.groups_rounded,
+                          color: Eps.navy,
+                          onPressed: () => pushPage(
+                            context,
+                            GroupCheckoutScreen(subject: s),
+                          ),
+                        ),
+                      ),
+                    EpsPrimaryButton(
+                      label: subscribed
+                          ? 'افتح المادة'
+                          : learn.isAvailable(s.id)
+                          ? 'متابعة للدفع'
+                          : 'الاشتراك غير متوفر حالياً',
+                      icon: Icons.chevron_right_rounded,
+                      onPressed: !subscribed && !learn.isAvailable(s.id)
+                          ? null
+                          : () {
+                              if (subscribed) {
+                                pushPage(
+                                  context,
+                                  CourseScreen(subjectId: s.id),
+                                );
+                                return;
+                              }
+                              if (!learn.cart.contains(s.id)) {
+                                learn.toggleCart(s.id);
+                              }
+                              openPlansOrCheckout(context);
+                            },
+                    ),
+                  ],
                 ),
               ),
             ),
@@ -1883,12 +1905,19 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
 
 /// Receipt upload (Figma: receipt).
 class ReceiptUploadScreen extends StatefulWidget {
-  const ReceiptUploadScreen({this.paymentMethodId, this.order, super.key});
+  const ReceiptUploadScreen({
+    this.paymentMethodId,
+    this.order,
+    this.groupSubject,
+    super.key,
+  });
 
   final String? paymentMethodId;
 
   /// Set when the receipt pays for an assistant package, not for subjects.
   final AssistantOrder? order;
+  // A group-only subscription to this subject.
+  final EpsSubject? groupSubject;
 
   @override
   State<ReceiptUploadScreen> createState() => _ReceiptUploadScreenState();
@@ -1927,6 +1956,37 @@ class _ReceiptUploadScreenState extends State<ReceiptUploadScreen> {
     });
     try {
       final dataUri = await paymentProofDataUri(picked.path, picked.name);
+      final groupSubject = widget.groupSubject;
+      if (groupSubject != null) {
+        final userId = learn.userId;
+        if (userId == null) {
+          throw StateError('سجّل دخولك أولاً.');
+        }
+        final plan =
+            learn.planByCode('monthly') ??
+            learn.plans.where((p) => !p.isFree).firstOrNull;
+        if (plan == null) {
+          throw StateError('خطة الاشتراك غير متوفرة حالياً.');
+        }
+        await learn.repo.requestSubscriptions(
+          studentId: userId,
+          subjects: [groupSubject],
+          plan: plan,
+          paymentMethodId: widget.paymentMethodId ?? fallbackMethod,
+          receiptUrl: dataUri,
+          transactionRef: refController.text,
+          access: 'groups',
+        );
+        if (mounted) {
+          Navigator.of(context).pushAndRemoveUntil(
+            MaterialPageRoute(
+              builder: (_) => const PaymentConfirmationScreen(),
+            ),
+            (route) => route.isFirst,
+          );
+        }
+        return;
+      }
       final order = widget.order;
       if (order != null) {
         final userId = learn.userId;

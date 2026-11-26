@@ -56,6 +56,7 @@ part 'screens/assistant_checkout.dart';
 part 'screens/attachments.dart';
 part 'screens/ai_ops.dart';
 part 'screens/group_chat.dart';
+part 'screens/group_checkout.dart';
 part 'screens/chat_list.dart';
 part 'screens/admin_sections.dart';
 part 'screens/chat_look.dart';
