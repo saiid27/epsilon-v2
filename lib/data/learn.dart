@@ -874,6 +874,18 @@ class LearnRepository {
     });
   }
 
+  Future<List<Map<String, dynamic>>> assistantPackageRows() async => _list(
+    await client.from('assistant_packages').select().order('sort_order'),
+  );
+
+  /// Changes the price columns of one row (subjects, courses or packages).
+  Future<void> updateRowBy({
+    required String table,
+    required String column,
+    required String key,
+    required Map<String, dynamic> values,
+  }) => client.from(table).update(values).eq(column, key);
+
   Future<void> reviewSubscription({
     required EpsSubscription subscription,
     required bool approve,
@@ -1903,6 +1915,8 @@ class LearnStore extends ChangeNotifier {
   List<EpsSubscription> subscriptions = [];
   List<EpsLesson> lessons = [];
   List<EpsSectionFeatureSub> featureSubs = [];
+  // The assistant packages as the admin set them (empty: the built-in ones).
+  List<Map<String, dynamic>> packageRows = [];
   Set<String> completedLessonIds = {};
   List<EpsExercise> exercises = [];
   List<EpsPdf> pdfs = [];
@@ -2000,6 +2014,11 @@ class LearnStore extends ChangeNotifier {
         featureSubs = await repo.sectionFeatureSubscriptions(studentId: id);
       } on Object {
         featureSubs = [];
+      }
+      try {
+        packageRows = await repo.assistantPackageRows();
+      } on Object {
+        packageRows = [];
       }
       lessons = (results[5]! as List<EpsLesson>)
           .where((l) => l.isPublished)

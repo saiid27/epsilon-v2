@@ -3213,7 +3213,24 @@ class AssistantPackage {
   final int files;
   final List<String> perks;
   final bool highlight;
+
+  factory AssistantPackage.fromRow(Map<String, dynamic> r) => AssistantPackage(
+    name: '${r['name']}',
+    tagline: '${r['tagline'] ?? ''}',
+    monthly: (r['monthly'] as num?)?.toInt() ?? 0,
+    yearly: (r['yearly'] as num?)?.toInt() ?? 0,
+    questions: (r['questions'] as num?)?.toInt() ?? 0,
+    files: (r['files'] as num?)?.toInt() ?? 0,
+    perks: [for (final p in (r['perks'] as List? ?? const [])) '$p'],
+    highlight: r['highlight'] == true,
+  );
 }
+
+/// The packages the admin set; the built-in list when none are stored.
+List<AssistantPackage> packagesFor(LearnStore learn) =>
+    learn.packageRows.isEmpty
+    ? assistantPackages
+    : [for (final r in learn.packageRows) AssistantPackage.fromRow(r)];
 
 const assistantPackages = [
   AssistantPackage(
@@ -3331,7 +3348,7 @@ class _AssistantPlansScreenState extends State<AssistantPlansScreen> {
           ),
         ),
         const SizedBox(height: 12),
-        for (final p in assistantPackages)
+        for (final p in packagesFor(LearnScope.of(context)))
           Padding(
             padding: const EdgeInsets.only(bottom: 12),
             child: _PackageCard(package: p, yearly: yearly),

@@ -192,6 +192,7 @@ class _AdminConsoleState extends State<AdminConsole> {
     ('المرفقات', Icons.attach_file_rounded),
     ('الذكاء الاصطناعي', Icons.smart_toy_outlined),
     ('الأقسام', Icons.category_outlined),
+    ('كل الأسعار', Icons.price_change_outlined),
   ];
 
   LearnRepository get repo => LearnScope.read(context).repo;
@@ -468,6 +469,7 @@ class _AdminConsoleState extends State<AdminConsole> {
                       12 => [const AdminAttachments()],
                       13 => [const AdminAiOps()],
                       14 => [const AdminSections()],
+                      15 => [const AdminAllPrices()],
                       _ => plans(),
                     },
                   ),
