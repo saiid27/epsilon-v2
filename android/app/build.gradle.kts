@@ -48,10 +48,12 @@ android {
 
     buildTypes {
         release {
+            // Without a release keystore, sign with the debug key so the APK
+            // installs for testing. Add key.properties for a real release.
             signingConfig = if (keystorePropertiesFile.exists()) {
                 signingConfigs.getByName("release")
             } else {
-                null
+                signingConfigs.getByName("debug")
             }
         }
     }
