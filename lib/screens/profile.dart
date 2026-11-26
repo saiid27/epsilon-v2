@@ -4063,6 +4063,23 @@ class _StudentFileUploadScreenState extends State<StudentFileUploadScreen> {
         fileName: file.name,
       );
       if (mounted) {
+        await showDialog<void>(
+          context: context,
+          builder: (c) => AlertDialog(
+            title: const Text('شكراً على مساهمتك'),
+            content: const Text(
+              'استلمنا ملفك، وسيظهر للطلاب بعد مراجعة الإدارة. مساهمتك تساعد زملاءك في الأرشيف.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(c),
+                child: const Text('تم'),
+              ),
+            ],
+          ),
+        );
+      }
+      if (mounted) {
         Navigator.of(context).pop(true);
       }
     } on Object catch (e) {
