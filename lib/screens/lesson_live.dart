@@ -96,7 +96,7 @@ class _LessonScreenState extends State<LessonScreen> {
       return const EpsPage(title: 'الدرس', children: []);
     }
     final subject = learn.subjectById(lesson.subjectId);
-    final subscribed = learn.hasAccess(lesson.subjectId);
+    final subscribed = learn.canWatch(lesson.subjectId);
     const body = TextStyle(fontSize: 9, color: Eps.muted, height: 2);
     return Scaffold(
       backgroundColor: Eps.bg,
@@ -549,7 +549,7 @@ Future<void> showLockedSheet(BuildContext context, String subjectId) {
 /// past → recording.
 void openLiveSession(BuildContext context, EpsLiveSession session) {
   final learn = LearnScope.read(context);
-  final allowed = session.isFree || learn.hasAccess(session.subjectId);
+  final allowed = session.isFree || learn.canJoinLive(session.subjectId);
   if (!allowed) {
     showLockedSheet(context, session.subjectId);
     return;

@@ -155,9 +155,17 @@ Deno.serve(async (req) => {
       .select('id', { count: 'exact', head: true })
       .eq('student_id', userId)
       .eq('status', 'active');
+    // The assistant bought for a section counts like a subject subscription.
+    const { count: sectionAi } = await supabase
+      .from('section_feature_subscriptions')
+      .select('id', { count: 'exact', head: true })
+      .eq('student_id', userId)
+      .eq('feature', 'assistant')
+      .eq('status', 'active')
+      .gt('expires_at', new Date().toISOString());
     const tier = pkg && TIERS[pkg.tier]
       ? TIERS[pkg.tier]
-      : (activeSubs ?? 0) > 0
+      : (activeSubs ?? 0) > 0 || (sectionAi ?? 0) > 0
         ? await tierFor(supabase, user.assistant_tier)
         : TIERS.free;
     const bonus = await seasonBonus(supabase);

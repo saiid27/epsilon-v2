@@ -649,7 +649,8 @@ class _CourseScreenState extends State<CourseScreen> {
               ],
             ),
             // The assistant opens only after the student subscribes to the subject.
-            if (learn.hasAccess(subject.id))
+            if (learn.hasAccess(subject.id) ||
+                learn.sectionFeatureFor(subject.id, 'assistant'))
               Positioned(
                 left: 14,
                 bottom: 11,

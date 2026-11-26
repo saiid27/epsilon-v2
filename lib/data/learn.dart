@@ -2147,7 +2147,25 @@ class LearnStore extends ChangeNotifier {
   }
 
   /// The free plan covers live sessions and PDF files only.
-  bool canOpenLesson(EpsLesson lesson) => hasAccess(lesson.subjectId);
+  /// The section a subject belongs to, if any.
+  String? courseOf(String? subjectId) =>
+      subjects.where((s) => s.id == subjectId).firstOrNull?.courseId;
+
+  /// A section feature (videos, live, assistant) of the subject's section.
+  bool sectionFeatureFor(String? subjectId, String feature) {
+    final course = courseOf(subjectId);
+    return course != null && hasFeature(course, feature);
+  }
+
+  /// Recorded videos: the full subject, or the section's videos feature.
+  bool canWatch(String? subjectId) =>
+      hasAccess(subjectId) || sectionFeatureFor(subjectId, 'videos');
+
+  /// Live sessions: the full subject, or the section's live feature.
+  bool canJoinLive(String? subjectId) =>
+      hasAccess(subjectId) || sectionFeatureFor(subjectId, 'live');
+
+  bool canOpenLesson(EpsLesson lesson) => canWatch(lesson.subjectId);
 
   EpsQuiz? get dailyQuiz {
     final today = DateUtils.dateOnly(DateTime.now());
