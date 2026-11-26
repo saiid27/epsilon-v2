@@ -50,7 +50,7 @@ class _AdminSectionsState extends State<AdminSections> {
     final features = TextEditingController(text: c.features.join('\n'));
     final price = TextEditingController(text: c.bundlePrice.toString());
     final featureCtl = {
-      for (final f in const ['groups', 'videos', 'live', 'assistant'])
+      for (final f in const ['videos', 'live', 'assistant'])
         f: TextEditingController(text: '${c.featurePrices[f] ?? 0}'),
     };
     final saved = await showDialog<bool>(
@@ -93,7 +93,6 @@ class _AdminSectionsState extends State<AdminSections> {
                 ),
               ),
               for (final entry in const [
-                ('groups', 'مجموعات المواد (MRU / شهر)'),
                 ('videos', 'الفيديوهات المسجلة (MRU / شهر)'),
                 ('live', 'البث المباشر (MRU / شهر)'),
                 ('assistant', 'مساعد Epsilon AI (MRU / شهر)'),

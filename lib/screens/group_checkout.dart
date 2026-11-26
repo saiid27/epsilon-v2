@@ -198,3 +198,103 @@ class _GroupCheckoutScreenState extends State<GroupCheckoutScreen> {
     );
   }
 }
+
+/// The groups of all sections: the student takes one subject's group or
+/// several, and can add more later.
+class GroupsCatalogScreen extends StatelessWidget {
+  const GroupsCatalogScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final learn = LearnScope.of(context);
+    final subjects = learn.subjects.where((s) => s.courseId != null).toList();
+    final sectionIds = {for (final s in subjects) s.courseId!}.toList();
+    return EpsPage(
+      title: 'مجموعات المواد',
+      children: [
+        const Text(
+          'اختر مجموعة مادة واحدة أو أكثر، ويمكنك إضافة غيرها متى شئت.',
+          style: TextStyle(fontSize: 10, color: Eps.muted),
+        ),
+        const SizedBox(height: 12),
+        for (final id in sectionIds) ...[
+          Padding(
+            padding: const EdgeInsets.only(top: 6, bottom: 8),
+            child: Text(
+              learn.sectionById(id)?.title ?? 'قسم',
+              style: const TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w900,
+                color: Eps.ink,
+              ),
+            ),
+          ),
+          for (final s in subjects.where((s) => s.courseId == id))
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: _GroupRow(subject: s),
+            ),
+        ],
+      ],
+    );
+  }
+}
+
+/// One subject's group: its price, its state, and the purchase.
+class _GroupRow extends StatelessWidget {
+  const _GroupRow({required this.subject});
+
+  final EpsSubject subject;
+
+  @override
+  Widget build(BuildContext context) {
+    final learn = LearnScope.of(context);
+    final s = subject;
+    final has = learn.hasGroupAccess(s.id);
+    final available = s.groupPrice > 0;
+    final String note;
+    final Color noteColor;
+    if (!available) {
+      note = 'لم تفعل بعد لهذا القسم';
+      noteColor = Eps.orangeInk;
+    } else if (has) {
+      note = 'مشترك في المجموعة';
+      noteColor = Eps.green;
+    } else {
+      note = '${formatMru(s.groupPrice)} MRU / شهر';
+      noteColor = Eps.muted;
+    }
+    return FlatCard(
+      padding: const EdgeInsets.all(12),
+      onTap: has || !available
+          ? null
+          : () => pushPage(context, GroupCheckoutScreen(subject: s)),
+      child: Row(
+        children: [
+          _GroupLogo(name: s.displayName, color: s.color),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  s.displayName,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w900,
+                    color: Eps.ink,
+                  ),
+                ),
+                Text(note, style: TextStyle(fontSize: 11, color: noteColor)),
+              ],
+            ),
+          ),
+          if (has)
+            const Icon(Icons.check_circle_rounded, color: Eps.green)
+          else if (available)
+            const Icon(Icons.chevron_left_rounded, color: Eps.blue),
+        ],
+      ),
+    );
+  }
+}

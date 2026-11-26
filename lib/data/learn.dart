@@ -316,7 +316,6 @@ class EpsSection {
       ].where((f) => f.isNotEmpty).toList(),
       bundlePrice = (r['bundle_price'] as num?)?.toInt() ?? 0,
       featurePrices = {
-        'groups': _int(r['feature_groups_price']),
         'videos': _int(r['feature_videos_price']),
         'live': _int(r['feature_live_price']),
         'assistant': _int(r['feature_assistant_price']),
@@ -745,7 +744,6 @@ class LearnRepository {
           'description': description.trim(),
           'features': features,
           'bundle_price': bundlePrice,
-          'feature_groups_price': featurePrices['groups'] ?? 0,
           'feature_videos_price': featurePrices['videos'] ?? 0,
           'feature_live_price': featurePrices['live'] ?? 0,
           'feature_assistant_price': featurePrices['assistant'] ?? 0,

@@ -46,6 +46,28 @@ class SectionsScreen extends StatelessWidget {
           style: TextStyle(fontSize: 9, color: Eps.muted),
         ),
         const SizedBox(height: 14),
+        FlatCard(
+          onTap: () => pushPage(context, const GroupsCatalogScreen()),
+          padding: const EdgeInsets.all(13),
+          child: Row(
+            children: [
+              const Icon(Icons.groups_rounded, color: Eps.blue),
+              const SizedBox(width: 10),
+              const Expanded(
+                child: Text(
+                  'مجموعات المواد · اختر مجموعة مادة واحدة أو أكثر',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w900,
+                    color: Eps.ink,
+                  ),
+                ),
+              ),
+              const Icon(Icons.chevron_left_rounded, color: Eps.muted),
+            ],
+          ),
+        ),
+        const SizedBox(height: 14),
         // The assistant subscription comes before the sections and subjects.
         _AssistantSubscriptionEntry(
           onTap: () => pushPage(context, const AssistantPlansScreen()),
@@ -1150,7 +1172,7 @@ class _SubjectDetailScreenState extends State<SubjectDetailScreen> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    if (!subscribed && s.groupPrice > 0)
+                    if (!learn.hasGroupAccess(s.id) && s.groupPrice > 0)
                       Padding(
                         padding: const EdgeInsets.only(bottom: 8),
                         child: EpsPrimaryButton(
