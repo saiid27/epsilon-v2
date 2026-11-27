@@ -159,6 +159,26 @@ async function notifyStudents(session: Session) {
       body: `${session.title} • انضم الآن من تبويب مباشر`,
     })),
   );
+  // The same message as a push notification on the phones.
+  await sendPush([...ids], 'بدأ البث المباشر', session.title);
+}
+
+// Asks the push function to notify these users' phones. A failed push never
+// stops the live session.
+async function sendPush(userIds: string[], title: string, body: string) {
+  try {
+    await fetch(`${env('SUPABASE_URL')}/functions/v1/push`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-push-secret': env('PUSH_SECRET'),
+        authorization: `Bearer ${env('SUPABASE_SERVICE_ROLE_KEY')}`,
+      },
+      body: JSON.stringify({ user_ids: userIds, title, body }),
+    });
+  } catch (_) {
+    // Ignored on purpose.
+  }
 }
 
 async function accessToken(identity: string, name: string, room: string, host: boolean) {
