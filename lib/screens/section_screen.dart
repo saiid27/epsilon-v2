@@ -155,7 +155,9 @@ class _FeatureCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final learn = LearnScope.of(context);
-    final groupsOn = subjects.any((s) => s.groupPrice > 0);
+    final groupsOn = learn.chatGroups.any(
+      (g) => g.price > 0 && subjects.any((s) => s.id == g.subjectId),
+    );
     // Groups are priced per subject; the other features per section.
     final available = feature == 'groups' ? groupsOn : price > 0;
     final active = learn.featureSubs
@@ -169,7 +171,13 @@ class _FeatureCard extends StatelessWidget {
         )
         .firstOrNull;
     final bought = feature == 'groups'
-        ? subjects.where((s) => learn.hasGroupAccess(s.id)).length
+        ? learn.chatGroups
+              .where(
+                (g) =>
+                    subjects.any((s) => s.id == g.subjectId) &&
+                    learn.canOpenGroup(g),
+              )
+              .length
         : 0;
 
     final String status;
@@ -178,7 +186,8 @@ class _FeatureCard extends StatelessWidget {
       status = _notActivated;
       statusColor = Eps.orangeInk;
     } else if (feature == 'groups' && bought > 0) {
-      status = '✓ اشتركت في $bought من ${subjects.length} مواد';
+      status =
+          '✓ اشتركت في $bought من ${learn.chatGroups.where((g) => subjects.any((s) => s.id == g.subjectId)).length} مجموعات';
       statusColor = Eps.green;
     } else if (active != null) {
       status = '✓ مفعّلة';

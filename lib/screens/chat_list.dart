@@ -56,23 +56,35 @@ class ChatCache {
   }
 }
 
-/// The groups a user sees: a teacher or admin sees all of them. A student sees
-/// the subjects of the sections they subscribed to (a section is chosen by
-/// subscribing to one of its subjects); the groups they did not subscribe to
-/// are listed with a lock.
-List<EpsSubject> visibleChatSubjects(LearnStore learn, bool staff) {
-  if (staff) return [...learn.subjects];
-  final mySections = <String?>{
+/// The groups a user sees: an admin sees all of them, a teacher the groups of
+/// the subjects he teaches, and a student the groups of the sections he is in.
+/// The groups he has not paid for are listed, but locked.
+List<EpsChatGroup> visibleChatGroups(
+  LearnStore learn,
+  UserRole? role,
+  String? userId,
+) {
+  if (role == UserRole.admin) return [...learn.chatGroups];
+  if (role == UserRole.teacher) {
+    return [
+      for (final g in learn.chatGroups)
+        if (learn.subjectById(g.subjectId)?.teacherId == userId) g,
+    ];
+  }
+  // A section counts for a student who has a subscription in it.
+  final sections = <String?>{
+    for (final g in learn.chatGroups)
+      if (learn.canOpenGroup(g)) learn.courseOf(g.subjectId),
     for (final s in learn.subjects)
-      if (learn.hasGroupAccess(s.id)) s.courseId,
+      if (learn.hasAccess(s.id)) s.courseId,
   };
   return [
-    for (final s in learn.subjects)
-      if (mySections.contains(s.courseId)) s,
+    for (final g in learn.chatGroups)
+      if (sections.contains(learn.courseOf(g.subjectId))) g,
   ];
 }
 
-/// The student's subject chats, grouped by section. Starred groups come first.
+/// The groups of the user, by section. Starred groups first inside a section.
 class ChatListScreen extends StatefulWidget {
   const ChatListScreen({super.key});
 
@@ -83,7 +95,7 @@ class ChatListScreen extends StatefulWidget {
 class _ChatListScreenState extends State<ChatListScreen> {
   bool loading = true;
   String error = '';
-  Map<String, EpsChatGroup> groups = {};
+  List<EpsChatGroup> groups = [];
   Map<String, EpsChatMessage> latest = {};
 
   @override
@@ -92,37 +104,36 @@ class _ChatListScreenState extends State<ChatListScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) => load());
   }
 
+  bool get _staff {
+    final role = StoreScope.of(context).currentUser?.role;
+    return role == UserRole.teacher || role == UserRole.admin;
+  }
+
   Future<void> load() async {
     final learn = LearnScope.read(context);
-    final store = StoreScope.of(context);
-    final user = store.currentUser;
-    final staff =
-        user?.role == UserRole.teacher || user?.role == UserRole.admin;
-    // Only the groups of the student's sections; the ones not subscribed are locked.
-    final visible = visibleChatSubjects(learn, staff);
-    final subjectIds = [for (final s in visible) s.id];
-    final openIds = {
-      for (final s in visible)
-        if (staff || learn.hasGroupAccess(s.id)) s.id,
-    };
+    final user = StoreScope.of(context).currentUser;
     setState(() {
       loading = true;
       error = '';
     });
     try {
-      final gs = await learn.repo.chatGroupsFor(subjectIds);
-      // Previews only for the groups this student can open.
-      final ms = await learn.repo.latestChatMessages([
-        for (final g in gs)
-          if (openIds.contains(g.subjectId)) g.id,
-      ]);
+      // The groups and the subscriptions, as they are now.
+      final uid = learn.userId;
+      if (uid != null) await learn.load(uid);
+      final visible = visibleChatGroups(learn, user?.role, user?.id);
+      final openIds = [
+        for (final g in visible)
+          if (_staff || learn.canOpenGroup(g)) g.id,
+      ];
+      // Previews only for the groups this user can open.
+      final ms = await learn.repo.latestChatMessages(openIds);
       final last = <String, EpsChatMessage>{};
       for (final m in ms) {
         last.putIfAbsent(m.groupId, () => m);
       }
       if (mounted) {
         setState(() {
-          groups = {for (final g in gs) g.subjectId: g};
+          groups = visible;
           latest = last;
           loading = false;
         });
@@ -146,33 +157,146 @@ class _ChatListScreenState extends State<ChatListScreen> {
     return '${l.day}/${l.month}';
   }
 
+  /// The admin or the teacher adds a group to one of the subjects they teach.
+  /// Only the admin sets the price.
+  Future<void> newGroup() async {
+    final learn = LearnScope.read(context);
+    final user = StoreScope.of(context).currentUser;
+    final isAdmin = user?.role == UserRole.admin;
+    final mine = [
+      for (final s in learn.subjects)
+        if (isAdmin || s.teacherId == user?.id) s,
+    ];
+    if (mine.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('لا توجد مواد لإضافة مجموعة إليها.')),
+      );
+      return;
+    }
+    var subjectId = mine.first.id;
+    final name = TextEditingController();
+    final price = TextEditingController(text: '0');
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (c) => StatefulBuilder(
+        builder: (c, set) => AlertDialog(
+          title: const Text('مجموعة جديدة'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              DropdownButtonFormField<String>(
+                initialValue: subjectId,
+                decoration: const InputDecoration(labelText: 'المادة'),
+                items: [
+                  for (final s in mine)
+                    DropdownMenuItem(value: s.id, child: Text(s.displayName)),
+                ],
+                onChanged: (v) => set(() => subjectId = v ?? subjectId),
+              ),
+              TextField(
+                controller: name,
+                decoration: const InputDecoration(labelText: 'اسم المجموعة'),
+              ),
+              if (isAdmin)
+                TextField(
+                  controller: price,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(
+                    labelText: 'سعر الاشتراك (MRU / شهر)',
+                  ),
+                ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(c, false),
+              child: const Text('إلغاء'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(c, true),
+              child: const Text('إنشاء'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (ok != true || name.text.trim().isEmpty) return;
+    try {
+      await learn.repo.createChatGroup(
+        subjectId: subjectId,
+        name: name.text,
+        price: isAdmin ? int.tryParse(price.text.trim()) ?? 0 : 0,
+        createdBy: user?.id,
+      );
+      await load();
+    } on Object catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(friendlyApiError(e))));
+      }
+    }
+  }
+
+  /// The admin or the teacher gives the group its name.
+  Future<void> rename(EpsChatGroup g) async {
+    final learn = LearnScope.read(context);
+    final ctl = TextEditingController(text: g.name);
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: const Text('اسم المجموعة'),
+        content: TextField(controller: ctl),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(c, false),
+            child: const Text('إلغاء'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(c, true),
+            child: const Text('حفظ'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || ctl.text.trim().isEmpty) return;
+    await learn.repo.updateChatGroup(g.id, name: ctl.text);
+    await load();
+  }
+
   @override
   Widget build(BuildContext context) {
     final learn = LearnScope.of(context);
     final store = StoreScope.of(context);
-    final user = store.currentUser;
-    final staff =
-        user?.role == UserRole.teacher || user?.role == UserRole.admin;
-    final subjects = visibleChatSubjects(learn, staff);
-    // Sections, each with its subjects. Starred groups first inside a section.
-    final bySection = <String?, List<EpsSubject>>{};
-    for (final s in subjects) {
-      bySection.putIfAbsent(s.courseId, () => []).add(s);
+    final staff = _staff;
+    // Sections, each with its groups. Starred groups first inside a section.
+    final bySection = <String?, List<EpsChatGroup>>{};
+    for (final g in groups) {
+      bySection.putIfAbsent(learn.courseOf(g.subjectId), () => []).add(g);
     }
-    int rank(EpsSubject s) {
-      final g = groups[s.id];
+    int rank(EpsChatGroup g) {
       final t =
-          latest[g?.id ?? '']?.createdAt ??
-          DateTime.fromMillisecondsSinceEpoch(0);
-      return (g?.starred ?? false) ? 1 << 30 : t.millisecondsSinceEpoch ~/ 1000;
+          latest[g.id]?.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+      return g.starred ? 1 << 30 : t.millisecondsSinceEpoch ~/ 1000;
     }
 
     return EpsPage(
-      title: 'محادثات موادي',
-      action: EpsIconButton(
-        icon: Icons.refresh_rounded,
-        tooltip: 'تحديث',
-        onTap: load,
+      title: 'المجموعات',
+      action: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (staff)
+            EpsIconButton(
+              icon: Icons.add_rounded,
+              tooltip: 'مجموعة جديدة',
+              onTap: newGroup,
+            ),
+          EpsIconButton(
+            icon: Icons.refresh_rounded,
+            tooltip: 'تحديث',
+            onTap: load,
+          ),
+        ],
       ),
       children: [
         if (loading)
@@ -182,11 +306,11 @@ class _ChatListScreenState extends State<ChatListScreen> {
           )
         else if (error.isNotEmpty)
           Text(error, style: const TextStyle(color: Eps.red, fontSize: 10))
-        else if (subjects.isEmpty)
+        else if (groups.isEmpty)
           const Padding(
             padding: EdgeInsets.all(20),
             child: Text(
-              'اشترك في مادة من قسمك لتظهر مجموعات قسمك هنا.',
+              'لا توجد مجموعات بعد.',
               style: TextStyle(fontSize: 10, color: Eps.muted),
             ),
           )
@@ -195,20 +319,35 @@ class _ChatListScreenState extends State<ChatListScreen> {
             HomeSectionTitle(
               entry.key == null
                   ? 'مواد أخرى'
-                  : (store.courseById(entry.key!)?.title ?? 'قسم'),
+                  : (learn.sectionById(entry.key!)?.title ??
+                        store.courseById(entry.key!)?.title ??
+                        'قسم'),
             ),
-            for (final s
+            for (final g
                 in (entry.value..sort((a, b) => rank(b).compareTo(rank(a)))))
-              _ChatRow(
-                subject: s,
-                group: groups[s.id],
-                last: latest[groups[s.id]?.id ?? ''],
+              _ChatGroupRow(
+                group: g,
+                subject: learn.subjectById(g.subjectId),
+                last: latest[g.id],
                 timeText: timeText,
                 staff: staff,
-                locked: !staff && !learn.hasGroupAccess(s.id),
+                locked: !staff && !learn.canOpenGroup(g),
+                onOpen: () {
+                  if (!staff && !learn.canOpenGroup(g)) {
+                    pushPage(context, GroupCheckoutScreen(group: g));
+                    return;
+                  }
+                  pushPage(
+                    context,
+                    GroupChatScreen(
+                      group: g,
+                      subjectName:
+                          learn.subjectById(g.subjectId)?.displayName ?? '',
+                    ),
+                  );
+                },
+                onRename: () => rename(g),
                 onStar: () async {
-                  final g = groups[s.id];
-                  if (g == null) return;
                   await learn.repo.setChatStarred(g.id, !g.starred);
                   await load();
                 },
@@ -220,33 +359,39 @@ class _ChatListScreenState extends State<ChatListScreen> {
   }
 }
 
-class _ChatRow extends StatelessWidget {
-  const _ChatRow({
-    required this.subject,
+class _ChatGroupRow extends StatelessWidget {
+  const _ChatGroupRow({
     required this.group,
+    required this.subject,
     required this.last,
     required this.timeText,
     required this.staff,
+    required this.locked,
+    required this.onOpen,
+    required this.onRename,
     required this.onStar,
-    this.locked = false,
   });
 
-  /// True when the student has not subscribed to the subject: the group is
-  /// listed, but it cannot be opened.
-  final bool locked;
-
-  final EpsSubject subject;
-  final EpsChatGroup? group;
+  final EpsChatGroup group;
+  final EpsSubject? subject;
   final EpsChatMessage? last;
   final String Function(DateTime) timeText;
   final bool staff;
+  // True when the student has not paid for this group: it is listed, locked.
+  final bool locked;
+  final VoidCallback onOpen;
+  final VoidCallback onRename;
   final VoidCallback onStar;
 
   @override
   Widget build(BuildContext context) {
-    final starred = group?.starred ?? false;
+    final name = group.name.isNotEmpty
+        ? group.name
+        : (subject?.displayName ?? 'مجموعة');
     final preview = locked
-        ? 'مقفلة. اشترك في المادة لفتحها'
+        ? (group.price > 0
+              ? 'مقفلة · ${formatMru(group.price)} MRU / شهر'
+              : 'غير متاحة للاشتراك بعد')
         : last == null
         ? 'لا توجد رسائل بعد'
         : (last!.audioUrl.isNotEmpty
@@ -256,102 +401,102 @@ class _ChatRow extends StatelessWidget {
                     : '${last!.senderName}: ${last!.body}'));
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
-      child: FlatCard(
-        onTap: () {
-          if (locked) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('اشترك في هذه المادة لفتح مجموعتها.'),
-              ),
-            );
-            return;
-          }
-          pushPage(
-            context,
-            GroupChatScreen(
-              subjectId: subject.id,
-              subjectName: subject.displayName,
-            ),
-          );
-        },
-        padding: const EdgeInsets.all(12),
-        child: Row(
-          children: [
-            CircleAvatar(
-              radius: 22,
-              backgroundColor: Eps.blue,
-              child: Text(
-                subject.displayName.characters.first,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w900,
+      child: GestureDetector(
+        onLongPress: staff ? onRename : null,
+        child: FlatCard(
+          onTap: onOpen,
+          padding: const EdgeInsets.all(12),
+          child: Row(
+            children: [
+              CircleAvatar(
+                radius: 22,
+                backgroundColor: Eps.blue,
+                child: Text(
+                  name.characters.first,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w900,
+                  ),
                 ),
               ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      if (locked)
-                        const Padding(
-                          padding: EdgeInsetsDirectional.only(end: 4),
-                          child: Icon(
-                            Icons.lock_rounded,
-                            size: 15,
-                            color: Eps.muted,
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        if (locked)
+                          const Padding(
+                            padding: EdgeInsetsDirectional.only(end: 4),
+                            child: Icon(
+                              Icons.lock_outline_rounded,
+                              size: 14,
+                              color: Eps.muted,
+                            ),
+                          ),
+                        if (group.starred)
+                          const Padding(
+                            padding: EdgeInsetsDirectional.only(end: 4),
+                            child: Icon(
+                              Icons.star_rounded,
+                              size: 16,
+                              color: Color(0xFFF1B91C),
+                            ),
+                          ),
+                        Expanded(
+                          child: Text(
+                            name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w900,
+                              color: Eps.ink,
+                            ),
                           ),
                         ),
-                      if (starred)
-                        const Padding(
-                          padding: EdgeInsetsDirectional.only(end: 4),
-                          child: Icon(
-                            Icons.star_rounded,
-                            size: 16,
-                            color: Color(0xFFF1B91C),
+                        if (last != null && !locked)
+                          Text(
+                            timeText(last!.createdAt),
+                            style: const TextStyle(
+                              fontSize: 9,
+                              color: Eps.muted,
+                            ),
                           ),
-                        ),
-                      Expanded(
-                        child: Text(
-                          subject.displayName,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w900,
-                            color: Eps.ink,
-                          ),
-                        ),
-                      ),
-                      if (last != null && !locked)
-                        Text(
-                          timeText(last!.createdAt),
-                          style: const TextStyle(fontSize: 9, color: Eps.muted),
-                        ),
-                    ],
-                  ),
-                  const SizedBox(height: 3),
-                  Text(
-                    preview,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontSize: 10, color: Eps.muted),
-                  ),
-                ],
-              ),
-            ),
-            if (staff && group != null)
-              IconButton(
-                tooltip: starred ? 'إزالة النجمة' : 'تثبيت بنجمة',
-                icon: Icon(
-                  starred ? Icons.star_rounded : Icons.star_outline_rounded,
-                  color: const Color(0xFFF1B91C),
+                      ],
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      subject?.displayName ?? '',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontSize: 9, color: Eps.blue),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      preview,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontSize: 10, color: Eps.muted),
+                    ),
+                  ],
                 ),
-                onPressed: onStar,
               ),
-          ],
+              if (staff)
+                IconButton(
+                  tooltip: group.starred ? 'إلغاء التمييز' : 'تمييز',
+                  onPressed: onStar,
+                  icon: Icon(
+                    group.starred
+                        ? Icons.star_rounded
+                        : Icons.star_border_rounded,
+                    color: Eps.muted,
+                    size: 20,
+                  ),
+                ),
+            ],
+          ),
         ),
       ),
     );

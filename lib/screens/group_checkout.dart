@@ -1,11 +1,10 @@
 part of '../main.dart';
 
-/// Buying the group of one subject alone: its own price, what it includes,
-/// and the payment. The lessons and files are not part of it.
+/// Buying one group: its price (set by the admin), what it includes, and payment.
 class GroupCheckoutScreen extends StatefulWidget {
-  const GroupCheckoutScreen({required this.subject, super.key});
+  const GroupCheckoutScreen({required this.group, super.key});
 
-  final EpsSubject subject;
+  final EpsChatGroup group;
 
   @override
   State<GroupCheckoutScreen> createState() => _GroupCheckoutScreenState();
@@ -28,15 +27,17 @@ class _GroupCheckoutScreenState extends State<GroupCheckoutScreen> {
   @override
   Widget build(BuildContext context) {
     final store = StoreScope.of(context);
-    final s = widget.subject;
+    final learn = LearnScope.of(context);
+    final g = widget.group;
+    final subject = learn.subjectById(g.subjectId);
+    final name = g.name.isNotEmpty ? g.name : (subject?.displayName ?? '');
     final methods = store.paymentMethods;
     methodId ??= methods.firstOrNull?.id;
     final method = methods.where((m) => m.id == methodId).firstOrNull;
-    final price = s.groupPrice;
-    final available = price > 0;
+    final available = g.price > 0;
 
     return EpsPage(
-      title: 'مجموعة المادة',
+      title: 'مجموعة',
       bottom: EpsPrimaryButton(
         label: available ? 'تم التحويل، رفع الوصل' : 'الاشتراك غير متوفر',
         icon: Icons.upload_rounded,
@@ -44,10 +45,7 @@ class _GroupCheckoutScreenState extends State<GroupCheckoutScreen> {
             ? null
             : () => pushPage(
                 context,
-                ReceiptUploadScreen(
-                  paymentMethodId: method.id,
-                  groupSubject: s,
-                ),
+                ReceiptUploadScreen(paymentMethodId: method.id, groupOrder: g),
               ),
       ),
       children: [
@@ -60,23 +58,23 @@ class _GroupCheckoutScreenState extends State<GroupCheckoutScreen> {
           ),
           child: Row(
             children: [
-              _GroupLogo(name: s.displayName, color: s.color),
+              _GroupLogo(name: name, color: subject?.color ?? Eps.blue),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      s.displayName,
+                      name,
                       style: const TextStyle(
                         fontSize: 15,
                         fontWeight: FontWeight.w900,
                         color: Eps.ink,
                       ),
                     ),
-                    if (s.nameFr.isNotEmpty)
+                    if (subject != null)
                       Text(
-                        s.name,
+                        subject.displayName,
                         style: const TextStyle(fontSize: 11, color: Eps.muted),
                       ),
                   ],
@@ -96,7 +94,7 @@ class _GroupCheckoutScreenState extends State<GroupCheckoutScreen> {
             children: [
               const Expanded(
                 child: Text(
-                  'سعر المجموعة',
+                  'سعر الاشتراك',
                   style: TextStyle(
                     fontSize: 13,
                     fontWeight: FontWeight.w800,
@@ -105,7 +103,7 @@ class _GroupCheckoutScreenState extends State<GroupCheckoutScreen> {
                 ),
               ),
               Text(
-                available ? '${formatMru(price)} MRU / شهر' : 'غير متوفر',
+                available ? '${formatMru(g.price)} MRU / شهر' : 'غير متوفر',
                 style: const TextStyle(
                   fontSize: 14,
                   fontWeight: FontWeight.w900,
@@ -199,92 +197,93 @@ class _GroupCheckoutScreenState extends State<GroupCheckoutScreen> {
   }
 }
 
-/// The groups of all sections: the student takes one subject's group or
-/// several, and can add more later.
+/// The groups of the sections: each subject's groups, with the price of each.
+/// Opened from a section, it shows that section's groups only.
 class GroupsCatalogScreen extends StatelessWidget {
   const GroupsCatalogScreen({this.courseId, super.key});
 
-  /// The section whose groups are shown; the groups are only shown inside sections.
   final String? courseId;
 
   @override
   Widget build(BuildContext context) {
     final learn = LearnScope.of(context);
     final subjects = learn.subjects
-        .where((s) => s.courseId != null)
         .where((s) => courseId == null || s.courseId == courseId)
         .toList();
-    final sectionIds = {for (final s in subjects) s.courseId!}.toList();
     return EpsPage(
-      title: 'مجموعات المواد',
+      title: 'المجموعات',
       children: [
         const Text(
-          'اختر مجموعة مادة واحدة أو أكثر، ويمكنك إضافة غيرها متى شئت.',
+          'اختر المجموعة التي تريدها، واشترك في كل مجموعة على حدة.',
           style: TextStyle(fontSize: 10, color: Eps.muted),
         ),
         const SizedBox(height: 12),
-        for (final id in sectionIds) ...[
-          Padding(
-            padding: const EdgeInsets.only(top: 6, bottom: 8),
-            child: Text(
-              learn.sectionById(id)?.title ?? 'قسم',
-              style: const TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w900,
-                color: Eps.ink,
+        for (final s in subjects) ...[
+          if (learn.chatGroups.any((g) => g.subjectId == s.id)) ...[
+            Padding(
+              padding: const EdgeInsets.only(top: 6, bottom: 8),
+              child: Text(
+                s.displayName,
+                style: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w900,
+                  color: Eps.ink,
+                ),
               ),
             ),
-          ),
-          for (final s in subjects.where((s) => s.courseId == id))
-            Padding(
-              padding: const EdgeInsets.only(bottom: 8),
-              child: _GroupRow(subject: s),
-            ),
+            for (final g in learn.chatGroups.where((g) => g.subjectId == s.id))
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: _GroupRow(group: g, subject: s),
+              ),
+          ],
         ],
       ],
     );
   }
 }
 
-/// One subject's group: its price, its state, and the purchase.
+/// One group: its price and whether the student has paid for it.
 class _GroupRow extends StatelessWidget {
-  const _GroupRow({required this.subject});
+  const _GroupRow({required this.group, required this.subject});
 
+  final EpsChatGroup group;
   final EpsSubject subject;
 
   @override
   Widget build(BuildContext context) {
     final learn = LearnScope.of(context);
-    final s = subject;
-    final has = learn.hasGroupAccess(s.id);
-    final available = s.groupPrice > 0;
+    final g = group;
+    final name = g.name.isNotEmpty ? g.name : subject.displayName;
+    final has = learn.canOpenGroup(g);
+    final available = g.price > 0;
     final String note;
     final Color noteColor;
-    if (!available) {
+    if (has) {
+      note = 'مشترك في هذه المجموعة';
+      noteColor = Eps.green;
+    } else if (!available) {
       note = 'لم تفعل بعد لهذا القسم';
       noteColor = Eps.orangeInk;
-    } else if (has) {
-      note = 'مشترك في المجموعة';
-      noteColor = Eps.green;
     } else {
-      note = '${formatMru(s.groupPrice)} MRU / شهر';
+      note = '${formatMru(g.price)} MRU / شهر';
       noteColor = Eps.muted;
     }
     return FlatCard(
       padding: const EdgeInsets.all(12),
       onTap: has || !available
           ? null
-          : () => pushPage(context, GroupCheckoutScreen(subject: s)),
+          : () => pushPage(context, GroupCheckoutScreen(group: g)),
       child: Row(
         children: [
-          _GroupLogo(name: s.displayName, color: s.color),
+          _GroupLogo(name: name, color: subject.color),
           const SizedBox(width: 10),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  s.displayName,
+                  name,
                   style: const TextStyle(
                     fontSize: 13,
                     fontWeight: FontWeight.w900,

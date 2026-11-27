@@ -535,13 +535,8 @@ class _CourseScreenState extends State<CourseScreen> {
                           icon: Icons.forum_outlined,
                           iconSize: 21,
                           tooltip: 'مجموعة المادة',
-                          onTap: () => pushPage(
-                            context,
-                            GroupChatScreen(
-                              subjectId: subject.id,
-                              subjectName: subject.displayName,
-                            ),
-                          ),
+                          onTap: () =>
+                              pushPage(context, const ChatListScreen()),
                         ),
                       EpsIconButton(
                         icon: Icons.notifications_none_rounded,

@@ -336,15 +336,57 @@ class EpsChatGroup {
   EpsChatGroup.fromRow(Map<String, dynamic> r)
     : id = _str(r['id']),
       subjectId = _str(r['subject_id']),
+      name = _str(r['name']),
+      price = _int(r['price']),
+      active = r['active'] != false,
       locked = _bool(r['locked']),
       starred = _bool(r['starred']),
       pinnedId = r['pinned_message_id'] as String?;
 
   final String id;
   final String subjectId;
+  // The name the admin or the teacher gave the group.
+  final String name;
+  // The subscription price of this group, set by the admin.
+  final int price;
+  final bool active;
   final bool locked;
   final bool starred;
   final String? pinnedId;
+}
+
+/// A student's subscription to one group.
+class EpsGroupSub {
+  EpsGroupSub.fromRow(Map<String, dynamic> r)
+    : id = _str(r['id']),
+      ref = _str(r['request_ref']),
+      studentId = _str(r['student_id']),
+      groupId = _str(r['group_id']),
+      amount = _int(r['amount']),
+      receiptUrl = _str(r['receipt_url']),
+      transactionRef = _str(r['transaction_ref']),
+      rawStatus = _status(_str(r['status'])),
+      rejectionReason = _str(r['rejection_reason']),
+      expiresAt = _date(r['expires_at']),
+      createdAt = _date(r['created_at']) ?? DateTime.now();
+
+  final String id;
+  final String ref;
+  final String studentId;
+  final String groupId;
+  final int amount;
+  final String receiptUrl;
+  final String transactionRef;
+  final SubscriptionStatus rawStatus;
+  final String rejectionReason;
+  final DateTime? expiresAt;
+  final DateTime createdAt;
+
+  bool get isActive =>
+      rawStatus == SubscriptionStatus.active &&
+      (expiresAt == null || expiresAt!.isAfter(DateTime.now()));
+
+  bool get isPending => rawStatus == SubscriptionStatus.pending;
 }
 
 /// One message in a subject's chat group.
@@ -1662,6 +1704,104 @@ class LearnRepository {
   }
 
   /// The chat groups of some subjects (a group may not exist yet).
+  Future<EpsChatGroup> chatGroupById(String id) async {
+    final row = await client.from('chat_groups').select().eq('id', id).single();
+    return EpsChatGroup.fromRow(Map<String, dynamic>.from(row));
+  }
+
+  /// Every group, oldest first.
+  Future<List<EpsChatGroup>> allChatGroups() async => _list(
+    await client.from('chat_groups').select().order('created_at'),
+  ).map(EpsChatGroup.fromRow).toList();
+
+  /// The admin or the teacher adds a group to a subject.
+  Future<EpsChatGroup> createChatGroup({
+    required String subjectId,
+    required String name,
+    required int price,
+    String? createdBy,
+  }) async {
+    final row = await client
+        .from('chat_groups')
+        .insert({
+          'subject_id': subjectId,
+          'name': name.trim(),
+          'price': price,
+          'created_by': createdBy,
+        })
+        .select()
+        .single();
+    return EpsChatGroup.fromRow(Map<String, dynamic>.from(row));
+  }
+
+  /// The admin sets the price; the admin or the teacher sets the name.
+  Future<void> updateChatGroup(String id, {String? name, int? price}) => client
+      .from('chat_groups')
+      .update({
+        if (name != null) 'name': name.trim(),
+        if (price != null) 'price': price,
+      })
+      .eq('id', id);
+
+  Future<List<EpsGroupSub>> groupSubscriptions({String? studentId}) async {
+    var query = client.from('group_subscriptions').select();
+    if (studentId != null) {
+      query = query.eq('student_id', studentId);
+    }
+    return _list(
+      await query.order('created_at', ascending: false),
+    ).map(EpsGroupSub.fromRow).toList();
+  }
+
+  /// A student pays for one group; a new request replaces an earlier pending one.
+  Future<void> requestGroupSubscription({
+    required String studentId,
+    required EpsChatGroup group,
+    required String? paymentMethodId,
+    required String receiptUrl,
+    required String transactionRef,
+  }) async {
+    await client
+        .from('group_subscriptions')
+        .delete()
+        .eq('student_id', studentId)
+        .eq('group_id', group.id)
+        .inFilter('status', ['pending', 'rejected']);
+    await client.from('group_subscriptions').insert({
+      'student_id': studentId,
+      'group_id': group.id,
+      'amount': group.price,
+      'payment_method_id': paymentMethodId,
+      'receipt_url': receiptUrl,
+      'transaction_ref': transactionRef,
+      'status': 'pending',
+    });
+  }
+
+  /// The admin accepts or rejects a group payment; an accepted one lasts a month.
+  Future<void> reviewGroupSubscription({
+    required EpsGroupSub sub,
+    required bool approve,
+    String reason = '',
+  }) {
+    final now = DateTime.now().toUtc();
+    return client
+        .from('group_subscriptions')
+        .update({
+          'status': approve ? 'active' : 'rejected',
+          'rejection_reason': approve ? '' : reason,
+          'reviewed_at': now.toIso8601String(),
+          if (approve) 'starts_at': now.toIso8601String(),
+          if (approve)
+            'expires_at': DateTime(
+              now.year,
+              now.month + 1,
+              now.day,
+            ).toUtc().toIso8601String(),
+        })
+        .eq('id', sub.id);
+  }
+
   Future<List<EpsChatGroup>> chatGroupsFor(List<String> subjectIds) async {
     if (subjectIds.isEmpty) return [];
     final rows = await client
@@ -2030,6 +2170,9 @@ class LearnStore extends ChangeNotifier {
   List<EpsSubscription> subscriptions = [];
   List<EpsLesson> lessons = [];
   List<EpsSectionFeatureSub> featureSubs = [];
+  // Every group, and the student's subscriptions to groups.
+  List<EpsChatGroup> chatGroups = [];
+  List<EpsGroupSub> groupSubs = [];
   // The assistant packages as the admin set them (empty: the built-in ones).
   List<Map<String, dynamic>> packageRows = [];
   Set<String> completedLessonIds = {};
@@ -2129,6 +2272,13 @@ class LearnStore extends ChangeNotifier {
         featureSubs = await repo.sectionFeatureSubscriptions(studentId: id);
       } on Object {
         featureSubs = [];
+      }
+      try {
+        chatGroups = await repo.allChatGroups();
+        groupSubs = await repo.groupSubscriptions(studentId: id);
+      } on Object {
+        chatGroups = [];
+        groupSubs = [];
       }
       try {
         packageRows = await repo.assistantPackageRows();
@@ -2231,6 +2381,11 @@ class LearnStore extends ChangeNotifier {
         (s) =>
             s.subjectId == subjectId && s.status == SubscriptionStatus.active,
       );
+
+  /// A group opens with the full subject or with its own subscription.
+  bool canOpenGroup(EpsChatGroup group) =>
+      hasAccess(group.subjectId) ||
+      groupSubs.any((g) => g.groupId == group.id && g.isActive);
 
   /// Lessons and files: only a full subscription opens them.
   /// Whether the student has an active subscription to a feature of a section.

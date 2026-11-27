@@ -1151,17 +1151,17 @@ class _SubjectDetailScreenState extends State<SubjectDetailScreen> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    if (!learn.hasGroupAccess(s.id) && s.groupPrice > 0)
+                    if (!learn.hasAccess(s.id) &&
+                        learn.chatGroups.any((g) => g.subjectId == s.id))
                       Padding(
                         padding: const EdgeInsets.only(bottom: 8),
                         child: EpsPrimaryButton(
-                          label:
-                              'مجموعات تدريس الأستاذ · ${formatMru(s.groupPrice)} MRU / شهر',
+                          label: 'مجموعات تدريس الأستاذ',
                           icon: Icons.groups_rounded,
                           color: Eps.navy,
                           onPressed: () => pushPage(
                             context,
-                            GroupCheckoutScreen(subject: s),
+                            GroupsCatalogScreen(courseId: s.courseId),
                           ),
                         ),
                       ),
@@ -1909,7 +1909,7 @@ class ReceiptUploadScreen extends StatefulWidget {
   const ReceiptUploadScreen({
     this.paymentMethodId,
     this.order,
-    this.groupSubject,
+    this.groupOrder,
     this.featureOrder,
     super.key,
   });
@@ -1919,7 +1919,7 @@ class ReceiptUploadScreen extends StatefulWidget {
   /// Set when the receipt pays for an assistant package, not for subjects.
   final AssistantOrder? order;
   // A group-only subscription to this subject.
-  final EpsSubject? groupSubject;
+  final EpsChatGroup? groupOrder;
   // A section feature (videos, live or assistant).
   final SectionFeatureOrder? featureOrder;
 
@@ -1985,26 +1985,18 @@ class _ReceiptUploadScreenState extends State<ReceiptUploadScreen> {
         }
         return;
       }
-      final groupSubject = widget.groupSubject;
-      if (groupSubject != null) {
+      final groupOrder = widget.groupOrder;
+      if (groupOrder != null) {
         final userId = learn.userId;
         if (userId == null) {
           throw StateError('سجّل دخولك أولاً.');
         }
-        final plan =
-            learn.planByCode('monthly') ??
-            learn.plans.where((p) => !p.isFree).firstOrNull;
-        if (plan == null) {
-          throw StateError('خطة الاشتراك غير متوفرة حالياً.');
-        }
-        await learn.repo.requestSubscriptions(
+        await learn.repo.requestGroupSubscription(
           studentId: userId,
-          subjects: [groupSubject],
-          plan: plan,
+          group: groupOrder,
           paymentMethodId: widget.paymentMethodId ?? fallbackMethod,
           receiptUrl: dataUri,
           transactionRef: refController.text,
-          access: 'groups',
         );
         if (mounted) {
           Navigator.of(context).pushAndRemoveUntil(

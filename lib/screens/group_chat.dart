@@ -7,12 +7,12 @@ const _reactionEmojis = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
 /// The chat screen: applies the chosen look (colours and font) to everything in it.
 class GroupChatScreen extends StatelessWidget {
   const GroupChatScreen({
-    required this.subjectId,
+    required this.group,
     required this.subjectName,
     super.key,
   });
 
-  final String subjectId;
+  final EpsChatGroup group;
   final String subjectName;
 
   @override
@@ -21,16 +21,16 @@ class GroupChatScreen extends StatelessWidget {
       valueListenable: chatLook,
       builder: (context, look, _) => DefaultTextStyle(
         style: look.textStyle,
-        child: _GroupChatBody(subjectId: subjectId, subjectName: subjectName),
+        child: _GroupChatBody(group: group, subjectName: subjectName),
       ),
     );
   }
 }
 
 class _GroupChatBody extends StatefulWidget {
-  const _GroupChatBody({required this.subjectId, required this.subjectName});
+  const _GroupChatBody({required this.group, required this.subjectName});
 
-  final String subjectId;
+  final EpsChatGroup group;
   final String subjectName;
 
   @override
@@ -38,6 +38,10 @@ class _GroupChatBody extends StatefulWidget {
 }
 
 class _GroupChatScreenState extends State<_GroupChatBody> {
+  // The group's own name (the admin or the teacher gave it), else the subject's.
+  String get _title =>
+      widget.group.name.isNotEmpty ? widget.group.name : widget.subjectName;
+
   final input = TextEditingController();
   final scroll = ScrollController();
   EpsChatGroup? group;
@@ -308,7 +312,7 @@ class _GroupChatScreenState extends State<_GroupChatBody> {
 
   /// The class: every student with an active subscription to this subject.
   Future<void> showMembers() async {
-    final members = await repo.subjectStudents(widget.subjectId);
+    final members = await repo.subjectStudents(widget.group.subjectId);
     if (!mounted) return;
     showModalBottomSheet<void>(
       context: context,
@@ -350,7 +354,7 @@ class _GroupChatScreenState extends State<_GroupChatBody> {
 
   bool get lockedOut {
     final learn = LearnScope.read(context);
-    return !isStaff && !learn.hasGroupAccess(widget.subjectId);
+    return !isStaff && !learn.canOpenGroup(widget.group);
   }
 
   Future<void> load() async {
@@ -372,7 +376,7 @@ class _GroupChatScreenState extends State<_GroupChatBody> {
       }
     }
     try {
-      final g = await repo.chatGroupFor(widget.subjectId);
+      final g = await repo.chatGroupById(widget.group.id);
       final list = await repo.chatMessages(g.id);
       final r = await repo.chatReactions([for (final m in list) m.id]);
       final pv = await repo.pollVotes([
@@ -405,7 +409,7 @@ class _GroupChatScreenState extends State<_GroupChatBody> {
 
   Future<String?> _cachedGroupId() async {
     try {
-      final g = await repo.chatGroupFor(widget.subjectId);
+      final g = await repo.chatGroupById(widget.group.id);
       return g.id;
     } on Object {
       return null;
@@ -418,7 +422,7 @@ class _GroupChatScreenState extends State<_GroupChatBody> {
     try {
       final last = messages.isEmpty ? null : messages.last.createdAt;
       final fresh = await repo.chatMessages(g.id, after: last);
-      final lockNow = await repo.chatGroupFor(widget.subjectId);
+      final lockNow = await repo.chatGroupById(widget.group.id);
       final r = await repo.chatReactions([for (final m in messages) m.id]);
       final pv = await repo.pollVotes([
         for (final m in [...messages, ...fresh])
@@ -814,7 +818,7 @@ class _GroupChatScreenState extends State<_GroupChatBody> {
                     icon: Icon(Icons.arrow_back_rounded, color: Colors.white),
                     onPressed: () => Navigator.of(context).maybePop(),
                   ),
-                  _GroupLogo(name: widget.subjectName, color: _accent),
+                  _GroupLogo(name: _title, color: _accent),
                   SizedBox(width: 10),
                   Expanded(
                     child: GestureDetector(
@@ -824,7 +828,7 @@ class _GroupChatScreenState extends State<_GroupChatBody> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            widget.subjectName,
+                            _title,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: TextStyle(

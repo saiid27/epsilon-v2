@@ -159,13 +159,14 @@ class _AdminAllPricesState extends State<AdminAllPrices> {
               await _save('subjects', 'id', s.id, {'monthly_price': v});
             }),
           ),
-          _priceRow(
-            'المجموعة فقط / شهر',
-            s.groupPrice,
-            () => _edit('سعر المجموعة', s.groupPrice, (v) async {
-              await _save('subjects', 'id', s.id, {'group_price': v});
-            }),
-          ),
+          for (final g in learn.chatGroups.where((g) => g.subjectId == s.id))
+            _priceRow(
+              'مجموعة: ${g.name.isNotEmpty ? g.name : s.displayName} / شهر',
+              g.price,
+              () => _edit('سعر المجموعة', g.price, (v) async {
+                await _save('chat_groups', 'id', g.id, {'price': v});
+              }),
+            ),
         ]),
     ];
 
