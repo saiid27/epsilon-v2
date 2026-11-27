@@ -110,6 +110,131 @@ class _ReviewCard extends StatelessWidget {
   }
 }
 
+/// A student rates the app. The review waits for the admin before it shows.
+class RateAppScreen extends StatefulWidget {
+  const RateAppScreen({super.key});
+
+  @override
+  State<RateAppScreen> createState() => _RateAppScreenState();
+}
+
+class _RateAppScreenState extends State<RateAppScreen> {
+  int stars = 5;
+  final text = TextEditingController();
+  bool sending = false;
+  bool sent = false;
+  String error = '';
+
+  Future<void> send() async {
+    final learn = LearnScope.read(context);
+    final uid = learn.userId;
+    if (uid == null) return;
+    if (text.text.trim().length < 5) {
+      setState(() => error = 'اكتب رأيك في سطر على الأقل.');
+      return;
+    }
+    setState(() {
+      sending = true;
+      error = '';
+    });
+    try {
+      final p = learn.profile;
+      await learn.repo.submitAppReview(
+        userId: uid,
+        name: p?.name ?? 'طالب',
+        role: [
+          p?.faculty ?? '',
+          p?.level ?? '',
+        ].where((e) => e.isNotEmpty).join(' · '),
+        text: text.text,
+        rating: stars,
+      );
+      if (mounted) setState(() => sent = true);
+    } on Object catch (e) {
+      if (mounted) setState(() => error = friendlyApiError(e));
+    } finally {
+      if (mounted) setState(() => sending = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return EpsPage(
+      title: 'قيّم التطبيق',
+      children: [
+        if (sent)
+          const Padding(
+            padding: EdgeInsets.all(20),
+            child: Text(
+              'شكراً لك! سيظهر تقييمك بعد مراجعة الإدارة.',
+              style: TextStyle(
+                fontSize: 12,
+                color: Eps.green,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          )
+        else ...[
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(Eps.radius),
+              boxShadow: Eps.cardShadow,
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'كيف تقيّم إبسيلون؟',
+                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.w900),
+                ),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    for (var i = 1; i <= 5; i++)
+                      IconButton(
+                        onPressed: () => setState(() => stars = i),
+                        icon: Icon(
+                          i <= stars
+                              ? Icons.star_rounded
+                              : Icons.star_outline_rounded,
+                          color: const Color(0xFFF1B91C),
+                          size: 30,
+                        ),
+                      ),
+                  ],
+                ),
+                TextField(
+                  controller: text,
+                  maxLines: 4,
+                  decoration: const InputDecoration(
+                    hintText: 'ما الذي أعجبك، وما الذي يمكن تحسينه؟',
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if (error.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Text(
+                error,
+                style: const TextStyle(color: Eps.red, fontSize: 10),
+              ),
+            ),
+          const SizedBox(height: 12),
+          EpsPrimaryButton(
+            label: sending ? 'جارٍ الإرسال' : 'إرسال التقييم',
+            icon: Icons.send_rounded,
+            onPressed: sending ? null : send,
+          ),
+        ],
+      ],
+    );
+  }
+}
+
 /// The admin manages the reviews: show or hide each one, edit, add, delete.
 class AdminReviews extends StatefulWidget {
   const AdminReviews({super.key});

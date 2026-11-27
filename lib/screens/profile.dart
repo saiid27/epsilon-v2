@@ -376,6 +376,12 @@ class ProfileTab extends StatelessWidget {
               onTap: () => pushPage(context, const ChatListScreen()),
             ),
             _MenuRow(
+              icon: Icons.star_outline_rounded,
+              title: 'قيّم التطبيق',
+              subtitle: 'رأيك يظهر للطلاب بعد مراجعة الإدارة',
+              onTap: () => pushPage(context, const RateAppScreen()),
+            ),
+            _MenuRow(
               icon: Icons.calendar_month_outlined,
               title: 'جدولي الجامعي',
               subtitle: 'حصص غداً تُرسل لك كل ليلة الساعة 9 مساءً',

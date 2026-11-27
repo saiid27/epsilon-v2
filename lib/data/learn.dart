@@ -561,7 +561,8 @@ class EpsReview {
       text = _str(r['text']),
       rating = _int(r['rating'], 5),
       visible = r['is_visible'] != false,
-      sortOrder = _int(r['sort_order']);
+      sortOrder = _int(r['sort_order']),
+      userId = _str(r['user_id']);
 
   final String id;
   final String name;
@@ -570,6 +571,8 @@ class EpsReview {
   final int rating;
   final bool visible;
   final int sortOrder;
+  // Empty for the reviews the admin wrote; the student's id for a student's review.
+  final String userId;
 }
 
 /// A private conversation between a student and a teacher.
@@ -1850,6 +1853,25 @@ class LearnRepository {
     } else {
       await client.from('app_reviews').update(values).eq('id', id);
     }
+  }
+
+  /// A student's review of the app: hidden until the admin accepts it.
+  Future<void> submitAppReview({
+    required String userId,
+    required String name,
+    required String role,
+    required String text,
+    required int rating,
+  }) async {
+    await client.from('app_reviews').insert({
+      'user_id': userId,
+      'name': name.trim(),
+      'role': role.trim(),
+      'text': text.trim(),
+      'rating': rating.clamp(1, 5),
+      'is_visible': false,
+      'sort_order': 0,
+    });
   }
 
   Future<void> setReviewVisible(String id, bool visible) =>
