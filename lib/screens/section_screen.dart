@@ -301,7 +301,7 @@ class _FeatureCard extends StatelessWidget {
               color: Eps.navy,
               onPressed: () {
                 if (feature == 'groups') {
-                  pushPage(context, const GroupsCatalogScreen());
+                  pushPage(context, GroupsCatalogScreen(courseId: courseId));
                   return;
                 }
                 pushPage(

@@ -202,12 +202,18 @@ class _GroupCheckoutScreenState extends State<GroupCheckoutScreen> {
 /// The groups of all sections: the student takes one subject's group or
 /// several, and can add more later.
 class GroupsCatalogScreen extends StatelessWidget {
-  const GroupsCatalogScreen({super.key});
+  const GroupsCatalogScreen({this.courseId, super.key});
+
+  /// The section whose groups are shown; the groups are only shown inside sections.
+  final String? courseId;
 
   @override
   Widget build(BuildContext context) {
     final learn = LearnScope.of(context);
-    final subjects = learn.subjects.where((s) => s.courseId != null).toList();
+    final subjects = learn.subjects
+        .where((s) => s.courseId != null)
+        .where((s) => courseId == null || s.courseId == courseId)
+        .toList();
     final sectionIds = {for (final s in subjects) s.courseId!}.toList();
     return EpsPage(
       title: 'مجموعات المواد',
