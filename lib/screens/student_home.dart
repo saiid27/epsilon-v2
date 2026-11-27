@@ -1480,72 +1480,38 @@ class SectionsCard extends StatelessWidget {
   }
 }
 
-/// The welcome banner with the three student illustrations.
+/// The student illustrations at the top of the home: the girl and the boy,
+/// cut out with no background, so they look like animated characters.
 class HomeBanner extends StatelessWidget {
   const HomeBanner({super.key});
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(Eps.radius),
-        boxShadow: Eps.cardShadow,
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+    return const Padding(
+      padding: EdgeInsets.only(bottom: 12),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+        crossAxisAlignment: CrossAxisAlignment.end,
         children: [
-          Text(
-            tr(
-              'ادرس بذكاء، وتقدّم خطوة كل يوم',
-              'Étudie malin, avance chaque jour',
-            ),
-            style: const TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w900,
-              color: Eps.ink,
-            ),
-          ),
-          const SizedBox(height: 10),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(14),
-            child: Image.asset(
-              'assets/home/poster_epsilon.png',
-              width: double.infinity,
-              fit: BoxFit.cover,
-            ),
-          ),
-          const SizedBox(height: 10),
-          const Row(
-            children: [
-              Expanded(child: _BannerImage('assets/home/student_girl.png')),
-              SizedBox(width: 8),
-              Expanded(child: _BannerImage('assets/home/student_boy.png')),
-              SizedBox(width: 8),
-              Expanded(child: _BannerImage('assets/home/graduation.png')),
-            ],
-          ),
+          Expanded(child: _StudentCutout('assets/home/cut_girl.png')),
+          SizedBox(width: 6),
+          Expanded(child: _StudentCutout('assets/home/cut_boy.png')),
         ],
       ),
     );
   }
 }
 
-class _BannerImage extends StatelessWidget {
-  const _BannerImage(this.asset);
+class _StudentCutout extends StatelessWidget {
+  const _StudentCutout(this.asset);
 
   final String asset;
 
   @override
   Widget build(BuildContext context) {
-    return AspectRatio(
-      aspectRatio: 0.72,
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(12),
-        child: Image.asset(asset, fit: BoxFit.cover),
-      ),
+    return SizedBox(
+      height: 230,
+      child: Image.asset(asset, fit: BoxFit.contain),
     );
   }
 }
