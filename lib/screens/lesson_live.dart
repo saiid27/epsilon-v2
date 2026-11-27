@@ -96,7 +96,7 @@ class _LessonScreenState extends State<LessonScreen> {
       return const EpsPage(title: 'الدرس', children: []);
     }
     final subject = learn.subjectById(lesson.subjectId);
-    final subscribed = learn.hasAccess(lesson.subjectId);
+    final subscribed = learn.canWatch(lesson.subjectId);
     const body = TextStyle(fontSize: 9, color: Eps.muted, height: 2);
     return Scaffold(
       backgroundColor: Eps.bg,
@@ -274,6 +274,7 @@ class _LessonScreenState extends State<LessonScreen> {
                   const SizedBox(height: 9),
                   const FreeUpsell(),
                 ],
+                if (subscribed) LessonAttachments(lessonId: lesson.id),
                 if (lesson.pdfUrl.isNotEmpty) ...[
                   const SizedBox(height: 9),
                   EpsPrimaryButton(
@@ -452,7 +453,7 @@ class PdfViewerScreen extends StatelessWidget {
                   ),
                 ),
               ),
-              if (!learn.hasAccess(pdf.subjectId)) ...[
+              if (!learn.canOpenPdf(pdf.subjectId)) ...[
                 const SizedBox(height: 8),
                 const FreeUpsell(),
               ],
@@ -548,7 +549,7 @@ Future<void> showLockedSheet(BuildContext context, String subjectId) {
 /// past → recording.
 void openLiveSession(BuildContext context, EpsLiveSession session) {
   final learn = LearnScope.read(context);
-  final allowed = session.isFree || learn.hasAccess(session.subjectId);
+  final allowed = session.isFree || learn.canJoinLive(session.subjectId);
   if (!allowed) {
     showLockedSheet(context, session.subjectId);
     return;
@@ -606,6 +607,7 @@ class LiveTab extends StatelessWidget {
         child: ListView(
           padding: const EdgeInsets.fromLTRB(18, 0, 18, 32),
           children: [
+            const FeatureArt('assets/art/live_teacher.png'),
             TabTitle(
               small: 'تعلم مع أساتذتك',
               title: 'الجلسات المباشرة',
@@ -958,75 +960,53 @@ class LiveRoomScreen extends StatefulWidget {
 
 class _LiveRoomScreenState extends State<LiveRoomScreen> {
   final input = TextEditingController();
-  List<EpsLiveMessage> messages = [];
+  late final LiveChat chat = LiveChat(
+    learn: LearnScope.read(context),
+    sessionId: widget.sessionId,
+  );
   bool questionsTab = false;
-  Timer? poll;
 
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => load());
-    poll = Timer.periodic(const Duration(seconds: 4), (_) => load());
+    WidgetsBinding.instance.addPostFrameCallback((_) => chat.start());
+    chat.addListener(_changed);
+  }
+
+  void _changed() {
+    if (mounted) {
+      setState(() {});
+    }
   }
 
   @override
   void dispose() {
-    poll?.cancel();
+    chat.removeListener(_changed);
+    chat.dispose();
     input.dispose();
     super.dispose();
   }
 
-  Future<void> load() async {
-    final learn = LearnScope.read(context);
-    if (!learn.enabled) {
-      if (mounted) {
-        setState(() => messages = [...?learn.demoMessages[widget.sessionId]]);
-      }
-      return;
-    }
-    try {
-      final items = await learn.repo.liveMessages(widget.sessionId);
-      if (mounted) {
-        setState(() => messages = items);
-      }
-    } on Object {
-      // Keep the last messages on transient network errors.
-    }
-  }
+  List<EpsLiveMessage> get messages => chat.messages;
 
   Future<void> send(String text, {bool question = false}) async {
-    final body = text.trim();
-    if (body.isEmpty) {
+    if (text.trim().isEmpty) {
       return;
     }
-    final learn = LearnScope.read(context);
     final user = StoreScope.of(context).currentUser!;
+    final messenger = ScaffoldMessenger.of(context);
     input.clear();
-    if (!learn.enabled) {
-      learn.demoMessages
-          .putIfAbsent(widget.sessionId, () => [])
-          .add(
-            EpsLiveMessage.fromRow({
-              'id': 'local-${DateTime.now().microsecondsSinceEpoch}',
-              'user_id': user.id,
-              'user_name': user.name,
-              'body': body,
-              'is_question': question || questionsTab,
-              'created_at': DateTime.now().toIso8601String(),
-            }),
-          );
-      await load();
-      return;
+    try {
+      await chat.send(
+        user,
+        text,
+        question: question || questionsTab,
+        teacher: user.role != UserRole.student,
+      );
+    } on Object catch (e) {
+      input.text = text;
+      messenger.showSnackBar(SnackBar(content: Text('لم تُرسل الرسالة: $e')));
     }
-    await learn.repo.sendLiveMessage(
-      sessionId: widget.sessionId,
-      userId: user.id,
-      userName: user.name,
-      body: body,
-      isQuestion: question || questionsTab,
-      isTeacher: user.role == UserRole.teacher,
-    );
-    await load();
   }
 
   @override
@@ -1046,7 +1026,13 @@ class _LiveRoomScreenState extends State<LiveRoomScreen> {
       backgroundColor: Colors.white,
       body: Column(
         children: [
-          _VideoStage(session: session, teacherName: teacher?.name),
+          if (session.usesLiveKit && learn.enabled)
+            LiveKitViewerStage(session: session, teacherName: teacher?.name)
+          else
+            _VideoStage(session: session, teacherName: teacher?.name),
+          // The admin sets the stream link; it sits right under the video.
+          if (session.showLink && session.liveUrl.trim().isNotEmpty)
+            _StreamLinkBar(url: session.liveUrl.trim()),
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
             child: Row(
@@ -1453,6 +1439,22 @@ class _ChatBubble extends StatelessWidget {
                     message.body,
                     style: const TextStyle(fontSize: 9, color: Eps.ink),
                   ),
+                  if (message.isQuestion && message.answered)
+                    const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.check_circle_rounded,
+                          size: 10,
+                          color: Eps.green,
+                        ),
+                        SizedBox(width: 3),
+                        Text(
+                          'أجاب الأستاذ',
+                          style: TextStyle(fontSize: 7, color: Eps.green),
+                        ),
+                      ],
+                    ),
                 ],
               ),
             ),
@@ -1506,6 +1508,52 @@ class _ReactButton extends StatelessWidget {
                 size: wide ? 14 : 18,
                 color: wide ? Eps.blue : Eps.ink,
               ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// The stream link under the video: opens in the browser, for a student who
+/// watches from a computer.
+class _StreamLinkBar extends StatelessWidget {
+  const _StreamLinkBar({required this.url});
+
+  final String url;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(12, 9, 8, 9),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(Eps.radius),
+          boxShadow: Eps.cardShadow,
+        ),
+        child: Row(
+          children: [
+            const Icon(Icons.link_rounded, size: 18, color: Eps.blue),
+            const SizedBox(width: 8),
+            const Expanded(
+              child: Text(
+                'رابط البث',
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w900,
+                  color: Eps.ink,
+                ),
+              ),
+            ),
+            TextButton(
+              onPressed: () => launchUrl(
+                Uri.parse(url),
+                mode: LaunchMode.externalApplication,
+              ),
+              child: const Text('افتح في المتصفح'),
+            ),
           ],
         ),
       ),

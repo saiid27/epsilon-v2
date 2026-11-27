@@ -1,0 +1,61 @@
+name: Build APK
+
+# Run from the Actions tab (Run workflow) or on push to the branch below.
+# The APK is attached as "epsilon-apk" and the bundle as "epsilon-aab".
+# GitHub packs every artifact in a ZIP: open it to get the .apk or .aab file.
+on:
+  workflow_dispatch:
+  push:
+    branches: [ccr-3e135276-npbq5o]
+
+permissions:
+  contents: write
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          # The same Flutter version the project is built with locally.
+          flutter-version: '3.50.0'
+          channel: stable
+          cache: true
+
+      - name: Dependencies
+        run: flutter pub get
+
+      - name: Build release APK
+        run: flutter build apk --release
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: epsilon-apk
+          path: build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: error
+
+      - name: Build app bundle (AAB) for Google Play
+        run: flutter build appbundle --release
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: epsilon-aab
+          path: build/app/outputs/bundle/release/app-release.aab
+          if-no-files-found: error
+
+      - name: Publish the APK as a direct download (GitHub Release)
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: apk-${{ github.run_number }}
+          name: Epsilon APK ${{ github.run_number }}
+          body: "تنزيل مباشر لملف التطبيق app-release.apk. افتح الرابط من الهاتف ثم ثبّت الملف."
+          files: build/app/outputs/flutter-apk/app-release.apk
+          make_latest: true

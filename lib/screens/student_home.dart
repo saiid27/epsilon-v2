@@ -1,7 +1,7 @@
 part of '../main.dart';
 
-/// Student app shell with the five-tab bottom navigation (Figma: home,
-/// subjects, live, quizzes, profile).
+/// Student app shell with the bottom navigation: home, subjects, live,
+/// groups, quizzes, profile.
 class StudentShell extends StatefulWidget {
   const StudentShell({super.key});
 
@@ -41,13 +41,27 @@ class StudentShellState extends State<StudentShell> {
       );
     }
     if (showWelcome) {
-      return WelcomeScreen(onStart: () => setState(() => showWelcome = false));
+      // New students go straight to picking their section and subjects.
+      return WelcomeScreen(
+        onStart: () {
+          setState(() {
+            showWelcome = false;
+            tab = 1;
+          });
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) {
+              pushPage(context, const SectionsScreen());
+            }
+          });
+        },
+      );
     }
     final hasLive = learn.liveSessions.any((s) => s.state == LiveState.live);
     final pages = [
       const StudentHomeTab(),
       const MySubjectsTab(),
       const LiveTab(),
+      const ChatListScreen(),
       const QuizzesTab(),
       const ProfileTab(),
     ];
@@ -64,11 +78,16 @@ class StudentShellState extends State<StudentShell> {
         index: tab,
         onChanged: goTab,
         items: [
-          const EpsNavItem('الرئيسية', Icons.home_outlined),
-          const EpsNavItem('موادي', Icons.menu_book_outlined),
-          EpsNavItem('مباشر', Icons.sensors_rounded, dot: hasLive),
-          const EpsNavItem('الاختبارات', Icons.sports_esports_outlined),
-          const EpsNavItem('حسابي', Icons.person_outline_rounded),
+          EpsNavItem(tr('الرئيسية', 'Accueil'), Icons.home_outlined),
+          EpsNavItem(tr('موادي', 'Mes matières'), Icons.menu_book_outlined),
+          EpsNavItem(
+            tr('مباشر', 'Direct'),
+            Icons.sensors_rounded,
+            dot: hasLive,
+          ),
+          EpsNavItem(tr('المجموعات', 'Groupes'), Icons.forum_outlined),
+          EpsNavItem(tr('الاختبارات', 'Quiz'), Icons.sports_esports_outlined),
+          EpsNavItem(tr('حسابي', 'Compte'), Icons.person_outline_rounded),
         ],
       ),
     );
@@ -212,15 +231,47 @@ class SubjectMark extends StatelessWidget {
         color: subject.color,
         borderRadius: BorderRadius.circular(radius),
       ),
-      child: Text(
-        subject.icon,
-        textDirection: TextDirection.ltr,
-        style: TextStyle(
-          fontFamily: Eps.fontNum,
-          fontSize: fontSize,
-          fontWeight: FontWeight.w800,
-          color: subjectInk(subject.color),
-          height: 1,
+      child: SubjectName(
+        subject: subject,
+        color: subjectInk(subject.color),
+        fontSize: fontSize * 0.6,
+      ),
+    );
+  }
+}
+
+/// The subject's name written inside its logo, shrunk to fit.
+class SubjectName extends StatelessWidget {
+  const SubjectName({
+    required this.subject,
+    required this.color,
+    this.fontSize = 14,
+    super.key,
+  });
+
+  final EpsSubject subject;
+  final Color color;
+  final double fontSize;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.all(5),
+      child: FittedBox(
+        fit: BoxFit.scaleDown,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(maxWidth: fontSize * 7),
+          child: Text(
+            subject.name,
+            textAlign: TextAlign.center,
+            maxLines: 3,
+            style: TextStyle(
+              fontSize: fontSize,
+              fontWeight: FontWeight.w800,
+              color: color,
+              height: 1.15,
+            ),
+          ),
         ),
       ),
     );
@@ -363,8 +414,6 @@ class _StudentHomeTabState extends State<StudentHomeTab> {
     final learn = LearnScope.of(context);
     final user = store.currentUser!;
     final shell = StudentShellState.of(context);
-    final pending = learn.withStatus(SubscriptionStatus.pending);
-    final rejected = learn.withStatus(SubscriptionStatus.rejected);
     final heroes = [
       ...learn.liveSessions.where((s) => s.state == LiveState.live),
       ...learn.liveSessions.where((s) => s.state == LiveState.upcoming),
@@ -383,39 +432,20 @@ class _StudentHomeTabState extends State<StudentHomeTab> {
             _HomeHead(
               name: firstName(user.name),
               unread: learn.unreadNotices,
-              onProfile: () => shell?.goTab(4),
+              onProfile: () => shell?.goTab(5),
               onBell: () => pushPage(context, const StudentNotificationsPage()),
             ),
+            const HomeBanner(),
             if (!learn.isSubscribed) ...[
               _UpgradeCard(
                 onTap: () => pushPage(context, const UpgradeScreen()),
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 3),
             ],
-            _AddSubjectCard(
-              onTap: () => pushPage(context, const SectionsScreen()),
-            ),
             const UniversityResultsCard(),
-            for (final sub in pending)
-              _StateCard(
-                pending: true,
-                title: learn.subjectById(sub.subjectId)?.name ?? '',
-                note: 'سيظهر في موادي بعد موافقة الإدارة',
-                onTap: () => pushPage(context, const PaymentsStatusPage()),
-              ),
-            for (final sub in rejected)
-              _StateCard(
-                pending: false,
-                title: learn.subjectById(sub.subjectId)?.name ?? '',
-                note:
-                    '${sub.rejectionReason.isEmpty ? 'الوصل غير واضح' : sub.rejectionReason} • إعادة رفع الوصل',
-                onTap: () {
-                  learn.cart
-                    ..clear()
-                    ..add(sub.subjectId);
-                  pushPage(context, const ReceiptUploadScreen());
-                },
-              ),
+            const SectionsCard(),
+            const ArchiveCard(),
+            const SizedBox(height: 4),
             if (heroes.isNotEmpty) ...[
               const SizedBox(height: 8),
               SizedBox(
@@ -429,8 +459,8 @@ class _StudentHomeTabState extends State<StudentHomeTab> {
               _PagerDots(count: heroes.length, index: heroIndex),
             ],
             HomeSectionTitle(
-              'تابع التعلّم',
-              link: 'عرض موادي',
+              tr('تابع التعلّم', 'Continuer'),
+              link: tr('عرض موادي', 'Voir mes matières'),
               onTap: () => shell?.goTab(1),
             ),
             if (active != null)
@@ -439,7 +469,7 @@ class _StudentHomeTabState extends State<StudentHomeTab> {
               _EmptyContinueCard(
                 onTap: () => pushPage(context, const SectionsScreen()),
               ),
-            if (daily != null) ...[
+            if (daily != null && learn.isSubscribed) ...[
               const HomeSectionTitle('تحدي اليوم'),
               _ChallengeCard(
                 quiz: daily,
@@ -775,65 +805,6 @@ class _UpgradeCard extends StatelessWidget {
   }
 }
 
-class _AddSubjectCard extends StatelessWidget {
-  const _AddSubjectCard({required this.onTap});
-
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: CustomPaint(
-        foregroundPainter: const DashedRRectPainter(
-          color: Color(0xFFAEBDE2),
-          radius: 14,
-        ),
-        child: Container(
-          height: 46,
-          padding: const EdgeInsets.symmetric(horizontal: 12),
-          decoration: BoxDecoration(
-            color: const Color(0xFFF5F8FF),
-            borderRadius: BorderRadius.circular(14),
-          ),
-          child: const Row(
-            children: [
-              Icon(Icons.add_rounded, color: Eps.blue, size: 18),
-              SizedBox(width: 9),
-              Expanded(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'أضف مادة جديدة',
-                      style: TextStyle(
-                        fontSize: 9,
-                        fontWeight: FontWeight.w700,
-                        color: Eps.blue,
-                        height: 1.5,
-                      ),
-                    ),
-                    Text(
-                      'اختر عدة مواد وادفع مرة واحدة',
-                      style: TextStyle(
-                        fontSize: 7,
-                        color: Eps.muted,
-                        height: 1.5,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              Icon(Icons.chevron_right_rounded, color: Eps.blue, size: 17),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 /// Dashed rounded border.
 class DashedRRectPainter extends CustomPainter {
   const DashedRRectPainter({
@@ -873,86 +844,6 @@ class DashedRRectPainter extends CustomPainter {
   @override
   bool shouldRepaint(DashedRRectPainter oldDelegate) =>
       oldDelegate.color != color;
-}
-
-class _StateCard extends StatelessWidget {
-  const _StateCard({
-    required this.pending,
-    required this.title,
-    required this.note,
-    required this.onTap,
-  });
-
-  final bool pending;
-  final String title;
-  final String note;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final accent = pending ? const Color(0xFFA96C00) : Eps.red;
-    return Padding(
-      padding: const EdgeInsets.only(top: 9),
-      child: GestureDetector(
-        onTap: onTap,
-        child: Container(
-          height: 66,
-          padding: const EdgeInsets.symmetric(horizontal: 12),
-          decoration: BoxDecoration(
-            color: pending ? const Color(0xFFFFF9E9) : const Color(0xFFFFF4F5),
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(
-              color: pending
-                  ? const Color(0xFFF0D18F)
-                  : const Color(0xFFEFC0C5),
-            ),
-          ),
-          child: Row(
-            children: [
-              Icon(
-                pending ? Icons.schedule_rounded : Icons.close_rounded,
-                color: pending ? const Color(0xFFB96D00) : Eps.red,
-                size: 24,
-              ),
-              const SizedBox(width: 9),
-              Expanded(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    EpsBadge(
-                      pending ? 'قيد المراجعة' : 'مرفوض',
-                      tone: pending ? EpsTone.orange : EpsTone.red,
-                    ),
-                    Text(
-                      title,
-                      style: TextStyle(
-                        fontSize: 9,
-                        fontWeight: FontWeight.w700,
-                        color: accent,
-                        height: 1.5,
-                      ),
-                    ),
-                    Text(
-                      note,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontSize: 7,
-                        color: Eps.muted,
-                        height: 1.5,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              Icon(Icons.chevron_right_rounded, color: accent, size: 17),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
 }
 
 class _LiveHero extends StatelessWidget {
@@ -1530,6 +1421,97 @@ class AnnouncementsPage extends StatelessWidget {
             child: _AnnouncementCard(item: item),
           ),
       ],
+    );
+  }
+}
+
+/// Home card to the sections: what each section offers, and how to subscribe.
+class SectionsCard extends StatelessWidget {
+  const SectionsCard({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 9),
+      child: FlatCard(
+        onTap: () => pushPage(context, const SectionsScreen()),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        child: Row(
+          children: [
+            Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: Eps.blueSoft,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: const Icon(
+                Icons.category_outlined,
+                color: Eps.blue,
+                size: 21,
+              ),
+            ),
+            const SizedBox(width: 10),
+            const Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'الأقسام والاشتراك',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      color: Eps.ink,
+                      height: 1.5,
+                    ),
+                  ),
+                  Text(
+                    'اختر قسمك، وشاهد ما يقدمه، واشترك في موادك',
+                    style: TextStyle(fontSize: 9, color: Eps.muted),
+                  ),
+                ],
+              ),
+            ),
+            const Icon(Icons.chevron_left_rounded, color: Eps.muted),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// The student illustrations at the top of the home: the girl and the boy,
+/// cut out with no background, so they look like animated characters.
+class HomeBanner extends StatelessWidget {
+  const HomeBanner({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return const Padding(
+      padding: EdgeInsets.only(bottom: 12),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          Expanded(child: _StudentCutout('assets/home/cut_girl.png')),
+          SizedBox(width: 6),
+          Expanded(child: _StudentCutout('assets/home/cut_boy.png')),
+        ],
+      ),
+    );
+  }
+}
+
+class _StudentCutout extends StatelessWidget {
+  const _StudentCutout(this.asset);
+
+  final String asset;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 230,
+      child: Image.asset(asset, fit: BoxFit.contain),
     );
   }
 }

@@ -3,25 +3,36 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 import 'dart:ui' show ImageFilter;
+import 'dart:ui' as ui;
 
 import 'package:audioplayers/audioplayers.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:google_fonts/google_fonts.dart';
+import 'package:record/record.dart';
+import 'package:flutter/foundation.dart'
+    show TargetPlatform, defaultTargetPlatform, kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:livekit_client/livekit_client.dart' as lk;
 import 'package:path_provider/path_provider.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:share_plus/share_plus.dart' as share;
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:timezone/data/latest.dart' as tzdata;
+import 'package:timezone/timezone.dart' as tz;
 import 'package:url_launcher/url_launcher.dart';
+import 'package:val_latex_flutter/val_latex_flutter.dart' show MathText;
 import 'package:video_player/video_player.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:webview_flutter_android/webview_flutter_android.dart';
 import 'package:webview_flutter_wkwebview/webview_flutter_wkwebview.dart';
 
 import 'data/learn.dart';
+import 'data/push.dart';
 import 'platform/web_tools.dart';
 import 'supabase_repository.dart';
 import 'supabase_config.dart';
@@ -39,6 +50,30 @@ part 'screens/checkout.dart';
 part 'screens/profile.dart';
 part 'screens/admin.dart';
 part 'screens/university_results.dart';
+
+part 'screens/live_studio.dart';
+part 'screens/timetable.dart';
+part 'screens/assistant_checkout.dart';
+part 'screens/attachments.dart';
+part 'screens/ai_ops.dart';
+part 'screens/group_chat.dart';
+part 'screens/group_checkout.dart';
+part 'screens/section_screen.dart';
+part 'screens/admin_all_prices.dart';
+part 'screens/admin_group_requests.dart';
+part 'screens/admin_feature_requests.dart';
+part 'screens/student_avatar.dart';
+part 'screens/feature_art.dart';
+part 'screens/reviews.dart';
+part 'screens/chat_list.dart';
+part 'screens/admin_sections.dart';
+part 'screens/chat_look.dart';
+
+/// The language picked in settings: 'ar' (default) or 'fr'.
+String appLanguage = 'ar';
+
+/// Arabic text, or its French version when French is chosen.
+String tr(String ar, String fr) => appLanguage == 'fr' ? fr : ar;
 
 const epsilonBlue = Eps.blue;
 const epsilonTeal = Eps.green;
@@ -65,14 +100,18 @@ class NativeFilePicker {
 
   static Future<PickedNativeFile?> pickExcel() => _pickFile('excel');
 
+  static Future<PickedNativeFile?> pickPdf() => _pickFile('pdf');
+
   /// Contents of files picked in the browser, keyed by their virtual path.
   static final Map<String, Uint8List> webFiles = {};
 
   static Future<PickedNativeFile?> _pickFile(String type) async {
     if (kIsWeb) {
-      final picked = await pickWebFile(
-        type == 'image' ? 'image/*' : '.xlsx,.xls,.csv',
-      );
+      final picked = await pickWebFile(switch (type) {
+        'image' => 'image/*',
+        'pdf' => '.pdf,application/pdf',
+        _ => '.xlsx,.xls,.csv',
+      });
       if (picked == null) {
         return null;
       }
@@ -104,6 +143,7 @@ Future<void> main() async {
   );
 
   final backendStatus = await BackendBootstrap.initialize();
+  await FirebasePush.init();
   runApp(EpsilonApp(backendStatus: backendStatus));
 }
 
@@ -159,6 +199,15 @@ class PushNotifications {
       requestSoundPermission: false,
     );
 
+    tzdata.initializeTimeZones();
+    LearnStore.reminderScheduler = (session, on) {
+      unawaited(
+        scheduleLiveReminder(session, on).catchError((Object error) {
+          debugPrint('Live reminder not scheduled: $error');
+        }),
+      );
+    };
+
     await _localNotifications.initialize(
       settings: const InitializationSettings(
         android: androidSettings,
@@ -182,6 +231,62 @@ class PushNotifications {
       badge: true,
       sound: true,
     );
+  }
+
+  static NotificationDetails get _details => NotificationDetails(
+    android: AndroidNotificationDetails(
+      _androidChannel.id,
+      _androidChannel.name,
+      channelDescription: _androidChannel.description,
+      importance: Importance.high,
+      priority: Priority.high,
+      playSound: true,
+    ),
+    iOS: const DarwinNotificationDetails(
+      presentAlert: true,
+      presentBadge: true,
+      presentSound: true,
+    ),
+  );
+
+  /// Device notifications 10 minutes before a live session and when it
+  /// starts. Turning the reminder off cancels both.
+  static Future<void> scheduleLiveReminder(
+    EpsLiveSession session,
+    bool on,
+  ) async {
+    if (kIsWeb) {
+      return;
+    }
+    final soonId = 'live-soon-${session.id}'.hashCode;
+    final startId = 'live-start-${session.id}'.hashCode;
+    await _localNotifications.cancel(id: soonId);
+    await _localNotifications.cancel(id: startId);
+    if (!on) {
+      return;
+    }
+    final now = DateTime.now();
+    final soon = session.startsAt.subtract(const Duration(minutes: 10));
+    if (soon.isAfter(now)) {
+      await _localNotifications.zonedSchedule(
+        id: soonId,
+        scheduledDate: tz.TZDateTime.from(soon.toUtc(), tz.UTC),
+        notificationDetails: _details,
+        androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
+        title: 'جلستك تبدأ بعد 10 دقائق',
+        body: session.title,
+      );
+    }
+    if (session.startsAt.isAfter(now)) {
+      await _localNotifications.zonedSchedule(
+        id: startId,
+        scheduledDate: tz.TZDateTime.from(session.startsAt.toUtc(), tz.UTC),
+        notificationDetails: _details,
+        androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
+        title: 'بدأت الجلسة المباشرة',
+        body: '${session.title} • انضم الآن من تبويب مباشر',
+      );
+    }
   }
 
   static Future<void> showLocalNotification({
@@ -244,6 +349,20 @@ String friendlyApiError(Object error) {
   }
   if (text.contains('network') || text.contains('unavailable')) {
     return 'تحقق من الاتصال بالإنترنت ثم حاول مرة أخرى.';
+  }
+  // The database is missing a table or column this version needs: not the
+  // student's fault, and the raw message means nothing to them.
+  if (text.contains('pgrst205') ||
+      text.contains('42p01') ||
+      text.contains('schema cache') ||
+      text.contains('does not exist')) {
+    return 'هذه الخدمة تحتاج تحديثاً من الإدارة الآن. أبلغ الإدارة وحاول لاحقاً.';
+  }
+  if (text.contains('row-level security') || text.contains('42501')) {
+    return 'لا تملك صلاحية تنفيذ هذه العملية الآن.';
+  }
+  if (text.contains('postgrestexception')) {
+    return 'تعذر تنفيذ الطلب الآن. حاول مرة أخرى بعد قليل.';
   }
 
   return 'حدث خطأ أثناء العملية. حاول مرة أخرى.';
@@ -1538,19 +1657,27 @@ class SchoolStore extends ChangeNotifier {
     return true;
   }
 
+  /// Whether [phone] is already registered (shown under the signup form).
+  Future<bool> phoneTaken(String phone) async {
+    if (backendEnabled) {
+      return (_repository as SupabaseRepository).phoneTaken(phone);
+    }
+    return [...users, ?currentUser].any((u) => u.phone == phone.trim());
+  }
+
   /// Redesigned signup: free account, verified by SMS code.
   Future<void> registerFreeStudent({
     required String name,
     required String phone,
     required String password,
-    required String level,
+    String referral = '',
   }) async {
     if (backendEnabled) {
       await (_repository as SupabaseRepository).registerFreeStudent(
         name: name,
         phone: phone,
         password: password,
-        level: level,
+        referral: referral,
       );
       return;
     }
@@ -2685,6 +2812,7 @@ class SchoolStore extends ChangeNotifier {
 
   void setLanguageCode(String value) {
     languageCode = value;
+    appLanguage = value;
     notifyListeners();
   }
 
@@ -2861,9 +2989,19 @@ class _EpsilonAppState extends State<EpsilonApp> {
               locale: Locale(store.languageCode),
               themeMode: store.themeMode,
               builder: (context, child) {
-                return Directionality(
-                  textDirection: TextDirection.rtl,
-                  child: child ?? const SizedBox.shrink(),
+                // The Figma sizes are small on real phones: show all text
+                // a little larger (on top of the phone's own setting).
+                final media = MediaQuery.of(context);
+                return MediaQuery(
+                  data: media.copyWith(
+                    textScaler: TextScaler.linear(
+                      media.textScaler.scale(100) / 100 * 1.25,
+                    ),
+                  ),
+                  child: Directionality(
+                    textDirection: TextDirection.rtl,
+                    child: child ?? const SizedBox.shrink(),
+                  ),
                 );
               },
               theme: Eps.lightTheme(),
@@ -4756,8 +4894,8 @@ class _GuestContentPageState extends State<GuestContentPage> {
     final store = StoreScope.of(context);
     final courses = [...store.courses]
       ..sort((a, b) => a.title.compareTo(b.title));
-    final filteredItems = selectedCourseId == null
-        ? <GuestContentItem>[]
+    final items = selectedCourseId == null
+        ? widget.items
         : widget.items
               .where((item) => item.courseId == selectedCourseId)
               .toList();
@@ -4773,53 +4911,76 @@ class _GuestContentPageState extends State<GuestContentPage> {
             subtitle: widget.subtitle,
             icon: widget.icon,
           ),
-          const SizedBox(height: 16),
-          SectionCard(
-            title: 'اختر القسم',
-            icon: Icons.menu_book_rounded,
-            child: courses.isEmpty
-                ? const EmptyState(text: 'لا توجد أقسام متاحة حاليا.')
-                : DropdownButtonFormField<String>(
-                    initialValue: selectedCourseId,
-                    decoration: const InputDecoration(
-                      labelText: 'القسم',
-                      prefixIcon: Icon(Icons.school_rounded),
+          const SizedBox(height: 14),
+          if (courses.isNotEmpty)
+            SizedBox(
+              height: 42,
+              child: ListView(
+                scrollDirection: Axis.horizontal,
+                reverse: true,
+                children: [
+                  _GuestCourseChip(
+                    label: 'الكل',
+                    selected: selectedCourseId == null,
+                    onTap: () => setState(() => selectedCourseId = null),
+                  ),
+                  for (final course in courses)
+                    _GuestCourseChip(
+                      label: course.title,
+                      selected: selectedCourseId == course.id,
+                      onTap: () => setState(() => selectedCourseId = course.id),
                     ),
-                    items: courses
-                        .map(
-                          (course) => DropdownMenuItem(
-                            value: course.id,
-                            child: Text(course.title),
-                          ),
-                        )
-                        .toList(),
-                    onChanged: (value) =>
-                        setState(() => selectedCourseId = value),
-                  ),
-          ),
-          const SizedBox(height: 16),
-          SectionCard(
-            title: selectedCourseId == null
-                ? 'محتوى القسم'
-                : store.courseById(selectedCourseId)?.title ?? widget.title,
-            icon: widget.icon,
-            child: selectedCourseId == null
-                ? const EmptyState(text: 'اختر القسم لعرض المحتوى الخاص به.')
-                : filteredItems.isEmpty
-                ? EmptyState(text: widget.emptyText)
-                : Column(
-                    children: filteredItems
-                        .map(
-                          (item) => GuestContentTile(
-                            item: item,
-                            icon: widget.icon,
-                            viewerKind: widget.viewerKind,
-                          ),
-                        )
-                        .toList(),
-                  ),
-          ),
+                ],
+              ),
+            ),
+          const SizedBox(height: 14),
+          if (items.isEmpty)
+            EmptyState(text: widget.emptyText)
+          else
+            for (final item in items)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: GuestContentTile(
+                  item: item,
+                  icon: widget.icon,
+                  viewerKind: widget.viewerKind,
+                  courseTitle: store.courseById(item.courseId)?.title ?? '',
+                ),
+              ),
         ],
+      ),
+    );
+  }
+}
+
+class _GuestCourseChip extends StatelessWidget {
+  const _GuestCourseChip({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    const blue = Color(0xFF2F5BEA);
+    return Padding(
+      padding: const EdgeInsets.only(left: 8),
+      child: ChoiceChip(
+        label: Text(label),
+        selected: selected,
+        onSelected: (_) => onTap(),
+        selectedColor: blue,
+        backgroundColor: Colors.white,
+        side: BorderSide(color: selected ? blue : const Color(0xFFE2E8F5)),
+        labelStyle: TextStyle(
+          fontWeight: FontWeight.w800,
+          color: selected ? Colors.white : const Color(0xFF172039),
+        ),
+        showCheckmark: false,
       ),
     );
   }
@@ -4830,34 +4991,111 @@ class GuestContentTile extends StatelessWidget {
     required this.item,
     required this.icon,
     required this.viewerKind,
+    this.courseTitle = '',
     super.key,
   });
 
   final GuestContentItem item;
   final IconData icon;
   final SecureContentKind viewerKind;
+  final String courseTitle;
 
   @override
   Widget build(BuildContext context) {
-    return ListTile(
-      contentPadding: EdgeInsets.zero,
-      leading: Icon(icon, color: const Color(0xFF2F5BEA)),
-      title: Text(
-        item.title,
-        style: const TextStyle(fontWeight: FontWeight.w900),
-      ),
-      subtitle: Text(
-        item.description.trim().isEmpty ? 'اضغط للعرض' : item.description,
-        maxLines: 2,
-        overflow: TextOverflow.ellipsis,
-      ),
-      trailing: const Icon(Icons.arrow_back_ios_new_rounded, size: 16),
-      onTap: () => Navigator.of(context).push(
-        MaterialPageRoute(
-          builder: (_) => SecureContentViewerPage(
-            title: item.title,
-            url: item.url,
-            kind: viewerKind,
+    const blue = Color(0xFF2F5BEA);
+    final isVideo = viewerKind == SecureContentKind.video;
+    return Material(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(16),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: () => Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) => SecureContentViewerPage(
+              title: item.title,
+              url: item.url,
+              kind: viewerKind,
+            ),
+          ),
+        ),
+        child: Container(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: const Color(0xFFE2E8F5)),
+          ),
+          padding: const EdgeInsets.all(12),
+          child: Row(
+            children: [
+              Container(
+                width: 74,
+                height: 74,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(14),
+                  gradient: const LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [Color(0xFF2F5BEA), Color(0xFF172039)],
+                  ),
+                ),
+                child: Icon(
+                  isVideo ? Icons.play_arrow_rounded : icon,
+                  color: Colors.white,
+                  size: 40,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (courseTitle.isNotEmpty)
+                      Container(
+                        margin: const EdgeInsets.only(bottom: 6),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 3,
+                        ),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFEEF3FF),
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                        child: Text(
+                          courseTitle,
+                          style: const TextStyle(
+                            color: blue,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ),
+                    Text(
+                      item.title,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w900,
+                        fontSize: 15,
+                        color: Color(0xFF172039),
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      item.description.trim().isEmpty
+                          ? (isVideo ? 'فيديو مجاني' : 'ملف PDF')
+                          : item.description,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Color(0xFF6B7690),
+                        fontSize: 12,
+                        height: 1.4,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const Icon(Icons.chevron_left_rounded, color: blue),
+            ],
           ),
         ),
       ),
@@ -6641,8 +6879,37 @@ class AdminDashboard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final store = StoreScope.of(context);
+    final learn = LearnScope.of(context);
     final admin = store.currentUser;
     final actions = [
+      AdminQuickActionData(
+        title: 'تقييمات الطلاب',
+        metric: '',
+        icon: Icons.star_rounded,
+        color: const Color(0xFFF1B91C),
+        onTap: () => pushPage(context, const AdminReviews()),
+      ),
+      AdminQuickActionData(
+        title: 'نظرة عامة على المجموعات',
+        metric: '${learn.chatGroups.length}',
+        icon: Icons.forum_rounded,
+        color: const Color(0xFF2860C8),
+        onTap: () => pushPage(context, const ChatListScreen()),
+      ),
+      AdminQuickActionData(
+        title: 'طلبات المجموعات',
+        metric: '${learn.groupSubs.where((g) => g.isPending).length}',
+        icon: Icons.groups_rounded,
+        color: const Color(0xFF1E9E63),
+        onTap: () => pushPage(context, const AdminGroupRequests()),
+      ),
+      AdminQuickActionData(
+        title: 'طلبات الباقات',
+        metric: '${learn.featureSubs.where((f) => f.isPending).length}',
+        icon: Icons.inventory_2_rounded,
+        color: const Color(0xFFB07A12),
+        onTap: () => pushPage(context, const AdminFeatureRequests()),
+      ),
       AdminQuickActionData(
         title: 'الحسابات',
         metric: '${store.visibleStudents.length}',
@@ -9694,6 +9961,38 @@ class TeacherDashboard extends StatelessWidget {
             icon: Icons.co_present_rounded,
           ),
           const SizedBox(height: 16),
+          FlatCard(
+            onTap: () => pushPage(context, const LiveHostPage()),
+            gradient: Eps.heroGradient,
+            border: Colors.transparent,
+            child: const Row(
+              children: [
+                Icon(Icons.sensors_rounded, color: Colors.white, size: 28),
+                SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'البث المباشر',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w800,
+                          color: Colors.white,
+                        ),
+                      ),
+                      Text(
+                        'جدول جلساتك، ابدأ البث وأجب عن أسئلة الطلاب',
+                        style: TextStyle(fontSize: 10, color: Colors.white70),
+                      ),
+                    ],
+                  ),
+                ),
+                Icon(Icons.chevron_right_rounded, color: Colors.white),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
           SectionCard(
             title: 'مادتي داخل القسم',
             icon: Icons.subject_rounded,
@@ -9719,6 +10018,19 @@ class TeacherDashboard extends StatelessWidget {
           ),
           const SizedBox(height: 16),
           const CreateLessonForm(),
+          const SizedBox(height: 16),
+          const HomeBanner(),
+          SectionCard(
+            title: 'مجموعات موادي',
+            icon: Icons.forum_rounded,
+            child: ListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('فتح مجموعات المواد'),
+              subtitle: const Text('الرسائل والاستطلاعات مع الطلاب'),
+              trailing: const Icon(Icons.chevron_left_rounded),
+              onTap: () => pushPage(context, const ChatListScreen()),
+            ),
+          ),
           const SizedBox(height: 16),
           SectionCard(
             title: 'إدارة دروسي',

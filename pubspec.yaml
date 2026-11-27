@@ -24,6 +24,15 @@ dependencies:
   path_provider: ^2.1.6
   share_plus: ^12.0.2
   web: ^1.1.1
+  livekit_client: ^2.13.2
+  timezone: ^0.11.2
+  speech_to_text: ^7.5.0
+  val_latex_flutter: ^0.1.4
+  record: ^7.2.0
+  google_fonts: ^9.0.0
+  image_picker: ^1.2.4
+  firebase_core: ^5.2.0
+  firebase_messaging: ^17.1.0
 
 dev_dependencies:
   flutter_test:
@@ -34,6 +43,8 @@ flutter:
   uses-material-design: true
   assets:
     - assets/onboarding/
+    - assets/home/
+    - assets/art/
     - assets/sounds/
     - assets/fonts/
   fonts:

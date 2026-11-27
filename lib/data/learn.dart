@@ -1,3 +1,4 @@
+import 'dart:typed_data';
 // Data layer for the Figma redesign features: subjects catalog, per-subject
 // subscriptions, plans, lesson progress, PDFs, live sessions, quizzes,
 // leaderboard, announcements, per-user notifications and assistant.
@@ -5,6 +6,8 @@
 // Tables are created by supabase/migrations/20261112_figma_redesign.sql.
 
 import 'dart:async';
+
+import 'push.dart';
 
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -43,6 +46,8 @@ class EpsSubject {
     : id = _str(r['id']),
       courseId = r['course_id'] == null ? null : _str(r['course_id']),
       name = _str(r['name']),
+      nameFr = _str(r['name_fr']),
+      groupPrice = _int(r['group_price']),
       icon = _str(r['icon']).isEmpty ? '∑' : _str(r['icon']),
       colorHex = _str(r['color']).isEmpty ? '#DBEAFE' : _str(r['color']),
       faculty = _str(r['faculty']),
@@ -57,6 +62,9 @@ class EpsSubject {
   final String id;
   final String? courseId;
   final String name;
+  final String nameFr;
+  // The price of the group alone (no lessons), set by the admin.
+  final int groupPrice;
   final String icon;
   final String colorHex;
   final String faculty;
@@ -73,8 +81,13 @@ class EpsSubject {
     return Color(int.tryParse('FF$hex', radix: 16) ?? 0xFFDBEAFE);
   }
 
+  /// The French name when the admin wrote one, else the Arabic name.
+  String get displayName => nameFr.isNotEmpty ? nameFr : name;
+
   Map<String, dynamic> toRow() => {
     'course_id': courseId,
+    'name_fr': nameFr,
+    'group_price': groupPrice,
     'name': name,
     'icon': icon,
     'color': colorHex,
@@ -117,6 +130,7 @@ class EpsPlan {
       months = _int(r['months']),
       discountPercent = _int(r['discount_percent']),
       isFree = _bool(r['is_free']),
+      active = r['active'] == null || _bool(r['active']),
       features = _strings(r['features']);
 
   final String code;
@@ -126,14 +140,19 @@ class EpsPlan {
   final int months;
   final int discountPercent;
   final bool isFree;
+
+  /// Plans switched off by the admin (only the yearly plan is offered).
+  final bool active;
   final List<String> features;
 
-  int priceFor(int monthlyTotal) {
+  /// The plan costs the subjects' price, paid once (less the plan's
+  /// discount, if the admin set one). Its months only set how long the
+  /// subscription lasts.
+  int priceFor(int subjectsTotal) {
     if (isFree) {
       return 0;
     }
-    final full = monthlyTotal * months;
-    return (full * (100 - discountPercent) / 100).round();
+    return (subjectsTotal * (100 - discountPercent) / 100).round();
   }
 }
 
@@ -144,6 +163,7 @@ class EpsSubscription {
       studentId = _str(r['student_id']),
       subjectId = _str(r['subject_id']),
       planCode = _str(r['plan_code']),
+      access = _str(r['access']) == 'groups' ? 'groups' : 'full',
       amount = _int(r['amount']),
       paymentMethodId = r['payment_method_id'] == null
           ? null
@@ -160,6 +180,8 @@ class EpsSubscription {
   final String ref;
   final String studentId;
   final String subjectId;
+  // 'full' (lessons, files and group) or 'groups' (the group only).
+  final String access;
   final String planCode;
   final int amount;
   final String? paymentMethodId;
@@ -233,6 +255,225 @@ class EpsExercise {
   final bool isFree;
 }
 
+/// A faculty offered on upload. [label] is the full name shown to students.
+class EpsFaculty {
+  EpsFaculty.fromRow(Map<String, dynamic> r)
+    : id = _str(r['id']),
+      name = _str(r['name']),
+      label = _str(r['label']).isEmpty ? _str(r['name']) : _str(r['label']),
+      status = _str(r['status']);
+
+  final String id;
+  final String name;
+  final String label;
+  final String status;
+}
+
+/// A file shared by a student with their specialty; visible once approved.
+/// One class in the student's university timetable.
+class EpsTimetableItem {
+  EpsTimetableItem.fromRow(Map<String, dynamic> r)
+    : id = _str(r['id']),
+      weekday = (r['weekday'] as num?)?.toInt() ?? 0,
+      startsAt = _str(r['starts_at']).length >= 5
+          ? _str(r['starts_at']).substring(0, 5)
+          : _str(r['starts_at']),
+      subjectName = _str(r['subject_name']),
+      room = _str(r['room']);
+
+  final String id;
+  final int weekday; // 0 = Sunday ... 6 = Saturday
+  final String startsAt; // HH:MM
+  final String subjectName;
+  final String room;
+}
+
+/// A file or image attached to a subject, or to one lesson of it.
+class EpsAttachment {
+  EpsAttachment.fromRow(Map<String, dynamic> r)
+    : id = _str(r['id']),
+      subjectId = _str(r['subject_id']),
+      lessonId = r['lesson_id'] as String?,
+      title = _str(r['title']),
+      kind = _str(r['kind']),
+      url = _str(r['url']);
+
+  final String id;
+  final String subjectId;
+  final String? lessonId;
+  final String title;
+  final String kind; // pdf or image
+  final String url;
+  bool get isImage => kind == 'image';
+}
+
+/// A section (course): its title, what it offers, and its bundle price.
+class EpsSection {
+  EpsSection.fromRow(Map<String, dynamic> r)
+    : id = _str(r['id']),
+      title = _str(r['title']),
+      description = _str(r['description']),
+      features = [
+        for (final f in (r['features'] as List? ?? const [])) '$f'.trim(),
+      ].where((f) => f.isNotEmpty).toList(),
+      bundlePrice = (r['bundle_price'] as num?)?.toInt() ?? 0,
+      featurePrices = {
+        'videos': _int(r['feature_videos_price']),
+        'live': _int(r['feature_live_price']),
+        'assistant': _int(r['feature_assistant_price']),
+        'pkg_groups': _int(r['pkg_groups_price']),
+        'pkg_videos': _int(r['pkg_videos_price']),
+      };
+
+  final String id;
+  final String title;
+  final String description;
+  // The price of each feature of the section (groups, videos, live, assistant).
+  // A price of 0 means the feature is not activated for this section yet.
+  final Map<String, int> featurePrices;
+  final List<String> features;
+  final int bundlePrice;
+}
+
+/// The chat group of one subject (one per subject).
+class EpsChatGroup {
+  EpsChatGroup.fromRow(Map<String, dynamic> r)
+    : id = _str(r['id']),
+      subjectId = _str(r['subject_id']),
+      name = _str(r['name']),
+      price = _int(r['price']),
+      active = r['active'] != false,
+      locked = _bool(r['locked']),
+      starred = _bool(r['starred']),
+      pinnedId = r['pinned_message_id'] as String?;
+
+  final String id;
+  final String subjectId;
+  // The name the admin or the teacher gave the group.
+  final String name;
+  // The subscription price of this group, set by the admin.
+  final int price;
+  final bool active;
+  final bool locked;
+  final bool starred;
+  final String? pinnedId;
+}
+
+/// A student's subscription to one group.
+class EpsGroupSub {
+  EpsGroupSub.fromRow(Map<String, dynamic> r)
+    : id = _str(r['id']),
+      ref = _str(r['request_ref']),
+      studentId = _str(r['student_id']),
+      groupId = _str(r['group_id']),
+      amount = _int(r['amount']),
+      receiptUrl = _str(r['receipt_url']),
+      transactionRef = _str(r['transaction_ref']),
+      rawStatus = _status(_str(r['status'])),
+      rejectionReason = _str(r['rejection_reason']),
+      expiresAt = _date(r['expires_at']),
+      createdAt = _date(r['created_at']) ?? DateTime.now();
+
+  final String id;
+  final String ref;
+  final String studentId;
+  final String groupId;
+  final int amount;
+  final String receiptUrl;
+  final String transactionRef;
+  final SubscriptionStatus rawStatus;
+  final String rejectionReason;
+  final DateTime? expiresAt;
+  final DateTime createdAt;
+
+  bool get isActive =>
+      rawStatus == SubscriptionStatus.active &&
+      (expiresAt == null || expiresAt!.isAfter(DateTime.now()));
+
+  bool get isPending => rawStatus == SubscriptionStatus.pending;
+}
+
+/// One message in a subject's chat group.
+class EpsChatMessage {
+  EpsChatMessage.fromRow(Map<String, dynamic> r)
+    : id = _str(r['id']),
+      groupId = _str(r['group_id']),
+      senderId = _str(r['sender_id']),
+      senderName = _str(r['sender_name']),
+      body = _str(r['body']),
+      imageUrl = _str(r['image_url']),
+      audioUrl = _str(r['audio_url']),
+      audioSeconds = (r['audio_seconds'] as num?)?.toInt() ?? 0,
+      videoUrl = _str(r['video_url']),
+      pollQuestion = _str(r['poll_question']),
+      pollOptions = [
+        for (final o in (r['poll_options'] as List? ?? const [])) '$o',
+      ],
+      replyTo = r['reply_to'] as String?,
+      createdAt = _date(r['created_at']) ?? DateTime.now().toUtc();
+
+  final String id;
+  final String groupId;
+  final String senderId;
+  final String senderName;
+  final String body;
+  final String imageUrl;
+  final String audioUrl;
+  final int audioSeconds;
+  final String videoUrl;
+  final String pollQuestion;
+  final List<String> pollOptions;
+  final String? replyTo;
+  final DateTime createdAt;
+}
+
+/// One emoji reaction on a chat message (one per user and message).
+class EpsChatReaction {
+  EpsChatReaction.fromRow(Map<String, dynamic> r)
+    : messageId = _str(r['message_id']),
+      userId = _str(r['user_id']),
+      emoji = _str(r['emoji']);
+
+  final String messageId;
+  final String userId;
+  final String emoji;
+}
+
+class EpsStudentFile {
+  EpsStudentFile.fromRow(Map<String, dynamic> r)
+    : id = _str(r['id']),
+      uploaderId = _str(r['uploader_id']),
+      title = _str(r['title']),
+      description = _str(r['description']),
+      subjectId = _str(r['subject_id']),
+      subjectName = _str(r['subject_name']),
+      faculty = _str(r['faculty']),
+      track = _str(r['track']),
+      level = _str(r['level']),
+      url = _str(r['file_url']),
+      fileType = _str(r['file_type']),
+      status = _str(r['status']),
+      downloads = _int(r['downloads']),
+      createdAt = _date(r['created_at']) ?? DateTime.now();
+
+  final String id;
+  final String uploaderId;
+  final String title;
+  final String description;
+  final String subjectId;
+  final String subjectName;
+  final String faculty;
+  final String track;
+  final String level;
+  final String url;
+  final String fileType;
+  final String status;
+  final int downloads;
+  final DateTime createdAt;
+
+  bool get isPdf => fileType == 'pdf';
+}
+
 class EpsPdf {
   EpsPdf.fromRow(Map<String, dynamic> r)
     : id = _str(r['id']),
@@ -254,6 +495,120 @@ class EpsPdf {
 
 enum LiveState { live, upcoming, past }
 
+/// A student's subscription to one feature of a section (videos, live,
+/// assistant or groups); the subject's group is kept separately.
+/// What each section package opens: one subscription, all of its features.
+const _packageFeatures = <String, List<String>>{
+  'pkg_groups': ['groups', 'live', 'pdf'],
+  'pkg_videos': ['videos', 'pdf'],
+};
+
+/// What the admin needs to know about a student.
+class EpsStudentInfo {
+  EpsStudentInfo.fromRow(Map<String, dynamic> r)
+    : id = _str(r['id']),
+      name = _str(r['name']),
+      phone = _str(r['phone']),
+      photo = _str(r['avatar_url']),
+      gender = _str(r['gender']),
+      status = _str(r['status']);
+
+  final String id;
+  final String name;
+  final String phone;
+  // A data URI or a web address; empty when the student has no photo.
+  final String photo;
+  // 'male', 'female' or empty.
+  final String gender;
+  final String status;
+}
+
+class EpsSectionFeatureSub {
+  EpsSectionFeatureSub.fromRow(Map<String, dynamic> r)
+    : id = _str(r['id']),
+      ref = _str(r['request_ref']),
+      studentId = _str(r['student_id']),
+      courseId = _str(r['course_id']),
+      feature = _str(r['feature']),
+      amount = _int(r['amount']),
+      receiptUrl = _str(r['receipt_url']),
+      status = _str(r['status']),
+      expiresAt = _date(r['expires_at']);
+
+  final String id;
+  final String ref;
+  final String studentId;
+  final String courseId;
+  final String feature;
+  final int amount;
+  final String receiptUrl;
+  final String status;
+  final DateTime? expiresAt;
+
+  bool get isActive =>
+      status == 'active' &&
+      (expiresAt == null || expiresAt!.isAfter(DateTime.now()));
+
+  bool get isPending => status == 'pending';
+}
+
+/// A student's review shown on the first screen. The admin decides visibility.
+class EpsReview {
+  EpsReview.fromRow(Map<String, dynamic> r)
+    : id = _str(r['id']),
+      name = _str(r['name']),
+      role = _str(r['role']),
+      text = _str(r['text']),
+      rating = _int(r['rating'], 5),
+      visible = r['is_visible'] != false,
+      sortOrder = _int(r['sort_order']),
+      userId = _str(r['user_id']);
+
+  final String id;
+  final String name;
+  final String role;
+  final String text;
+  final int rating;
+  final bool visible;
+  final int sortOrder;
+  // Empty for the reviews the admin wrote; the student's id for a student's review.
+  final String userId;
+}
+
+/// A private conversation between a student and a teacher.
+class EpsDirectThread {
+  EpsDirectThread.fromRow(Map<String, dynamic> r)
+    : id = _str(r['id']),
+      studentId = _str(r['student_id']),
+      teacherId = _str(r['teacher_id']),
+      lastAt = _date(r['last_message_at']) ?? DateTime.now();
+
+  final String id;
+  final String studentId;
+  final String teacherId;
+  final DateTime lastAt;
+}
+
+/// One private message; `forwarded` when the teacher posted it in the group.
+class EpsDirectMessage {
+  EpsDirectMessage.fromRow(Map<String, dynamic> r)
+    : id = _str(r['id']),
+      threadId = _str(r['thread_id']),
+      senderId = _str(r['sender_id']),
+      body = _str(r['body']),
+      imageUrl = _str(r['image_url']),
+      forwarded = _bool(r['forwarded']),
+      createdAt = _date(r['created_at']) ?? DateTime.now();
+
+  final String id;
+  final String threadId;
+  final String senderId;
+  final String body;
+  final String imageUrl;
+  final bool forwarded;
+  final DateTime createdAt;
+}
+
 class EpsLiveSession {
   EpsLiveSession.fromRow(Map<String, dynamic> r)
     : id = _str(r['id']),
@@ -263,10 +618,14 @@ class EpsLiveSession {
       startsAt = _date(r['starts_at']) ?? DateTime.now(),
       durationMinutes = _int(r['duration_minutes'], 60),
       liveUrl = _str(r['live_url']),
+      showLink = _bool(r['show_link']),
       recordingUrl = _str(r['recording_url']),
       isFree = _bool(r['is_free']),
       isLiveFlag = _bool(r['is_live']),
-      attendees = _int(r['attendees_count']);
+      attendees = _int(r['attendees_count']),
+      roomName = _str(r['room_name']),
+      startedAt = _date(r['started_at']),
+      endedAt = _date(r['ended_at']);
 
   final String id;
   final String subjectId;
@@ -275,16 +634,30 @@ class EpsLiveSession {
   final DateTime startsAt;
   final int durationMinutes;
   final String liveUrl;
+  // The admin decides whether the link is shown to students.
+  final bool showLink;
   final String recordingUrl;
   final bool isFree;
   final bool isLiveFlag;
   final int attendees;
+  final String roomName;
+  final DateTime? startedAt;
+  final DateTime? endedAt;
+
+  /// Broadcast through LiveKit inside the app (no external link set).
+  bool get usesLiveKit => liveUrl.trim().isEmpty;
 
   DateTime get endsAt => startsAt.add(Duration(minutes: durationMinutes));
 
   LiveState get state {
     final now = DateTime.now();
-    if (isLiveFlag || (now.isAfter(startsAt) && now.isBefore(endsAt))) {
+    if (isLiveFlag) {
+      return LiveState.live;
+    }
+    if (endedAt != null) {
+      return LiveState.past;
+    }
+    if (now.isAfter(startsAt) && now.isBefore(endsAt)) {
       return LiveState.live;
     }
     return now.isBefore(startsAt) ? LiveState.upcoming : LiveState.past;
@@ -298,6 +671,7 @@ class EpsLiveMessage {
       userName = _str(r['user_name']),
       isTeacher = _bool(r['is_teacher']),
       isQuestion = _bool(r['is_question']),
+      answered = _bool(r['answered']),
       body = _str(r['body']),
       createdAt = _date(r['created_at']) ?? DateTime.now();
 
@@ -306,6 +680,7 @@ class EpsLiveMessage {
   final String userName;
   final bool isTeacher;
   final bool isQuestion;
+  final bool answered;
   final String body;
   final DateTime createdAt;
 }
@@ -432,11 +807,13 @@ class EpsProfile {
       xp = _int(r['xp']),
       streakDays = _int(r['streak_days']),
       lastActivity = _date(r['last_activity_date']),
-      profileCompleted = _bool(r['profile_completed']);
+      profileCompleted = _bool(r['profile_completed']),
+      referralCode = _str(r['referral_code']);
 
   final String id;
   final String name;
   final String phone;
+  final String referralCode;
   final String university;
   final String faculty;
   final String track;
@@ -508,6 +885,37 @@ class LearnRepository {
     await client.from('users').select().eq('role', 'teacher'),
   ).map(EpsTeacher.fromRow).toList();
 
+  Future<List<EpsSection>> sections() async => (await _select(
+    'courses',
+    order: 'created_at',
+  )).map(EpsSection.fromRow).toList();
+
+  /// The admin's changes to a section: title, description, what it offers,
+  /// and the bundle price.
+  Future<void> saveSection({
+    required String id,
+    required String title,
+    required String description,
+    required List<String> features,
+    required int bundlePrice,
+    Map<String, int> featurePrices = const {},
+  }) async {
+    await client
+        .from('courses')
+        .update({
+          'title': title.trim(),
+          'description': description.trim(),
+          'features': features,
+          'bundle_price': bundlePrice,
+          'feature_videos_price': featurePrices['videos'] ?? 0,
+          'feature_live_price': featurePrices['live'] ?? 0,
+          'feature_assistant_price': featurePrices['assistant'] ?? 0,
+          'pkg_groups_price': featurePrices['pkg_groups'] ?? 0,
+          'pkg_videos_price': featurePrices['pkg_videos'] ?? 0,
+        })
+        .eq('id', id);
+  }
+
   Future<List<EpsPlan>> plans() async => (await _select(
     'plans',
     order: 'sort_order',
@@ -526,18 +934,26 @@ class LearnRepository {
   Future<List<EpsSubscription>> requestSubscriptions({
     required String studentId,
     required List<EpsSubject> subjects,
+    Map<String, int>? amounts,
     required EpsPlan plan,
     required String? paymentMethodId,
     required String receiptUrl,
     required String transactionRef,
+    String access = 'full',
   }) async {
     final payload = [
       for (final subject in subjects)
         {
           'student_id': studentId,
           'subject_id': subject.id,
+          'access': access,
           'plan_code': plan.code,
-          'amount': plan.priceFor(subject.monthlyPrice),
+          'amount': plan.priceFor(
+            amounts?[subject.id] ??
+                (access == 'groups'
+                    ? subject.groupPrice
+                    : subject.monthlyPrice),
+          ),
           'payment_method_id': paymentMethodId,
           'receipt_url': receiptUrl,
           'transaction_ref': transactionRef,
@@ -557,6 +973,166 @@ class LearnRepository {
         .select();
     return _list(rows).map(EpsSubscription.fromRow).toList();
   }
+
+  /// The section subscriptions of one student, or of everyone (the admin).
+  Future<List<EpsSectionFeatureSub>> sectionFeatureSubscriptions({
+    String? studentId,
+  }) async {
+    var query = client.from('section_feature_subscriptions').select();
+    if (studentId != null) {
+      query = query.eq('student_id', studentId);
+    }
+    return _list(
+      await query.order('created_at', ascending: false),
+    ).map(EpsSectionFeatureSub.fromRow).toList();
+  }
+
+  /// The admin accepts or rejects a package payment; an accepted one lasts a month.
+  Future<void> reviewSectionFeature({
+    required EpsSectionFeatureSub sub,
+    required bool approve,
+    String reason = '',
+  }) {
+    final now = DateTime.now().toUtc();
+    return client
+        .from('section_feature_subscriptions')
+        .update({
+          'status': approve ? 'active' : 'rejected',
+          'rejection_reason': approve ? '' : reason,
+          'reviewed_at': now.toIso8601String(),
+          if (approve) 'starts_at': now.toIso8601String(),
+          if (approve)
+            'expires_at': DateTime(
+              now.year,
+              now.month + 1,
+              now.day,
+            ).toUtc().toIso8601String(),
+        })
+        .eq('id', sub.id);
+  }
+
+  /// One request per student, section and feature; a new request replaces an
+  /// earlier pending or rejected one.
+  Future<void> requestSectionFeature({
+    required String studentId,
+    required String courseId,
+    required String feature,
+    required int amount,
+    required String? paymentMethodId,
+    required String receiptUrl,
+    required String transactionRef,
+  }) async {
+    await client
+        .from('section_feature_subscriptions')
+        .delete()
+        .eq('student_id', studentId)
+        .eq('course_id', courseId)
+        .eq('feature', feature)
+        .inFilter('status', ['pending', 'rejected']);
+    await client.from('section_feature_subscriptions').insert({
+      'student_id': studentId,
+      'course_id': courseId,
+      'feature': feature,
+      'amount': amount,
+      'payment_method_id': paymentMethodId,
+      'receipt_url': receiptUrl,
+      'transaction_ref': transactionRef,
+      'status': 'pending',
+    });
+  }
+
+  /// Sets the student's username: lowercase letters, digits or _, 3 to 20.
+  Future<void> setUsername(String userId, String username) async {
+    final u = username.trim().toLowerCase();
+    if (!RegExp(r'^[a-z0-9_]{3,20}$').hasMatch(u)) {
+      throw StateError(
+        'اسم المستخدم من 3 إلى 20 حرفاً إنجليزياً أو رقماً أو _',
+      );
+    }
+    await client.from('users').update({'username': u}).eq('id', userId);
+  }
+
+  /// The private conversation of a student and a teacher, created on first use.
+  Future<EpsDirectThread> directThread({
+    required String studentId,
+    required String teacherId,
+  }) async {
+    final rows = _list(
+      await client.from('direct_threads').upsert({
+        'student_id': studentId,
+        'teacher_id': teacherId,
+      }, onConflict: 'student_id,teacher_id').select(),
+    );
+    return EpsDirectThread.fromRow(rows.first);
+  }
+
+  /// The conversations of a user, newest first (as a student or a teacher).
+  Future<List<EpsDirectThread>> directThreadsFor(String userId) async {
+    final rows = _list(
+      await client
+          .from('direct_threads')
+          .select()
+          .or('student_id.eq.$userId,teacher_id.eq.$userId')
+          .order('last_message_at', ascending: false),
+    );
+    return rows.map(EpsDirectThread.fromRow).toList();
+  }
+
+  Future<List<EpsDirectMessage>> directMessages(String threadId) async => _list(
+    await client
+        .from('direct_messages')
+        .select()
+        .eq('thread_id', threadId)
+        .order('created_at', ascending: true),
+  ).map(EpsDirectMessage.fromRow).toList();
+
+  Future<void> sendDirectMessage({
+    required String threadId,
+    required String senderId,
+    required String body,
+  }) async {
+    await client.from('direct_messages').insert({
+      'thread_id': threadId,
+      'sender_id': senderId,
+      'body': body.trim(),
+    });
+    await client
+        .from('direct_threads')
+        .update({'last_message_at': DateTime.now().toUtc().toIso8601String()})
+        .eq('id', threadId);
+  }
+
+  /// The teacher posts a private message in the group, with the sender's
+  /// username, and the private message is marked as forwarded.
+  Future<void> forwardDirectToGroup({
+    required EpsDirectMessage message,
+    required String groupId,
+    required String teacherId,
+    required String teacherName,
+  }) async {
+    await client.from('chat_messages').insert({
+      'group_id': groupId,
+      'sender_id': teacherId,
+      'sender_name': teacherName,
+      'body': message.body,
+    });
+    await client
+        .from('direct_messages')
+        .update({'forwarded': true})
+        .eq('id', message.id);
+  }
+
+  Future<List<Map<String, dynamic>>> assistantPackageRows() async => _list(
+    await client.from('assistant_packages').select().order('sort_order'),
+  );
+
+  /// Changes the price columns of one row (subjects, courses or packages).
+  Future<void> updateRowBy({
+    required String table,
+    required String column,
+    required String key,
+    required Map<String, dynamic> values,
+  }) => client.from(table).update(values).eq(column, key);
 
   Future<void> reviewSubscription({
     required EpsSubscription subscription,
@@ -769,35 +1345,943 @@ class LearnRepository {
     ]);
   }
 
-  Future<int> assistantQuestionsToday(String userId) async {
-    final rows = _list(
-      await client
-          .from('assistant_usage')
-          .select('questions')
-          .eq('user_id', userId)
-          .eq('day', DateTime.now().toIso8601String().substring(0, 10)),
-    );
-    return rows.isEmpty ? 0 : _int(rows.first['questions']);
+  /// The student's assistant allowance left today and this month, as
+  /// percentages (the assistant function works in tokens).
+  Future<({int dailyLeftPct, int monthlyLeftPct})?> assistantBalance(
+    String userId,
+  ) async {
+    try {
+      final response = await client.functions.invoke(
+        'assistant',
+        body: {'userId': userId, 'action': 'balance'},
+      );
+      final data = response.data;
+      if (data is Map && data['dailyLeftPct'] is num) {
+        return (
+          dailyLeftPct: (data['dailyLeftPct'] as num).toInt(),
+          monthlyLeftPct: ((data['monthlyLeftPct'] as num?) ?? 0).toInt(),
+        );
+      }
+    } on Object {
+      // Shown as unknown until the next answer.
+    }
+    return null;
   }
 
-  Future<String> askAssistant({
+  /// Faculties offered to students (approved only).
+  Future<List<EpsFaculty>> approvedFaculties() async =>
+      (await client
+              .from('faculties')
+              .select()
+              .eq('status', 'approved')
+              .order('name'))
+          .map((r) => EpsFaculty.fromRow(Map<String, dynamic>.from(r)))
+          .toList();
+
+  /// Every faculty, for the administration (pending first).
+  Future<List<EpsFaculty>> allFaculties() async => _list(
+    await client.from('faculties').select().order('created_at'),
+  ).map(EpsFaculty.fromRow).toList();
+
+  /// A student suggests a faculty that is missing; it waits for approval.
+  Future<void> suggestFaculty(String name, String userId) async {
+    final existing = _list(
+      await client
+          .from('faculties')
+          .select('id')
+          .eq('name', name.trim())
+          .limit(1),
+    );
+    if (existing.isNotEmpty) {
+      return;
+    }
+    await client.from('faculties').insert({
+      'name': name.trim(),
+      'status': 'pending',
+      'suggested_by': userId,
+    });
+  }
+
+  Future<void> setFacultyStatus(String id, String status) =>
+      client.from('faculties').update({'status': status}).eq('id', id);
+
+  /// Approved files of a specialty (faculty, track and level). An empty
+  /// value leaves that part unfiltered.
+  Future<List<EpsStudentFile>> studentFiles({
+    String faculty = '',
+    String track = '',
+    String level = '',
+  }) async {
+    var query = client.from('student_files').select().eq('status', 'approved');
+    if (faculty.isNotEmpty) query = query.eq('faculty', faculty);
+    if (track.isNotEmpty) query = query.eq('track', track);
+    if (level.isNotEmpty) query = query.eq('level', level);
+    final rows = _list(
+      await query.order('created_at', ascending: false).limit(200),
+    );
+    return rows.map(EpsStudentFile.fromRow).toList();
+  }
+
+  /// The student's timetable, ordered by day and start time.
+  Future<List<EpsTimetableItem>> myTimetable(String userId) async => _list(
+    await client
+        .from('student_timetable')
+        .select()
+        .eq('student_id', userId)
+        .order('weekday')
+        .order('starts_at'),
+  ).map(EpsTimetableItem.fromRow).toList();
+
+  Future<void> addTimetableItem({
+    required String userId,
+    required int weekday,
+    required String startsAt,
+    required String subjectName,
+    String room = '',
+  }) async {
+    await client.from('student_timetable').insert({
+      'student_id': userId,
+      'weekday': weekday,
+      'starts_at': startsAt,
+      'subject_name': subjectName.trim(),
+      'room': room.trim(),
+    });
+  }
+
+  /// Changes a class: its subject, room, day or start time.
+  Future<void> updateTimetableItem({
+    required String id,
+    required int weekday,
+    required String startsAt,
+    required String subjectName,
+    String room = '',
+  }) async {
+    await client
+        .from('student_timetable')
+        .update({
+          'weekday': weekday,
+          'starts_at': startsAt,
+          'subject_name': subjectName.trim(),
+          'room': room.trim(),
+        })
+        .eq('id', id);
+  }
+
+  /// A student's request to buy an assistant package, with the receipt.
+  Future<void> submitAssistantRequest({
+    required String userId,
+    required String tier,
+    required String period,
+    required int amount,
+    required String? paymentMethodId,
+    required String receiptUrl,
+    required String transactionRef,
+  }) async {
+    await client.from('assistant_subscriptions').insert({
+      'student_id': userId,
+      'tier': tier,
+      'period': period,
+      'amount': amount,
+      'payment_method_id': paymentMethodId,
+      'receipt_url': receiptUrl,
+      'transaction_ref': transactionRef.trim(),
+      'status': 'pending',
+    });
+  }
+
+  /// Every assistant package request, newest first, with the student's name.
+  Future<List<Map<String, dynamic>>> assistantRequests() async => _list(
+    await client
+        .from('assistant_subscriptions')
+        .select('*, student:users(name, phone)')
+        .order('created_at', ascending: false)
+        .limit(200),
+  );
+
+  Future<void> reviewAssistantRequest({
+    required String id,
+    required bool approve,
+    String reason = '',
+  }) async {
+    await client
+        .from('assistant_subscriptions')
+        .update({
+          'status': approve ? 'active' : 'rejected',
+          'rejection_reason': approve ? '' : reason,
+        })
+        .eq('id', id);
+  }
+
+  /// Files attached to one lesson.
+  Future<List<EpsAttachment>> lessonAttachments(String lessonId) async => _list(
+    await client
+        .from('lesson_attachments')
+        .select()
+        .eq('lesson_id', lessonId)
+        .order('sort_order')
+        .order('created_at'),
+  ).map(EpsAttachment.fromRow).toList();
+
+  /// Subject files: attached to the subject, not to one lesson.
+  Future<List<EpsAttachment>> subjectFiles(String subjectId) async => _list(
+    await client
+        .from('lesson_attachments')
+        .select()
+        .eq('subject_id', subjectId)
+        .isFilter('lesson_id', null)
+        .order('sort_order')
+        .order('created_at'),
+  ).map(EpsAttachment.fromRow).toList();
+
+  /// Every attachment of a subject (admin view).
+  Future<List<EpsAttachment>> allAttachments(String subjectId) async => _list(
+    await client
+        .from('lesson_attachments')
+        .select()
+        .eq('subject_id', subjectId)
+        .order('created_at', ascending: false),
+  ).map(EpsAttachment.fromRow).toList();
+
+  Future<void> addAttachment({
+    required String subjectId,
+    required String? lessonId,
+    required String title,
+    required Uint8List bytes,
+    required String fileName,
+  }) async {
+    final ext = fileName.contains('.')
+        ? fileName.split('.').last.toLowerCase()
+        : 'pdf';
+    final mime = switch (ext) {
+      'png' => 'image/png',
+      'jpg' || 'jpeg' => 'image/jpeg',
+      'webp' => 'image/webp',
+      _ => 'application/pdf',
+    };
+    final kind = mime == 'application/pdf' ? 'pdf' : 'image';
+    final path =
+        '$subjectId/${DateTime.now().millisecondsSinceEpoch}.${kind == 'pdf' ? 'pdf' : ext}';
+    final bucket = client.storage.from('lesson-files');
+    await bucket.uploadBinary(
+      path,
+      bytes,
+      fileOptions: FileOptions(contentType: mime, upsert: false),
+    );
+    await client.from('lesson_attachments').insert({
+      'subject_id': subjectId,
+      'lesson_id': lessonId,
+      'title': title.trim(),
+      'kind': kind,
+      'url': bucket.getPublicUrl(path),
+    });
+  }
+
+  Future<void> deleteAttachment(String id) async {
+    await client.from('lesson_attachments').delete().eq('id', id);
+  }
+
+  /// The chat group of a subject, created the first time it is needed.
+  Future<EpsChatGroup> chatGroupFor(String subjectId) async {
+    final row = await client
+        .from('chat_groups')
+        .upsert({'subject_id': subjectId}, onConflict: 'subject_id')
+        .select()
+        .single();
+    return EpsChatGroup.fromRow(Map<String, dynamic>.from(row));
+  }
+
+  /// Messages of a group, or only the ones after [after] when polling.
+  Future<List<EpsChatMessage>> chatMessages(
+    String groupId, {
+    DateTime? after,
+  }) async {
+    // The whole history, oldest first, in pages: a new subscriber must see
+    // everything the teacher posted, including the voice notes and images.
+    const page = 500;
+    final out = <EpsChatMessage>[];
+    var from = 0;
+    while (true) {
+      var query = client.from('chat_messages').select().eq('group_id', groupId);
+      if (after != null) {
+        query = query.gt('created_at', after.toUtc().toIso8601String());
+      }
+      final rows = _list(
+        await query.order('created_at').range(from, from + page - 1),
+      );
+      out.addAll(rows.map(EpsChatMessage.fromRow));
+      if (rows.length < page) break;
+      from += page;
+    }
+    return out;
+  }
+
+  Future<void> sendChatMessage({
+    required String groupId,
+    required String senderId,
+    required String senderName,
+    required String body,
+    Uint8List? image,
+    String? imageName,
+    String? replyToId,
+  }) async {
+    var url = '';
+    if (image != null) {
+      final ext = (imageName ?? 'jpg').split('.').last.toLowerCase();
+      final mime = switch (ext) {
+        'png' => 'image/png',
+        'webp' => 'image/webp',
+        _ => 'image/jpeg',
+      };
+      final path =
+          '$groupId/${DateTime.now().millisecondsSinceEpoch}.${ext == 'png' || ext == 'webp' ? ext : 'jpg'}';
+      final bucket = client.storage.from('chat-images');
+      await bucket.uploadBinary(
+        path,
+        image,
+        fileOptions: FileOptions(contentType: mime, upsert: false),
+      );
+      url = bucket.getPublicUrl(path);
+    }
+    await client.from('chat_messages').insert({
+      'group_id': groupId,
+      'sender_id': senderId,
+      'sender_name': senderName,
+      'body': body.trim(),
+      'image_url': url,
+      'reply_to': replyToId,
+    });
+  }
+
+  /// A video (uploaded or recorded by the teacher), sent to the group.
+  Future<void> sendChatVideo({
+    required String groupId,
+    required String senderId,
+    required String senderName,
+    required Uint8List bytes,
+    required String extension,
+    String caption = '',
+  }) async {
+    final ext = extension.toLowerCase();
+    final mime = switch (ext) {
+      'mov' => 'video/quicktime',
+      'webm' => 'video/webm',
+      '3gp' => 'video/3gpp',
+      _ => 'video/mp4',
+    };
+    final path = '$groupId/${DateTime.now().millisecondsSinceEpoch}.$ext';
+    final bucket = client.storage.from('chat-videos');
+    await bucket.uploadBinary(
+      path,
+      bytes,
+      fileOptions: FileOptions(contentType: mime, upsert: false),
+    );
+    await client.from('chat_messages').insert({
+      'group_id': groupId,
+      'sender_id': senderId,
+      'sender_name': senderName,
+      'body': caption.trim(),
+      'video_url': bucket.getPublicUrl(path),
+    });
+  }
+
+  /// A voice note: the audio file, then the message that points to it.
+  Future<void> sendChatVoice({
+    required String groupId,
+    required String senderId,
+    required String senderName,
+    required Uint8List bytes,
+    required int seconds,
+    required String extension,
+  }) async {
+    final ext = extension.toLowerCase();
+    final mime = switch (ext) {
+      'webm' => 'audio/webm',
+      'ogg' => 'audio/ogg',
+      'wav' => 'audio/wav',
+      _ => 'audio/mp4',
+    };
+    final path = '$groupId/${DateTime.now().millisecondsSinceEpoch}.$ext';
+    final bucket = client.storage.from('chat-audio');
+    await bucket.uploadBinary(
+      path,
+      bytes,
+      fileOptions: FileOptions(contentType: mime, upsert: false),
+    );
+    await client.from('chat_messages').insert({
+      'group_id': groupId,
+      'sender_id': senderId,
+      'sender_name': senderName,
+      'body': '',
+      'audio_url': bucket.getPublicUrl(path),
+      'audio_seconds': seconds,
+    });
+  }
+
+  /// The reactions of some messages (one query for the whole list).
+  Future<List<EpsChatReaction>> chatReactions(List<String> messageIds) async {
+    if (messageIds.isEmpty) return [];
+    final rows = await client
+        .from('chat_reactions')
+        .select()
+        .inFilter('message_id', messageIds);
+    return _list(rows).map(EpsChatReaction.fromRow).toList();
+  }
+
+  /// Tap an emoji: adds it, or removes it when it is the same one again.
+  /// A user has one reaction per message, so a new emoji replaces the old.
+  Future<void> toggleChatReaction({
+    required String messageId,
+    required String userId,
+    required String emoji,
+    required bool removeSame,
+  }) async {
+    if (removeSame) {
+      await client
+          .from('chat_reactions')
+          .delete()
+          .eq('message_id', messageId)
+          .eq('user_id', userId);
+      return;
+    }
+    await client.from('chat_reactions').upsert({
+      'message_id': messageId,
+      'user_id': userId,
+      'emoji': emoji,
+    }, onConflict: 'message_id,user_id');
+  }
+
+  /// Name, phone, photo, gender and status of some students (for the admin).
+  Future<Map<String, EpsStudentInfo>> studentInfo(List<String> ids) async {
+    if (ids.isEmpty) return {};
+    final rows = _list(
+      await client
+          .from('users')
+          .select('id, name, phone, avatar_url, gender, status')
+          .inFilter('id', ids.toSet().toList()),
+    );
+    return {for (final r in rows) _str(r['id']): EpsStudentInfo.fromRow(r)};
+  }
+
+  /// Name and photo of some users (the senders of a chat).
+  Future<Map<String, ({String name, String photo})>> usersById(
+    List<String> ids,
+  ) async {
+    if (ids.isEmpty) return {};
+    final rows = _list(
+      await client
+          .from('users')
+          .select('id, name, avatar_url')
+          .inFilter('id', ids.toSet().toList()),
+    );
+    return {
+      for (final r in rows)
+        _str(r['id']): (name: _str(r['name']), photo: _str(r['avatar_url'])),
+    };
+  }
+
+  /// The students with an active subscription to a subject: the class of the
+  /// group, shown to the members.
+  Future<List<({String id, String name, String photo})>> subjectStudents(
+    String subjectId,
+  ) async {
+    final rows = _list(
+      await client
+          .from('subject_subscriptions')
+          .select('student:users(id, name, avatar_url)')
+          .eq('subject_id', subjectId)
+          .eq('status', 'active'),
+    );
+    final out = <({String id, String name, String photo})>[];
+    for (final r in rows) {
+      final u = r['student'];
+      if (u is Map) {
+        out.add((
+          id: _str(u['id']),
+          name: _str(u['name']),
+          photo: _str(u['avatar_url']),
+        ));
+      }
+    }
+    out.sort((a, b) => a.name.compareTo(b.name));
+    return out;
+  }
+
+  /// The chat groups of some subjects (a group may not exist yet).
+  Future<EpsChatGroup> chatGroupById(String id) async {
+    final row = await client.from('chat_groups').select().eq('id', id).single();
+    return EpsChatGroup.fromRow(Map<String, dynamic>.from(row));
+  }
+
+  /// The reviews the admin has left visible, for the first screen (no sign-in needed).
+  Future<List<EpsReview>> visibleReviews() async => _list(
+    await client
+        .from('app_reviews')
+        .select()
+        .eq('is_visible', true)
+        .order('sort_order')
+        .order('created_at'),
+  ).map(EpsReview.fromRow).toList();
+
+  /// Every review, visible or hidden (the admin).
+  Future<List<EpsReview>> allReviews() async => _list(
+    await client
+        .from('app_reviews')
+        .select()
+        .order('sort_order')
+        .order('created_at'),
+  ).map(EpsReview.fromRow).toList();
+
+  Future<void> saveReview({
+    String? id,
+    required String name,
+    required String role,
+    required String text,
+    required int rating,
+    required bool visible,
+    required int sortOrder,
+  }) async {
+    final values = {
+      'name': name.trim(),
+      'role': role.trim(),
+      'text': text.trim(),
+      'rating': rating.clamp(1, 5),
+      'is_visible': visible,
+      'sort_order': sortOrder,
+    };
+    if (id == null) {
+      await client.from('app_reviews').insert(values);
+    } else {
+      await client.from('app_reviews').update(values).eq('id', id);
+    }
+  }
+
+  /// A student's review of the app: hidden until the admin accepts it.
+  Future<void> submitAppReview({
+    required String userId,
+    required String name,
+    required String role,
+    required String text,
+    required int rating,
+  }) async {
+    await client.from('app_reviews').insert({
+      'user_id': userId,
+      'name': name.trim(),
+      'role': role.trim(),
+      'text': text.trim(),
+      'rating': rating.clamp(1, 5),
+      'is_visible': false,
+      'sort_order': 0,
+    });
+  }
+
+  Future<void> setReviewVisible(String id, bool visible) =>
+      client.from('app_reviews').update({'is_visible': visible}).eq('id', id);
+
+  Future<void> deleteReview(String id) =>
+      client.from('app_reviews').delete().eq('id', id);
+
+  /// Every group, oldest first.
+  Future<List<EpsChatGroup>> allChatGroups() async => _list(
+    await client.from('chat_groups').select().order('created_at'),
+  ).map(EpsChatGroup.fromRow).toList();
+
+  /// The admin or the teacher adds a group to a subject.
+  Future<EpsChatGroup> createChatGroup({
+    required String subjectId,
+    required String name,
+    required int price,
+    String? createdBy,
+  }) async {
+    final row = await client
+        .from('chat_groups')
+        .insert({
+          'subject_id': subjectId,
+          'name': name.trim(),
+          'price': price,
+          'created_by': createdBy,
+        })
+        .select()
+        .single();
+    return EpsChatGroup.fromRow(Map<String, dynamic>.from(row));
+  }
+
+  /// The admin sets the price; the admin or the teacher sets the name.
+  Future<void> updateChatGroup(String id, {String? name, int? price}) => client
+      .from('chat_groups')
+      .update({
+        if (name != null) 'name': name.trim(),
+        if (price != null) 'price': price,
+      })
+      .eq('id', id);
+
+  Future<List<EpsGroupSub>> groupSubscriptions({String? studentId}) async {
+    var query = client.from('group_subscriptions').select();
+    if (studentId != null) {
+      query = query.eq('student_id', studentId);
+    }
+    return _list(
+      await query.order('created_at', ascending: false),
+    ).map(EpsGroupSub.fromRow).toList();
+  }
+
+  /// A student pays for one group; a new request replaces an earlier pending one.
+  Future<void> requestGroupSubscription({
+    required String studentId,
+    required EpsChatGroup group,
+    required String? paymentMethodId,
+    required String receiptUrl,
+    required String transactionRef,
+  }) async {
+    await client
+        .from('group_subscriptions')
+        .delete()
+        .eq('student_id', studentId)
+        .eq('group_id', group.id)
+        .inFilter('status', ['pending', 'rejected']);
+    await client.from('group_subscriptions').insert({
+      'student_id': studentId,
+      'group_id': group.id,
+      'amount': group.price,
+      'payment_method_id': paymentMethodId,
+      'receipt_url': receiptUrl,
+      'transaction_ref': transactionRef,
+      'status': 'pending',
+    });
+  }
+
+  /// The admin accepts or rejects a group payment; an accepted one lasts a month.
+  Future<void> reviewGroupSubscription({
+    required EpsGroupSub sub,
+    required bool approve,
+    String reason = '',
+  }) {
+    final now = DateTime.now().toUtc();
+    return client
+        .from('group_subscriptions')
+        .update({
+          'status': approve ? 'active' : 'rejected',
+          'rejection_reason': approve ? '' : reason,
+          'reviewed_at': now.toIso8601String(),
+          if (approve) 'starts_at': now.toIso8601String(),
+          if (approve)
+            'expires_at': DateTime(
+              now.year,
+              now.month + 1,
+              now.day,
+            ).toUtc().toIso8601String(),
+        })
+        .eq('id', sub.id);
+  }
+
+  Future<List<EpsChatGroup>> chatGroupsFor(List<String> subjectIds) async {
+    if (subjectIds.isEmpty) return [];
+    final rows = await client
+        .from('chat_groups')
+        .select()
+        .inFilter('subject_id', subjectIds);
+    return _list(rows).map(EpsChatGroup.fromRow).toList();
+  }
+
+  /// The latest messages of some groups, newest first (used for previews).
+  Future<List<EpsChatMessage>> latestChatMessages(List<String> groupIds) async {
+    if (groupIds.isEmpty) return [];
+    final rows = await client
+        .from('chat_messages')
+        .select()
+        .inFilter('group_id', groupIds)
+        .order('created_at', ascending: false)
+        .limit(300);
+    return _list(rows).map(EpsChatMessage.fromRow).toList();
+  }
+
+  /// A poll: a question and its options.
+  Future<void> sendChatPoll({
+    required String groupId,
+    required String senderId,
+    required String senderName,
+    required String question,
+    required List<String> options,
+  }) async {
+    await client.from('chat_messages').insert({
+      'group_id': groupId,
+      'sender_id': senderId,
+      'sender_name': senderName,
+      'body': '',
+      'poll_question': question.trim(),
+      'poll_options': options,
+    });
+  }
+
+  /// The votes of some polls.
+  Future<List<({String messageId, String userId, int option})>> pollVotes(
+    List<String> messageIds,
+  ) async {
+    if (messageIds.isEmpty) return [];
+    final rows = _list(
+      await client
+          .from('chat_poll_votes')
+          .select()
+          .inFilter('message_id', messageIds),
+    );
+    return [
+      for (final r in rows)
+        (
+          messageId: _str(r['message_id']),
+          userId: _str(r['user_id']),
+          option: (r['option_index'] as num?)?.toInt() ?? 0,
+        ),
+    ];
+  }
+
+  /// One vote per user and poll: voting again changes the choice.
+  Future<void> votePoll({
+    required String messageId,
+    required String userId,
+    required int option,
+  }) async {
+    await client.from('chat_poll_votes').upsert({
+      'message_id': messageId,
+      'user_id': userId,
+      'option_index': option,
+    }, onConflict: 'message_id,user_id');
+  }
+
+  /// Marks this user as present in the group (called about once a minute).
+  Future<void> touchPresence(String groupId, String userId) async {
+    await client.from('chat_presence').upsert({
+      'group_id': groupId,
+      'user_id': userId,
+      'seen_at': DateTime.now().toUtc().toIso8601String(),
+    }, onConflict: 'group_id,user_id');
+  }
+
+  /// How many people were in the group in the last two minutes.
+  Future<int> onlineCount(String groupId) async {
+    final since = DateTime.now().toUtc().subtract(const Duration(minutes: 2));
+    final rows = _list(
+      await client
+          .from('chat_presence')
+          .select('user_id')
+          .eq('group_id', groupId)
+          .gte('seen_at', since.toIso8601String()),
+    );
+    return rows.length;
+  }
+
+  /// Teacher only: pin a message at the top of the group, or unpin it (null).
+  Future<void> setPinnedMessage(String groupId, String? messageId) async {
+    await client
+        .from('chat_groups')
+        .update({'pinned_message_id': messageId})
+        .eq('id', groupId);
+  }
+
+  /// Teacher only: put the group first in the students' list, or take it back.
+  Future<void> setChatStarred(String groupId, bool starred) async {
+    await client
+        .from('chat_groups')
+        .update({'starred': starred})
+        .eq('id', groupId);
+  }
+
+  /// Teacher only: lock the group (students cannot post) or unlock it.
+  Future<void> setChatLocked(String groupId, bool locked) async {
+    await client
+        .from('chat_groups')
+        .update({'locked': locked})
+        .eq('id', groupId);
+  }
+
+  Future<void> deleteTimetableItem(String id) async {
+    await client.from('student_timetable').delete().eq('id', id);
+  }
+
+  /// Every file a student uploaded, whatever its status.
+  Future<List<EpsStudentFile>> myStudentFiles(String userId) async => _list(
+    await client
+        .from('student_files')
+        .select()
+        .eq('uploader_id', userId)
+        .order('created_at', ascending: false),
+  ).map(EpsStudentFile.fromRow).toList();
+
+  /// Uploads a file to the student-files bucket and records it as pending.
+  Future<void> uploadStudentFile({
+    required String userId,
+    required String title,
+    required String description,
+    required String subjectId,
+    required String subjectName,
+    required String faculty,
+    required String track,
+    required String level,
+    required Uint8List bytes,
+    required String fileName,
+  }) async {
+    final ext = fileName.contains('.')
+        ? fileName.split('.').last.toLowerCase()
+        : 'pdf';
+    final mime = switch (ext) {
+      'png' => 'image/png',
+      'jpg' || 'jpeg' => 'image/jpeg',
+      'webp' => 'image/webp',
+      _ => 'application/pdf',
+    };
+    final fileType = mime == 'application/pdf' ? 'pdf' : 'image';
+    final path =
+        '$userId/${DateTime.now().millisecondsSinceEpoch}.${fileType == 'pdf' ? 'pdf' : ext}';
+    final bucket = client.storage.from('student-files');
+    await bucket.uploadBinary(
+      path,
+      bytes,
+      fileOptions: FileOptions(contentType: mime, upsert: false),
+    );
+    await client.from('student_files').insert({
+      'uploader_id': userId,
+      'title': title.trim(),
+      'description': description.trim(),
+      'subject_id': subjectId.isEmpty ? null : subjectId,
+      'subject_name': subjectName.trim(),
+      'faculty': faculty,
+      'track': track,
+      'level': level,
+      'file_path': path,
+      'file_url': bucket.getPublicUrl(path),
+      'file_type': fileType,
+      'size_bytes': bytes.length,
+    });
+  }
+
+  Future<void> setStudentFileStatus(String id, String status) =>
+      client.from('student_files').update({'status': status}).eq('id', id);
+
+  /// Calls the `livekit` edge function: `token`, `start`, `record`, `end`.
+  Future<Map<String, dynamic>> liveKit(
+    String action, {
+    required String userId,
+    required String sessionId,
+    int? peakViewers,
+  }) async {
+    try {
+      final response = await client.functions.invoke(
+        'livekit',
+        body: {
+          'action': action,
+          'userId': userId,
+          'sessionId': sessionId,
+          'peakViewers': ?peakViewers,
+        },
+      );
+      final data = response.data;
+      return data is Map ? Map<String, dynamic>.from(data) : {};
+    } on FunctionException catch (e) {
+      final details = e.details;
+      throw Exception(
+        details is Map && details['message'] != null
+            ? '${details['message']}'
+            : 'تعذر الاتصال بخدمة البث.',
+      );
+    }
+  }
+
+  Future<EpsLiveSession?> liveSession(String id) async {
+    final rows = _list(
+      await client.from('live_sessions').select().eq('id', id).limit(1),
+    );
+    return rows.isEmpty ? null : EpsLiveSession.fromRow(rows.first);
+  }
+
+  /// Sessions a teacher hosts (or every session for an admin).
+  Future<List<EpsLiveSession>> hostedSessions(String? teacherId) async {
+    var query = client.from('live_sessions').select();
+    if (teacherId != null) {
+      query = query.or('teacher_id.eq.$teacherId,teacher_id.is.null');
+    }
+    return _list(
+      await query.order('starts_at', ascending: false).limit(60),
+    ).map(EpsLiveSession.fromRow).toList();
+  }
+
+  Future<void> createLiveSession(Map<String, dynamic> values) =>
+      client.from('live_sessions').insert(values);
+
+  Future<void> setQuestionAnswered(String messageId, bool answered) => client
+      .from('live_messages')
+      .update({'answered': answered})
+      .eq('id', messageId);
+
+  /// Pushes chat changes of one session as they happen.
+  RealtimeChannel watchLiveMessages(String sessionId, VoidCallback onChange) =>
+      client
+          .channel('live-messages-$sessionId')
+          .onPostgresChanges(
+            event: PostgresChangeEvent.all,
+            schema: 'public',
+            table: 'live_messages',
+            filter: PostgresChangeFilter(
+              type: PostgresChangeFilterType.eq,
+              column: 'session_id',
+              value: sessionId,
+            ),
+            callback: (_) => onChange(),
+          )
+          .onPostgresChanges(
+            event: PostgresChangeEvent.update,
+            schema: 'public',
+            table: 'live_sessions',
+            filter: PostgresChangeFilter(
+              type: PostgresChangeFilterType.eq,
+              column: 'id',
+              value: sessionId,
+            ),
+            callback: (_) => onChange(),
+          )
+          .subscribe();
+
+  /// Asks the assistant. [image] (a data URI) goes with the last question.
+  Future<({String reply, int? dailyLeftPct, int? monthlyLeftPct})>
+  askAssistant({
     required String userId,
     required List<Map<String, String>> messages,
     String? lessonTitle,
     String? subjectName,
+    String? image,
+    String? document,
+    String? documentName,
+    String mode = 'solve',
+    String? studentLevel,
+    String? studentName,
+    String? lessonSummary,
   }) async {
-    final response = await client.functions.invoke(
-      'assistant',
-      body: {
-        'userId': userId,
-        'messages': messages,
-        'lessonTitle': lessonTitle,
-        'subjectName': subjectName,
-      },
-    );
-    final data = response.data;
+    Object? data;
+    try {
+      final response = await client.functions.invoke(
+        'assistant',
+        body: {
+          'userId': userId,
+          'messages': messages,
+          'lessonTitle': lessonTitle,
+          'subjectName': subjectName,
+          'image': ?image,
+          'document': ?document,
+          'documentName': ?documentName,
+          'mode': mode,
+          'studentLevel': ?studentLevel,
+          'studentName': ?studentName,
+          'lessonSummary': ?lessonSummary,
+        },
+      );
+      data = response.data;
+    } on FunctionException catch (e) {
+      data = e.details;
+    }
     if (data is Map && data['reply'] != null) {
-      return '${data['reply']}';
+      int? n(Object? v) => v is num ? v.toInt() : null;
+      return (
+        reply: '${data['reply']}',
+        dailyLeftPct: n(data['dailyLeftPct']),
+        monthlyLeftPct: n(data['monthlyLeftPct']),
+      );
     }
     throw Exception(
       data is Map && data['message'] != null
@@ -856,6 +2340,12 @@ class LearnStore extends ChangeNotifier {
   List<EpsPlan> plans = [];
   List<EpsSubscription> subscriptions = [];
   List<EpsLesson> lessons = [];
+  List<EpsSectionFeatureSub> featureSubs = [];
+  // Every group, and the student's subscriptions to groups.
+  List<EpsChatGroup> chatGroups = [];
+  List<EpsGroupSub> groupSubs = [];
+  // The assistant packages as the admin set them (empty: the built-in ones).
+  List<Map<String, dynamic>> packageRows = [];
   Set<String> completedLessonIds = {};
   List<EpsExercise> exercises = [];
   List<EpsPdf> pdfs = [];
@@ -870,7 +2360,22 @@ class LearnStore extends ChangeNotifier {
 
   /// Subjects chosen in the catalog before checkout.
   final Set<String> cart = {};
-  String selectedPlanCode = 'monthly';
+  String selectedPlanCode = 'yearly';
+
+  /// Offered plans, and the selected one kept among them.
+  void _setPlans(List<EpsPlan> all) {
+    plans = all.where((p) => p.active).toList();
+    if (!plans.any((p) => p.code == selectedPlanCode)) {
+      final paid = plans.where((p) => !p.isFree).firstOrNull;
+      if (paid != null) {
+        selectedPlanCode = paid.code;
+      }
+    }
+  }
+
+  /// Subjects open for subscription: those with at least one lesson. The
+  /// status changes on its own as soon as lessons are uploaded.
+  bool isAvailable(String subjectId) => lessonsFor(subjectId).isNotEmpty;
 
   /// Subject the student is currently browsing.
   String? currentSubjectId;
@@ -923,9 +2428,34 @@ class LearnStore extends ChangeNotifier {
       subjects = (results[1]! as List<EpsSubject>)
           .where((s) => s.isActive)
           .toList();
+      try {
+        sections = await repo.sections();
+        sectionBundles = {for (final c in sections) c.id: c.bundlePrice};
+      } on Object {
+        sections = [];
+        sectionBundles = {};
+      }
       teachers = results[2]! as List<EpsTeacher>;
-      plans = results[3]! as List<EpsPlan>;
+      _setPlans(results[3]! as List<EpsPlan>);
       subscriptions = results[4]! as List<EpsSubscription>;
+      // Kept apart: a missing table must not stop the rest of the app.
+      try {
+        featureSubs = await repo.sectionFeatureSubscriptions(studentId: id);
+      } on Object {
+        featureSubs = [];
+      }
+      try {
+        chatGroups = await repo.allChatGroups();
+        groupSubs = await repo.groupSubscriptions(studentId: id);
+      } on Object {
+        chatGroups = [];
+        groupSubs = [];
+      }
+      try {
+        packageRows = await repo.assistantPackageRows();
+      } on Object {
+        packageRows = [];
+      }
       lessons = (results[5]! as List<EpsLesson>)
           .where((l) => l.isPublished)
           .toList();
@@ -934,6 +2464,8 @@ class LearnStore extends ChangeNotifier {
       pdfs = results[8]! as List<EpsPdf>;
       liveSessions = results[9]! as List<EpsLiveSession>;
       reminders = results[10]! as Set<String>;
+      await FirebasePush.saveFor(id);
+      _syncReminders();
       quizzes = results[11]! as List<EpsQuiz>;
       attempts = results[12]! as List<EpsAttempt>;
       announcements = results[13]! as List<EpsAnnouncement>;
@@ -953,6 +2485,37 @@ class LearnStore extends ChangeNotifier {
   Future<void> refresh() async {
     if (userId != null) {
       await load(userId!);
+    }
+  }
+
+  /// Paid signup in progress: the details typed in the signup form. The
+  /// account itself is created when the payment receipt is sent.
+  ({String name, String phone, String password, String referral})? signupDraft;
+
+  /// Subjects, teachers and plans for someone not signed in yet (paid
+  /// signup goes through the catalog before the account exists).
+  Future<void> loadCatalog() async {
+    if (!enabled || subjects.isNotEmpty) {
+      return;
+    }
+    try {
+      final results = await Future.wait<Object>([
+        repo.subjects(),
+        repo.teachers(),
+        repo.plans(),
+        repo.lessons(),
+      ]);
+      subjects = (results[0] as List<EpsSubject>)
+          .where((s) => s.isActive)
+          .toList();
+      teachers = results[1] as List<EpsTeacher>;
+      _setPlans(results[2] as List<EpsPlan>);
+      lessons = (results[3] as List<EpsLesson>)
+          .where((l) => l.isPublished)
+          .toList();
+      notifyListeners();
+    } on Object {
+      // The catalog screens show their empty state.
     }
   }
 
@@ -991,8 +2554,41 @@ class LearnStore extends ChangeNotifier {
             s.subjectId == subjectId && s.status == SubscriptionStatus.active,
       );
 
+  /// A group opens with the full subject or with its own subscription.
+  bool canOpenGroup(EpsChatGroup group) =>
+      hasAccess(group.subjectId) ||
+      groupSubs.any((g) => g.groupId == group.id && g.isActive);
+
+  /// A PDF opens with the full subject or a section package that includes it.
+  /// PDFs open for any paid student: a subject, a section package, or a group.
+  bool canOpenPdf(String? subjectId) =>
+      hasAccess(subjectId) ||
+      sectionFeatureFor(subjectId, 'pdf') ||
+      isSubscribed;
+
+  /// Lessons and files: only a full subscription opens them.
+  /// Whether the student has an active subscription to a feature of a section.
+  bool hasFeature(String courseId, String feature) => featureSubs.any(
+    (f) =>
+        f.courseId == courseId &&
+        f.isActive &&
+        (f.feature == feature ||
+            (_packageFeatures[f.feature]?.contains(feature) ?? false)),
+  );
+
+  bool hasGroupAccess(String? subjectId) =>
+      subjectId != null &&
+      subscriptions.any(
+        (s) =>
+            s.subjectId == subjectId && s.status == SubscriptionStatus.active,
+      );
+
+  /// Any paid access: a subject, a group, or a section package. A student with
+  /// only a group still browses the app (PDFs, results, profile).
   bool get isSubscribed =>
-      subscriptions.any((s) => s.status == SubscriptionStatus.active);
+      subscriptions.any((s) => s.status == SubscriptionStatus.active) ||
+      groupSubs.any((g) => g.isActive) ||
+      featureSubs.any((f) => f.isActive);
 
   List<EpsSubject> get activeSubjects => [
     for (final s in subjects)
@@ -1026,8 +2622,26 @@ class LearnStore extends ChangeNotifier {
     return (done * 100 / items.length).round();
   }
 
-  bool canOpenLesson(EpsLesson lesson) =>
-      lesson.isFree || hasAccess(lesson.subjectId);
+  /// The free plan covers live sessions and PDF files only.
+  /// The section a subject belongs to, if any.
+  String? courseOf(String? subjectId) =>
+      subjects.where((s) => s.id == subjectId).firstOrNull?.courseId;
+
+  /// A section feature (videos, live, assistant) of the subject's section.
+  bool sectionFeatureFor(String? subjectId, String feature) {
+    final course = courseOf(subjectId);
+    return course != null && hasFeature(course, feature);
+  }
+
+  /// Recorded videos: the full subject, or the section's videos feature.
+  bool canWatch(String? subjectId) =>
+      hasAccess(subjectId) || sectionFeatureFor(subjectId, 'videos');
+
+  /// Live sessions: the full subject, or the section's live feature.
+  bool canJoinLive(String? subjectId) =>
+      hasAccess(subjectId) || sectionFeatureFor(subjectId, 'live');
+
+  bool canOpenLesson(EpsLesson lesson) => canWatch(lesson.subjectId);
 
   EpsQuiz? get dailyQuiz {
     final today = DateUtils.dateOnly(DateTime.now());
@@ -1051,6 +2665,9 @@ class LearnStore extends ChangeNotifier {
   // Actions ---------------------------------------------------------------
 
   void toggleCart(String subjectId) {
+    if (!cart.contains(subjectId) && !isAvailable(subjectId)) {
+      return;
+    }
     cart.contains(subjectId) ? cart.remove(subjectId) : cart.add(subjectId);
     notifyListeners();
   }
@@ -1070,8 +2687,48 @@ class LearnStore extends ChangeNotifier {
       if (cart.contains(s.id)) s,
   ];
 
-  int get cartMonthlyTotal =>
-      cartSubjects.fold(0, (sum, s) => sum + s.monthlyPrice);
+  /// Bundle price of each section (course id -> MRU a month). A section whose
+  /// subjects are all in the cart pays this price instead of the sum.
+  Map<String, int> sectionBundles = {};
+  List<EpsSection> sections = [];
+
+  EpsSection? sectionById(String id) =>
+      sections.where((c) => c.id == id).firstOrNull;
+
+  /// What each subject in the cart costs this month. A complete section pays
+  /// its bundle price, split between its subjects by their price.
+  Map<String, int> get cartAmounts {
+    final out = <String, int>{
+      for (final s in cartSubjects) s.id: s.monthlyPrice,
+    };
+    final byCourse = <String, List<EpsSubject>>{};
+    for (final s in cartSubjects) {
+      final c = s.courseId;
+      if (c != null) byCourse.putIfAbsent(c, () => []).add(s);
+    }
+    for (final entry in byCourse.entries) {
+      final bundle = sectionBundles[entry.key] ?? 0;
+      final allInSection = subjects
+          .where((s) => s.courseId == entry.key)
+          .length;
+      if (bundle <= 0 || entry.value.length < allInSection) continue;
+      final sum = entry.value.fold<int>(0, (a, s) => a + s.monthlyPrice);
+      var left = bundle;
+      for (var i = 0; i < entry.value.length; i++) {
+        final s = entry.value[i];
+        final share = i == entry.value.length - 1
+            ? left
+            : (sum == 0
+                  ? bundle ~/ entry.value.length
+                  : (bundle * s.monthlyPrice / sum).round());
+        out[s.id] = share;
+        left -= share;
+      }
+    }
+    return out;
+  }
+
+  int get cartMonthlyTotal => cartAmounts.values.fold(0, (sum, v) => sum + v);
 
   Future<void> submitPayment({
     required String? paymentMethodId,
@@ -1088,7 +2745,7 @@ class LearnStore extends ChangeNotifier {
                 'EPS-${DateTime.now().millisecondsSinceEpoch % 1000000}',
             'subject_id': s.id,
             'plan_code': plan.code,
-            'amount': plan.priceFor(s.monthlyPrice),
+            'amount': plan.priceFor(cartAmounts[s.id] ?? s.monthlyPrice),
             'status': 'pending',
           }),
       ];
@@ -1104,6 +2761,7 @@ class LearnStore extends ChangeNotifier {
     lastRequest = await repo.requestSubscriptions(
       studentId: userId!,
       subjects: cartSubjects,
+      amounts: cartAmounts,
       plan: plan,
       paymentMethodId: paymentMethodId,
       receiptUrl: receiptUrl,
@@ -1125,10 +2783,41 @@ class LearnStore extends ChangeNotifier {
     }
   }
 
+  /// Set by the app to schedule (or cancel) device notifications for a
+  /// session reminder.
+  static void Function(EpsLiveSession session, bool on)? reminderScheduler;
+
+  void _syncReminders() {
+    final schedule = reminderScheduler;
+    if (schedule == null) {
+      return;
+    }
+    for (final s in liveSessions) {
+      if (reminders.contains(s.id) && s.state == LiveState.upcoming) {
+        schedule(s, true);
+      }
+    }
+  }
+
+  /// Replaces a session with fresher data (e.g. after a realtime update).
+  void replaceLiveSession(EpsLiveSession session) {
+    final i = liveSessions.indexWhere((s) => s.id == session.id);
+    if (i < 0) {
+      liveSessions = [...liveSessions, session];
+    } else {
+      liveSessions = [...liveSessions]..[i] = session;
+    }
+    notifyListeners();
+  }
+
   Future<void> toggleReminder(String sessionId) async {
     final on = !reminders.contains(sessionId);
     on ? reminders.add(sessionId) : reminders.remove(sessionId);
     notifyListeners();
+    final session = liveSessions.where((s) => s.id == sessionId).firstOrNull;
+    if (session != null) {
+      reminderScheduler?.call(session, on);
+    }
     if (enabled) {
       await repo.setLiveReminder(userId!, sessionId, on);
     }
@@ -1192,6 +2881,21 @@ class LearnStore extends ChangeNotifier {
     if (enabled) {
       await repo.markNoticesRead(userId!, ids);
     }
+  }
+
+  String? _localAvatar;
+
+  /// The student's photo as a data URI, or empty when none is set.
+  String get avatarUrl => _localAvatar ?? profile?.avatarUrl ?? '';
+
+  /// Saves (or clears, with an empty string) the student's photo.
+  Future<void> setAvatar(String dataUri) async {
+    if (!enabled) {
+      _localAvatar = dataUri;
+      notifyListeners();
+      return;
+    }
+    await saveProfile({'avatar_url': dataUri});
   }
 
   Future<void> saveProfile(Map<String, dynamic> values) async {

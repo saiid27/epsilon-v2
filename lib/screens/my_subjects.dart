@@ -72,6 +72,7 @@ class MySubjectsTab extends StatelessWidget {
         child: ListView(
           padding: const EdgeInsets.fromLTRB(18, 0, 18, 32),
           children: [
+            const FeatureArt('assets/art/study_writing.png', height: 130),
             TabTitle(
               small: 'مكتبتك الدراسية',
               title: 'موادي',
@@ -196,10 +197,6 @@ class MySubjectsTab extends StatelessWidget {
                 ),
               ),
             ),
-            for (final sub in learn.withStatus(SubscriptionStatus.pending))
-              SubscriptionStateRow(subscription: sub),
-            for (final sub in learn.withStatus(SubscriptionStatus.rejected))
-              SubscriptionStateRow(subscription: sub),
             const SizedBox(height: 8),
             if (active.isEmpty)
               Container(
@@ -527,12 +524,29 @@ class _CourseScreenState extends State<CourseScreen> {
               children: [
                 EpsPageHeader(
                   title: subject.name,
-                  action: EpsIconButton(
-                    icon: Icons.notifications_none_rounded,
-                    iconSize: 21,
-                    tooltip: 'الإشعارات',
-                    onTap: () =>
-                        pushPage(context, const StudentNotificationsPage()),
+                  action: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (learn.hasAccess(subject.id) ||
+                          StoreScope.of(context).currentUser?.role ==
+                              UserRole.teacher ||
+                          StoreScope.of(context).currentUser?.role ==
+                              UserRole.admin)
+                        EpsIconButton(
+                          icon: Icons.forum_outlined,
+                          iconSize: 21,
+                          tooltip: 'مجموعة المادة',
+                          onTap: () =>
+                              pushPage(context, const ChatListScreen()),
+                        ),
+                      EpsIconButton(
+                        icon: Icons.notifications_none_rounded,
+                        iconSize: 21,
+                        tooltip: 'الإشعارات',
+                        onTap: () =>
+                            pushPage(context, const StudentNotificationsPage()),
+                      ),
+                    ],
                   ),
                 ),
                 Container(
@@ -623,17 +637,21 @@ class _CourseScreenState extends State<CourseScreen> {
                         padding: const EdgeInsets.only(bottom: 8),
                         child: PdfRow(pdf: pdf),
                       ),
+                    SubjectFiles(subjectId: subject.id),
                     if (learn.pdfsFor(subject.id).isEmpty)
                       const _EmptyNote('لا توجد ملفات لهذه المادة بعد'),
                   ],
                 },
               ],
             ),
-            Positioned(
-              left: 14,
-              bottom: 11,
-              child: AssistantFab(subjectName: subject.name),
-            ),
+            // The assistant opens only after the student subscribes to the subject.
+            if (learn.hasAccess(subject.id) ||
+                learn.sectionFeatureFor(subject.id, 'assistant'))
+              Positioned(
+                left: 14,
+                bottom: 11,
+                child: AssistantFab(subjectName: subject.name),
+              ),
           ],
         ),
       ),
@@ -802,7 +820,6 @@ class LessonRow extends StatelessWidget {
     final meta = [
       if (lesson.url.isNotEmpty) 'فيديو' else 'درس',
       if (lesson.duration.isNotEmpty) lesson.duration,
-      if (lesson.isFree) 'مجاني',
     ].join(' • ');
     return GestureDetector(
       onTap: () => open
@@ -879,7 +896,7 @@ class PdfRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final learn = LearnScope.of(context);
-    final open = pdf.isFree || learn.hasAccess(pdf.subjectId);
+    final open = pdf.isFree || learn.canOpenPdf(pdf.subjectId);
     return GestureDetector(
       onTap: () => open
           ? pushPage(context, PdfViewerScreen(pdf: pdf))

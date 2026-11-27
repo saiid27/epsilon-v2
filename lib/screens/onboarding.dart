@@ -105,24 +105,15 @@ class _StartupSplashScreenState extends State<StartupSplashScreen>
                                     ),
                                   ),
                                   Positioned(
-                                    left: 42,
-                                    top: 13 + sin(t) * 6,
+                                    left: 62,
+                                    top: -36 + sin(t * 0.9) * 5,
                                     child: Transform.rotate(
-                                      angle: sin(t) * 0.087,
+                                      angle: sin(t * 0.9) * 0.05,
                                       child: const _FloatTile(
-                                        icon: Icons.menu_book_outlined,
+                                        icon: Icons.school_outlined,
                                         color: Eps.blue,
-                                      ),
-                                    ),
-                                  ),
-                                  Positioned(
-                                    right: 39,
-                                    top: 62 - sin(t * 1.1) * 6.5,
-                                    child: Transform.rotate(
-                                      angle: 0.03 + sin(t * 1.1) * 0.11,
-                                      child: const _FloatTile(
-                                        icon: Icons.edit_outlined,
-                                        color: Color(0xFFB57A00),
+                                        size: 66,
+                                        image: 'assets/home/graduation.png',
                                       ),
                                     ),
                                   ),
@@ -183,32 +174,6 @@ class _StartupSplashScreenState extends State<StartupSplashScreen>
                       ],
                     ),
                   ),
-                  if (widget.onSkip != null)
-                    Positioned(
-                      top: 18,
-                      left: 18,
-                      child: GestureDetector(
-                        onTap: widget.onSkip,
-                        child: Container(
-                          width: 42,
-                          height: 24,
-                          alignment: Alignment.center,
-                          decoration: BoxDecoration(
-                            color: const Color(0x9EFFFFFF),
-                            borderRadius: BorderRadius.circular(9),
-                          ),
-                          child: const Text(
-                            'تخطي',
-                            textDirection: TextDirection.rtl,
-                            style: TextStyle(
-                              fontSize: 8,
-                              fontWeight: FontWeight.w700,
-                              color: Eps.blue,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
                 ],
               ),
             ),
@@ -246,29 +211,45 @@ class _FloatTile extends StatelessWidget {
     required this.color,
     this.size = 42,
     this.iconSize = 24,
+    this.image,
   });
 
   final IconData icon;
   final Color color;
   final double size;
   final double iconSize;
+  // A student photo shown alone in its own tile; replaces the icon.
+  final String? image;
 
   @override
   Widget build(BuildContext context) {
+    final decoration = BoxDecoration(
+      color: const Color(0xB5FFFFFF),
+      borderRadius: BorderRadius.circular(14),
+      boxShadow: const [
+        BoxShadow(
+          color: Color(0x17223B7B),
+          blurRadius: 20,
+          offset: Offset(0, 8),
+        ),
+      ],
+    );
+    if (image != null) {
+      return Container(
+        width: size,
+        height: size,
+        padding: const EdgeInsets.all(4),
+        decoration: decoration,
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(11),
+          child: Image.asset(image!, fit: BoxFit.cover),
+        ),
+      );
+    }
     return Container(
       width: size,
       height: size,
-      decoration: BoxDecoration(
-        color: const Color(0xB5FFFFFF),
-        borderRadius: BorderRadius.circular(14),
-        boxShadow: const [
-          BoxShadow(
-            color: Color(0x17223B7B),
-            blurRadius: 20,
-            offset: Offset(0, 8),
-          ),
-        ],
-      ),
+      decoration: decoration,
       child: Icon(icon, color: color, size: iconSize),
     );
   }
@@ -372,6 +353,7 @@ class _ArcPainter extends CustomPainter {
 class _OnboardingSlide {
   const _OnboardingSlide({
     required this.icon,
+    this.image,
     required this.eyebrow,
     required this.title,
     required this.text,
@@ -383,6 +365,8 @@ class _OnboardingSlide {
   });
 
   final IconData icon;
+  // A student illustration; when set it replaces the icon.
+  final String? image;
   final String eyebrow;
   final String title;
   final String text;
@@ -396,6 +380,7 @@ class _OnboardingSlide {
 const _onboardingSlides = [
   _OnboardingSlide(
     icon: Icons.videocam_outlined,
+    image: 'assets/home/student_girl.png',
     eyebrow: 'فصول بلا حدود',
     title: 'جلسات مباشرة\nمع أفضل الأساتذة',
     text: 'تابع الشرح لحظة بلحظة، اطرح أسئلتك وتفاعل مع زملائك من أي مكان.',
@@ -407,6 +392,7 @@ const _onboardingSlides = [
   ),
   _OnboardingSlide(
     icon: Icons.sports_esports_outlined,
+    image: 'assets/home/student_boy.png',
     eyebrow: 'تعلم باللعب',
     title: 'اختبارات QCM\nتجعل التعلم ممتعاً',
     text: 'اكسب النقاط، حافظ على سلسلتك وتنافس أسبوعياً على لوحة المتصدرين.',
@@ -418,6 +404,7 @@ const _onboardingSlides = [
   ),
   _OnboardingSlide(
     icon: Icons.credit_card_outlined,
+    image: 'assets/home/graduation.png',
     eyebrow: 'بسيط وآمن',
     title: 'اشترك وادفع\nبالطريقة التي تناسبك',
     text: 'خطط مرنة ودفع محلي عبر Bankily ومصرفي والسداد مع متابعة فورية.',
@@ -474,17 +461,6 @@ class _EpsOnboardingState extends State<EpsOnboarding> {
                   padding: const EdgeInsets.symmetric(horizontal: 20),
                   child: Row(
                     children: [
-                      GestureDetector(
-                        key: const ValueKey('onboarding-skip'),
-                        onTap: widget.onFinish,
-                        child: const Text(
-                          'تخطي',
-                          style: TextStyle(
-                            fontSize: 10,
-                            color: Color(0xFF818B9E),
-                          ),
-                        ),
-                      ),
                       const Spacer(),
                       const EpsLogo(
                         size: 43,
@@ -509,85 +485,90 @@ class _EpsOnboardingState extends State<EpsOnboarding> {
               Expanded(
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(25, 24, 25, 20),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        item.eyebrow,
-                        style: const TextStyle(
-                          color: Eps.blue,
-                          fontSize: 9,
-                          fontWeight: FontWeight.w800,
-                          letterSpacing: 0.2,
-                          height: 1.5,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        item.title,
-                        style: const TextStyle(
-                          fontSize: 24,
-                          fontWeight: FontWeight.w400,
-                          color: Eps.ink,
-                          height: 1.35,
-                        ),
-                      ),
-                      const SizedBox(height: 7),
-                      ConstrainedBox(
-                        constraints: const BoxConstraints(maxWidth: 320),
-                        child: Text(
-                          item.text,
+                  child: SingleChildScrollView(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          item.eyebrow,
                           style: const TextStyle(
-                            fontSize: 10,
-                            color: Eps.muted,
-                            height: 1.8,
+                            color: Eps.blue,
+                            fontSize: 9,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: 0.2,
+                            height: 1.5,
                           ),
                         ),
-                      ),
-                      const Spacer(),
-                      Row(
-                        children: [
-                          for (var i = 0; i < _onboardingSlides.length; i++)
-                            AnimatedContainer(
-                              duration: const Duration(milliseconds: 220),
-                              margin: const EdgeInsetsDirectional.only(end: 5),
-                              width: i == slide ? 19 : 5,
-                              height: 5,
-                              decoration: BoxDecoration(
-                                color: i == slide
-                                    ? Eps.blue
-                                    : const Color(0xFFCCD1DE),
-                                borderRadius: BorderRadius.circular(9),
-                              ),
-                            ),
-                          const Spacer(),
-                          GestureDetector(
-                            key: const ValueKey('onboarding-next'),
-                            onTap: next,
-                            child: Container(
-                              width: 49,
-                              height: 49,
-                              decoration: BoxDecoration(
-                                color: Eps.blue,
-                                borderRadius: BorderRadius.circular(16),
-                                boxShadow: const [
-                                  BoxShadow(
-                                    color: Color(0x3B2F5BD3),
-                                    blurRadius: 22,
-                                    offset: Offset(0, 10),
-                                  ),
-                                ],
-                              ),
-                              child: const Icon(
-                                Icons.chevron_right_rounded,
-                                color: Colors.white,
-                                size: 24,
-                              ),
+                        const SizedBox(height: 8),
+                        Text(
+                          item.title,
+                          style: const TextStyle(
+                            fontSize: 24,
+                            fontWeight: FontWeight.w400,
+                            color: Eps.ink,
+                            height: 1.35,
+                          ),
+                        ),
+                        const SizedBox(height: 7),
+                        ConstrainedBox(
+                          constraints: const BoxConstraints(maxWidth: 320),
+                          child: Text(
+                            item.text,
+                            style: const TextStyle(
+                              fontSize: 10,
+                              color: Eps.muted,
+                              height: 1.8,
                             ),
                           ),
-                        ],
-                      ),
-                    ],
+                        ),
+                        const Spacer(),
+                        Row(
+                          children: [
+                            for (var i = 0; i < _onboardingSlides.length; i++)
+                              AnimatedContainer(
+                                duration: const Duration(milliseconds: 220),
+                                margin: const EdgeInsetsDirectional.only(
+                                  end: 5,
+                                ),
+                                width: i == slide ? 19 : 5,
+                                height: 5,
+                                decoration: BoxDecoration(
+                                  color: i == slide
+                                      ? Eps.blue
+                                      : const Color(0xFFCCD1DE),
+                                  borderRadius: BorderRadius.circular(9),
+                                ),
+                              ),
+                            const Spacer(),
+                            GestureDetector(
+                              key: const ValueKey('onboarding-next'),
+                              onTap: next,
+                              child: Container(
+                                width: 49,
+                                height: 49,
+                                decoration: BoxDecoration(
+                                  color: Eps.blue,
+                                  borderRadius: BorderRadius.circular(16),
+                                  boxShadow: const [
+                                    BoxShadow(
+                                      color: Color(0x3B2F5BD3),
+                                      blurRadius: 22,
+                                      offset: Offset(0, 10),
+                                    ),
+                                  ],
+                                ),
+                                child: const Icon(
+                                  Icons.chevron_right_rounded,
+                                  color: Colors.white,
+                                  size: 24,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const StudentReviews(),
+                      ],
+                    ),
                   ),
                 ),
               ),
@@ -654,7 +635,13 @@ class _OnboardingArt extends StatelessWidget {
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Icon(slide.icon, size: 58, color: c),
+                    if (slide.image != null)
+                      SizedBox(
+                        height: 190,
+                        child: Image.asset(slide.image!, fit: BoxFit.contain),
+                      )
+                    else
+                      Icon(slide.icon, size: 58, color: c),
                     const SizedBox(height: 21),
                     Container(
                       width: 35,

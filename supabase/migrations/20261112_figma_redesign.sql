@@ -59,7 +59,7 @@ create table if not exists public.plans (
 
 insert into public.plans(code, title, subtitle, badge, months, discount_percent, is_free, features, sort_order) values
   ('free', 'الخطة المجانية', 'دائماً', 'للجميع', 0, 0, true,
-   '["ملفات PDF محددة","تمارين أسبوعية","شروحات قصيرة مجانية"]'::jsonb, 0),
+   '["البث المباشر المجاني","ملفات PDF مختارة"]'::jsonb, 0),
   ('monthly', 'الخطة الشهرية', 'شهر واحد', 'مرنة', 1, 0, false,
    '["جميع الدروس المسجلة","الاختبارات والمسابقات","البث المباشر للمادة"]'::jsonb, 1),
   ('semester', 'الخطة الفصلية', '4 أشهر', 'الأكثر توفيراً', 4, 20, false,

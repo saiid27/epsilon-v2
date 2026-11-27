@@ -26,29 +26,45 @@ class SectionsScreen extends StatelessWidget {
       for (final id in ids)
         (
           id,
-          store.courseById(id)?.title ?? 'قسم',
-          store.courseById(id)?.description ?? '',
+          learn.sectionById(id)?.title.isNotEmpty ?? false
+              ? learn.sectionById(id)!.title
+              : (store.courseById(id)?.title ?? 'قسم'),
+          learn.sectionById(id)?.description.isNotEmpty ?? false
+              ? learn.sectionById(id)!.description
+              : (store.courseById(id)?.description ?? ''),
           learn.subjects.where((s) => s.courseId == id).toList(),
+          learn.sectionById(id)?.features ?? const <String>[],
+          learn.sectionById(id)?.bundlePrice ?? 0,
         ),
     ]..sort((a, b) => a.$2.compareTo(b.$2));
     final other = learn.subjects.where((s) => s.courseId == null).toList();
     return EpsPage(
-      title: 'اختر القسم',
+      title: tr('اختر القسم', 'Choisir une section'),
       children: [
+        const FeatureArt('assets/art/graduation.png', height: 130),
         const Text(
           'اختر قسمك أولاً، ثم اختر المواد التي تريد الاشتراك فيها.',
           style: TextStyle(fontSize: 9, color: Eps.muted),
         ),
         const SizedBox(height: 14),
-        for (final (id, title, description, subjects) in sections)
+        const SizedBox(height: 14),
+        // The assistant subscription comes before the sections and subjects.
+        _AssistantSubscriptionEntry(
+          onTap: () => pushPage(context, const AssistantPlansScreen()),
+        ),
+        const SizedBox(height: 10),
+        for (final (id, title, description, subjects, features, bundle)
+            in sections)
           Padding(
             padding: const EdgeInsets.only(bottom: 10),
             child: _SectionCard(
               title: title,
               description: description,
               subjects: subjects,
+              features: features,
+              bundlePrice: bundle,
               onTap: () =>
-                  pushPage(context, CatalogScreen(courseId: id, title: title)),
+                  pushPage(context, SectionScreen(courseId: id, title: title)),
             ),
           ),
         if (other.isNotEmpty)
@@ -77,12 +93,20 @@ class _SectionCard extends StatelessWidget {
     required this.description,
     required this.subjects,
     required this.onTap,
+    this.features = const [],
+    this.bundlePrice = 0,
   });
 
   final String title;
   final String description;
   final List<EpsSubject> subjects;
   final VoidCallback onTap;
+
+  /// What the section offers, written by the admin.
+  final List<String> features;
+
+  /// Price of the whole section a month (all its subjects).
+  final int bundlePrice;
 
   @override
   Widget build(BuildContext context) {
@@ -130,6 +154,41 @@ class _SectionCard extends StatelessWidget {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(fontSize: 8, color: Eps.muted),
+                  ),
+                // What the section offers (set by the admin).
+                for (final f in features.take(4))
+                  Padding(
+                    padding: const EdgeInsets.only(top: 3),
+                    child: Row(
+                      children: [
+                        const Icon(
+                          Icons.check_circle_rounded,
+                          size: 11,
+                          color: Eps.green,
+                        ),
+                        const SizedBox(width: 4),
+                        Expanded(
+                          child: Text(
+                            f,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(fontSize: 8, color: Eps.ink),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                if (bundlePrice > 0)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: Text(
+                      'القسم كاملاً: ${formatMru(bundlePrice)} MRU / شهر',
+                      style: const TextStyle(
+                        fontSize: 9,
+                        fontWeight: FontWeight.w800,
+                        color: Eps.blue,
+                      ),
+                    ),
                   ),
                 const SizedBox(height: 6),
                 Wrap(
@@ -423,7 +482,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
                 child: _SelectionBar(
                   count: learn.cart.length,
                   total: learn.cartMonthlyTotal,
-                  onCheckout: () => pushPage(context, const PlansScreen()),
+                  onCheckout: () => openPlansOrCheckout(context),
                 ),
               ),
           ],
@@ -445,10 +504,12 @@ class _CatalogCard extends StatelessWidget {
     final sub = learn.subscriptionFor(subject.id);
     final badge = subscriptionBadge(sub);
     final teacher = learn.teacherById(subject.teacherId);
+    final available = learn.isAvailable(subject.id);
     final canSelect =
-        sub == null ||
-        sub.status == SubscriptionStatus.expired ||
-        sub.status == SubscriptionStatus.rejected;
+        available &&
+        (sub == null ||
+            sub.status == SubscriptionStatus.expired ||
+            sub.status == SubscriptionStatus.rejected);
     return GestureDetector(
       onTap: () {
         learn.openSubject(subject.id);
@@ -473,15 +534,12 @@ class _CatalogCard extends StatelessWidget {
               ),
               child: Stack(
                 children: [
-                  Center(
-                    child: Text(
-                      subject.icon,
-                      textDirection: TextDirection.ltr,
-                      style: const TextStyle(
-                        fontFamily: Eps.fontNum,
-                        fontSize: 28,
-                        fontWeight: FontWeight.w800,
+                  Positioned.fill(
+                    child: Center(
+                      child: SubjectName(
+                        subject: subject,
                         color: Eps.blue,
+                        fontSize: 15,
                       ),
                     ),
                   ),
@@ -517,7 +575,13 @@ class _CatalogCard extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  if (badge != null) EpsBadge(badge.$1, tone: badge.$2),
+                  if (badge != null)
+                    EpsBadge(badge.$1, tone: badge.$2)
+                  else if (!available)
+                    const EpsBadge(
+                      'الاشتراك غير متوفر حالياً',
+                      tone: EpsTone.gray,
+                    ),
                   const SizedBox(height: 3),
                   Text(
                     subject.name,
@@ -539,7 +603,7 @@ class _CatalogCard extends StatelessWidget {
                       ),
                       const Spacer(),
                       Text(
-                        '${formatMru(subject.monthlyPrice)} أوقية / شهر',
+                        '${formatMru(subject.monthlyPrice)} أوقية / سنة',
                         style: const TextStyle(
                           fontSize: 10,
                           fontWeight: FontWeight.w700,
@@ -628,7 +692,7 @@ class _SelectionBar extends StatelessWidget {
                   ),
                 ),
                 Text(
-                  '${formatMru(total)} MRU / شهر',
+                  '${formatMru(total)} MRU / سنة',
                   style: const TextStyle(
                     fontSize: 7,
                     fontWeight: FontWeight.w500,
@@ -768,15 +832,10 @@ class _SubjectDetailScreenState extends State<SubjectDetailScreen> {
                                 color: const Color(0x30FFFFFF),
                               ),
                             ),
-                            child: Text(
-                              s.icon,
-                              textDirection: TextDirection.ltr,
-                              style: const TextStyle(
-                                fontFamily: Eps.fontNum,
-                                fontSize: 30,
-                                fontWeight: FontWeight.w800,
-                                color: Colors.white,
-                              ),
+                            child: SubjectName(
+                              subject: s,
+                              color: Colors.white,
+                              fontSize: 12,
                             ),
                           ),
                           const SizedBox(height: 14),
@@ -1020,7 +1079,7 @@ class _SubjectDetailScreenState extends State<SubjectDetailScreen> {
                         ],
                         3 => [
                           for (final e in exercises)
-                            if (e.isFree || subscribed)
+                            if (subscribed)
                               Padding(
                                 padding: const EdgeInsets.only(bottom: 6),
                                 child: ExerciseCard(exercise: e),
@@ -1046,7 +1105,7 @@ class _SubjectDetailScreenState extends State<SubjectDetailScreen> {
                           children: [
                             const Expanded(
                               child: Text(
-                                'الاشتراك الشهري',
+                                'الاشتراك السنوي',
                                 style: TextStyle(fontSize: 9, color: Eps.blue),
                               ),
                             ),
@@ -1061,7 +1120,7 @@ class _SubjectDetailScreenState extends State<SubjectDetailScreen> {
                             ),
                             const SizedBox(width: 4),
                             const Text(
-                              'أوقية / شهر',
+                              'أوقية / سنة',
                               style: TextStyle(
                                 fontSize: 7,
                                 fontWeight: FontWeight.w800,
@@ -1090,26 +1149,49 @@ class _SubjectDetailScreenState extends State<SubjectDetailScreen> {
                     colors: [Color(0x00F7F8FC), Eps.bg],
                   ),
                 ),
-                child: EpsPrimaryButton(
-                  label: subscribed ? 'افتح المادة' : 'متابعة للدفع',
-                  icon: Icons.chevron_right_rounded,
-                  onPressed: () {
-                    if (subscribed) {
-                      pushPage(context, CourseScreen(subjectId: s.id));
-                      return;
-                    }
-                    if (!learn.cart.contains(s.id)) {
-                      learn.toggleCart(s.id);
-                    }
-                    pushPage(context, const PlansScreen());
-                  },
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (!learn.hasAccess(s.id) &&
+                        learn.chatGroups.any((g) => g.subjectId == s.id))
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: EpsPrimaryButton(
+                          label: 'مجموعات تدريس الأستاذ',
+                          icon: Icons.groups_rounded,
+                          color: Eps.navy,
+                          onPressed: () => pushPage(
+                            context,
+                            GroupsCatalogScreen(courseId: s.courseId),
+                          ),
+                        ),
+                      ),
+                    EpsPrimaryButton(
+                      label: subscribed
+                          ? 'افتح المادة'
+                          : learn.isAvailable(s.id)
+                          ? 'متابعة للدفع'
+                          : 'الاشتراك غير متوفر حالياً',
+                      icon: Icons.chevron_right_rounded,
+                      onPressed: !subscribed && !learn.isAvailable(s.id)
+                          ? null
+                          : () {
+                              if (subscribed) {
+                                pushPage(
+                                  context,
+                                  CourseScreen(subjectId: s.id),
+                                );
+                                return;
+                              }
+                              if (!learn.cart.contains(s.id)) {
+                                learn.toggleCart(s.id);
+                              }
+                              openPlansOrCheckout(context);
+                            },
+                    ),
+                  ],
                 ),
               ),
-            ),
-            Positioned(
-              left: 14,
-              bottom: 70,
-              child: AssistantFab(subjectName: s.name),
             ),
           ],
         ),
@@ -1119,6 +1201,19 @@ class _SubjectDetailScreenState extends State<SubjectDetailScreen> {
 }
 
 /// Plan picker (Figma: plans).
+/// With a single paid plan (yearly) go straight to payment; otherwise let the
+/// student choose the plan.
+void openPlansOrCheckout(BuildContext context) {
+  final learn = LearnScope.read(context);
+  final paid = learn.plans.where((p) => !p.isFree).toList();
+  if (paid.length == 1) {
+    learn.selectPlan(paid.first.code);
+    pushPage(context, const CheckoutScreen());
+    return;
+  }
+  pushPage(context, const PlansScreen());
+}
+
 class PlansScreen extends StatelessWidget {
   const PlansScreen({super.key});
 
@@ -1126,6 +1221,15 @@ class PlansScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final learn = LearnScope.of(context);
     final monthly = learn.cartMonthlyTotal;
+    if (learn.signupDraft != null &&
+        (learn.planByCode(learn.selectedPlanCode)?.isFree ?? false)) {
+      final paid = learn.plans.where((p) => !p.isFree).firstOrNull;
+      if (paid != null) {
+        WidgetsBinding.instance.addPostFrameCallback(
+          (_) => learn.selectPlan(paid.code),
+        );
+      }
+    }
     return Scaffold(
       backgroundColor: Eps.bg,
       body: SafeArea(
@@ -1134,7 +1238,7 @@ class PlansScreen extends StatelessWidget {
             ListView(
               padding: const EdgeInsets.fromLTRB(18, 0, 18, 110),
               children: [
-                const EpsPageHeader(title: 'اختيار الخطة'),
+                EpsPageHeader(title: tr('اختيار الخطة', 'Choisir un plan')),
                 Row(
                   children: [
                     Container(
@@ -1175,16 +1279,22 @@ class PlansScreen extends StatelessWidget {
                   ],
                 ),
                 const SizedBox(height: 16),
+                // A paid signup goes on to payment: no free plan here.
                 for (final plan in learn.plans)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 10),
-                    child: _PlanCard(
-                      plan: plan,
-                      price: plan.priceFor(monthly),
-                      selected: learn.selectedPlanCode == plan.code,
-                      onTap: () => learn.selectPlan(plan.code),
+                  if (learn.signupDraft == null || !plan.isFree)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 10),
+                      child: _PlanCard(
+                        plan: plan,
+                        price: plan.priceFor(monthly),
+                        selected: learn.selectedPlanCode == plan.code,
+                        onTap: () => learn.selectPlan(plan.code),
+                      ),
                     ),
-                  ),
+                // The assistant has its own packages, bought apart from subjects.
+                _AssistantSubscriptionEntry(
+                  onTap: () => pushPage(context, const AssistantPlansScreen()),
+                ),
               ],
             ),
             Positioned(
@@ -1211,6 +1321,75 @@ class PlansScreen extends StatelessWidget {
                       },
               ),
             ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _AssistantSubscriptionEntry extends StatelessWidget {
+  const _AssistantSubscriptionEntry({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          gradient: const LinearGradient(
+            begin: Alignment.topRight,
+            end: Alignment.bottomLeft,
+            colors: [Eps.blue, Eps.navy],
+          ),
+          borderRadius: BorderRadius.circular(17),
+          boxShadow: Eps.cardShadow,
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 42,
+              height: 42,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.16),
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: const Icon(
+                Icons.auto_awesome_rounded,
+                color: Colors.white,
+                size: 22,
+              ),
+            ),
+            const SizedBox(width: 12),
+            const Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'مساعد Epsilon AI',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w900,
+                      color: Colors.white,
+                    ),
+                  ),
+                  SizedBox(height: 2),
+                  Text(
+                    'اشتراك المساعد الذكي: باقات شهرية وسنوية',
+                    style: TextStyle(
+                      fontSize: 8,
+                      color: Color(0xFFD6E2FF),
+                      height: 1.5,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const Icon(Icons.chevron_left_rounded, color: Colors.white),
           ],
         ),
       ),
@@ -1413,8 +1592,8 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                     Text(
                       plan == null
                           ? ''
-                          : plan.months <= 1
-                          ? 'اشتراك شهري قابل للتجديد'
+                          : plan.months >= 12
+                          ? 'اشتراك سنوي'
                           : 'اشتراك ${plan.months} أشهر',
                       style: const TextStyle(
                         fontSize: 7,
@@ -1728,9 +1907,22 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
 
 /// Receipt upload (Figma: receipt).
 class ReceiptUploadScreen extends StatefulWidget {
-  const ReceiptUploadScreen({this.paymentMethodId, super.key});
+  const ReceiptUploadScreen({
+    this.paymentMethodId,
+    this.order,
+    this.groupOrder,
+    this.featureOrder,
+    super.key,
+  });
 
   final String? paymentMethodId;
+
+  /// Set when the receipt pays for an assistant package, not for subjects.
+  final AssistantOrder? order;
+  // A group-only subscription to this subject.
+  final EpsChatGroup? groupOrder;
+  // A section feature (videos, live or assistant).
+  final SectionFeatureOrder? featureOrder;
 
   @override
   State<ReceiptUploadScreen> createState() => _ReceiptUploadScreenState();
@@ -1757,9 +1949,8 @@ class _ReceiptUploadScreenState extends State<ReceiptUploadScreen> {
 
   Future<void> submit() async {
     final learn = LearnScope.read(context);
-    final fallbackMethod = StoreScope.of(
-      context,
-    ).paymentMethods.firstOrNull?.id;
+    final store = StoreScope.of(context);
+    final fallbackMethod = store.paymentMethods.firstOrNull?.id;
     final picked = file;
     if (picked == null) {
       return;
@@ -1770,6 +1961,118 @@ class _ReceiptUploadScreenState extends State<ReceiptUploadScreen> {
     });
     try {
       final dataUri = await paymentProofDataUri(picked.path, picked.name);
+      final featureOrder = widget.featureOrder;
+      if (featureOrder != null) {
+        final userId = learn.userId;
+        if (userId == null) {
+          throw StateError('سجّل دخولك أولاً.');
+        }
+        await learn.repo.requestSectionFeature(
+          studentId: userId,
+          courseId: featureOrder.courseId,
+          feature: featureOrder.feature,
+          amount: featureOrder.amount,
+          paymentMethodId: widget.paymentMethodId ?? fallbackMethod,
+          receiptUrl: dataUri,
+          transactionRef: refController.text,
+        );
+        if (mounted) {
+          Navigator.of(context).pushAndRemoveUntil(
+            MaterialPageRoute(
+              builder: (_) => const PaymentConfirmationScreen(),
+            ),
+            (route) => route.isFirst,
+          );
+        }
+        return;
+      }
+      final groupOrder = widget.groupOrder;
+      if (groupOrder != null) {
+        final userId = learn.userId;
+        if (userId == null) {
+          throw StateError('سجّل دخولك أولاً.');
+        }
+        await learn.repo.requestGroupSubscription(
+          studentId: userId,
+          group: groupOrder,
+          paymentMethodId: widget.paymentMethodId ?? fallbackMethod,
+          receiptUrl: dataUri,
+          transactionRef: refController.text,
+        );
+        if (mounted) {
+          Navigator.of(context).pushAndRemoveUntil(
+            MaterialPageRoute(
+              builder: (_) => const PaymentConfirmationScreen(),
+            ),
+            (route) => route.isFirst,
+          );
+        }
+        return;
+      }
+      final order = widget.order;
+      if (order != null) {
+        final userId = learn.userId;
+        if (userId == null) {
+          throw StateError('سجّل دخولك أولاً.');
+        }
+        await learn.repo.submitAssistantRequest(
+          userId: userId,
+          tier: order.tier,
+          period: order.period,
+          amount: order.amount,
+          paymentMethodId: widget.paymentMethodId ?? fallbackMethod,
+          receiptUrl: dataUri,
+          transactionRef: refController.text,
+        );
+        if (mounted) {
+          Navigator.of(context).pushAndRemoveUntil(
+            MaterialPageRoute(
+              builder: (_) => const PaymentConfirmationScreen(),
+            ),
+            (route) => route.isFirst,
+          );
+        }
+        return;
+      }
+      final draft = learn.signupDraft;
+      if (draft != null && learn.userId == null) {
+        // Paid signup: the account is created now, verified by SMS code,
+        // then the request is sent with this receipt.
+        await store.registerFreeStudent(
+          name: draft.name,
+          phone: draft.phone,
+          password: draft.password,
+          referral: draft.referral,
+        );
+        if (!mounted) {
+          return;
+        }
+        final methodId = widget.paymentMethodId ?? fallbackMethod;
+        final ref = refController.text.trim();
+        final cart = {...learn.cart};
+        await Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) => SignupOtpScreen(
+              phone: draft.phone,
+              password: draft.password,
+              afterLogin: () async {
+                final user = store.currentUser!;
+                await learn.load(user.id);
+                learn.cart
+                  ..clear()
+                  ..addAll(cart);
+                await learn.submitPayment(
+                  paymentMethodId: methodId,
+                  receiptUrl: dataUri,
+                  transactionRef: ref,
+                );
+                learn.signupDraft = null;
+              },
+            ),
+          ),
+        );
+        return;
+      }
       await learn.submitPayment(
         paymentMethodId: widget.paymentMethodId ?? fallbackMethod,
         receiptUrl: dataUri,
@@ -1782,7 +2085,7 @@ class _ReceiptUploadScreenState extends State<ReceiptUploadScreen> {
         );
       }
     } on Object catch (e) {
-      setState(() => error = 'تعذر إرسال الوصل: $e');
+      setState(() => error = 'تعذر إرسال الوصل: ${friendlyApiError(e)}');
     } finally {
       if (mounted) {
         setState(() => sending = false);
@@ -1952,6 +2255,7 @@ class PaymentConfirmationScreen extends StatelessWidget {
         child: ListView(
           padding: const EdgeInsets.fromLTRB(22, 120, 22, 32),
           children: [
+            const FeatureArt('assets/art/success_celebrate.png'),
             Center(
               child: Container(
                 width: 128,

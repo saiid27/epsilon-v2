@@ -54,10 +54,9 @@ class QuizRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final learn = LearnScope.of(context);
-    final allowed =
-        quiz.isFree ||
-        quiz.subjectId == null ||
-        learn.hasAccess(quiz.subjectId);
+    final allowed = quiz.subjectId == null
+        ? learn.isSubscribed
+        : learn.hasAccess(quiz.subjectId);
     return _ListRow(
       leading: Container(
         width: 40,
@@ -192,6 +191,7 @@ class _QuizzesTabState extends State<QuizzesTab> {
         child: ListView(
           padding: const EdgeInsets.fromLTRB(18, 0, 18, 32),
           children: [
+            const FeatureArt('assets/art/quiz_badge.png'),
             TabTitle(
               small: 'اختبر معلوماتك',
               title: 'الاختبارات',
@@ -212,9 +212,9 @@ class _QuizzesTabState extends State<QuizzesTab> {
                           .where(
                             (q) =>
                                 q.questionsCount > 0 &&
-                                (q.isFree ||
-                                    q.subjectId == null ||
-                                    learn.hasAccess(q.subjectId)),
+                                (q.subjectId == null
+                                    ? learn.isSubscribed
+                                    : learn.hasAccess(q.subjectId)),
                           )
                           .toList();
                       if (pool.isEmpty) {
@@ -642,6 +642,15 @@ class _QuestionScreenState extends State<QuestionScreen> {
   @override
   Widget build(BuildContext context) {
     final learn = LearnScope.of(context);
+    final allowed = quiz.subjectId == null
+        ? learn.isSubscribed
+        : learn.hasAccess(quiz.subjectId);
+    if (!allowed) {
+      return const SubscribersOnlyPage(
+        title: 'الاختبارات',
+        message: 'الاختبارات والمسابقات متاحة للمشتركين فقط.',
+      );
+    }
     final items = questions;
     final q = items == null || items.isEmpty ? null : items[index];
     final subject = learn.subjectById(quiz.subjectId);
@@ -1203,6 +1212,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
     return EpsPage(
       title: 'لوحة المتصدرين',
       children: [
+        const FeatureArt('assets/art/goal_target.png', height: 130),
         EpsSegmented(
           labels: const ['أسبوعي', 'كل الأوقات', 'حسب المادة'],
           index: tab,
