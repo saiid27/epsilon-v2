@@ -56,10 +56,10 @@ class _AuthScreenState extends State<AuthScreen> {
                         title: 'مرحباً بعودتك',
                         subtitle: 'سجّل الدخول لمتابعة رحلتك التعليمية',
                       ),
-                    if (!registerMode) const StudentReviews(),
                     if (registerMode && freeSignup) ...[
                       const FreePlanStrip(),
                       const SizedBox(height: 14),
+                      const StudentReviews(),
                       const RegisterCard(
                         key: ValueKey('register-free'),
                         free: true,
