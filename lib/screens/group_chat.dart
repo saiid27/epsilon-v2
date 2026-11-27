@@ -644,7 +644,23 @@ class _GroupChatScreenState extends State<_GroupChatBody> {
     );
   }
 
+  // Recording: a live level line, pause and resume, cancel, and send.
+  bool paused = false;
+  final List<double> levels = [];
+  StreamSubscription<Amplitude>? ampSub;
+  Timer? ticker;
+  int elapsed = 0;
+  DateTime? recordStarted;
+
   Future<void> toggleRecording() async {
+    if (recording) {
+      await finishRecording();
+    } else {
+      await startRecording();
+    }
+  }
+
+  Future<void> startRecording() async {
     final g = group;
     final user = me;
     if (g == null || user == null) return;
@@ -653,31 +669,99 @@ class _GroupChatScreenState extends State<_GroupChatBody> {
       return;
     }
     try {
-      if (!recording) {
-        if (!await recorder.hasPermission()) {
-          setState(() => error = 'اسمح للتطبيق باستعمال الميكروفون.');
-          return;
-        }
-        final dir = await getTemporaryDirectory();
-        final path =
-            '${dir.path}/voice_${DateTime.now().millisecondsSinceEpoch}.m4a';
-        await recorder.start(
-          RecordConfig(encoder: AudioEncoder.aacLc),
-          path: path,
+      if (!await recorder.hasPermission()) {
+        setState(
+          () => error = 'اسمح للتطبيق باستخدام الميكروفون من الإعدادات.',
         );
-        recordStarted = DateTime.now();
-        setState(() {
-          recording = true;
-          error = '';
-        });
         return;
       }
+      final dir = await getTemporaryDirectory();
+      final path =
+          '${dir.path}/voice_${DateTime.now().millisecondsSinceEpoch}.m4a';
+      await recorder.start(
+        RecordConfig(encoder: AudioEncoder.aacLc),
+        path: path,
+      );
+      recordStarted = DateTime.now();
+      setState(() {
+        recording = true;
+        paused = false;
+        levels.clear();
+        elapsed = 0;
+        error = '';
+      });
+      // The level of the sound, about ten times a second.
+      ampSub = recorder
+          .onAmplitudeChanged(const Duration(milliseconds: 110))
+          .listen((a) {
+            if (!mounted || paused) return;
+            final level = ((a.current + 50) / 50).clamp(0.0, 1.0).toDouble();
+            setState(() {
+              levels.add(level);
+              if (levels.length > 36) levels.removeAt(0);
+            });
+          });
+      ticker = Timer.periodic(const Duration(seconds: 1), (_) {
+        if (!mounted || paused) return;
+        setState(() => elapsed++);
+      });
+    } on Object catch (e) {
+      if (mounted) {
+        setState(() {
+          recording = false;
+          error = friendlyApiError(e);
+        });
+      }
+    }
+  }
+
+  Future<void> togglePause() async {
+    try {
+      if (paused) {
+        await recorder.resume();
+      } else {
+        await recorder.pause();
+      }
+      if (mounted) setState(() => paused = !paused);
+    } on Object catch (e) {
+      if (mounted) setState(() => error = friendlyApiError(e));
+    }
+  }
+
+  /// Stops and throws the recording away.
+  Future<void> cancelRecording() async {
+    ampSub?.cancel();
+    ticker?.cancel();
+    try {
+      await recorder.cancel();
+    } on Object {
+      // Nothing to cancel is fine.
+    }
+    if (mounted) {
+      setState(() {
+        recording = false;
+        paused = false;
+        levels.clear();
+      });
+    }
+  }
+
+  /// Stops the recording and sends it to the group.
+  Future<void> finishRecording() async {
+    final g = group;
+    final user = me;
+    if (g == null || user == null) return;
+    ampSub?.cancel();
+    ticker?.cancel();
+    final seconds = elapsed;
+    try {
       final path = await recorder.stop();
-      setState(() => recording = false);
+      setState(() {
+        recording = false;
+        paused = false;
+        levels.clear();
+      });
       if (path == null) return;
-      final seconds = DateTime.now()
-          .difference(recordStarted ?? DateTime.now())
-          .inSeconds;
       final bytes = await File(path).readAsBytes();
       if (bytes.length > 7 * 1024 * 1024) {
         setState(() => error = 'التسجيل طويل جداً.');
@@ -705,7 +789,60 @@ class _GroupChatScreenState extends State<_GroupChatBody> {
     }
   }
 
-  DateTime? recordStarted;
+  static String clock(int s) =>
+      '${(s ~/ 60).toString().padLeft(2, '0')}:${(s % 60).toString().padLeft(2, '0')}';
+
+  /// The bar shown while recording: the level line, the time, and the controls.
+  Widget recordingBar() {
+    return Container(
+      margin: EdgeInsets.fromLTRB(8, 0, 8, 6),
+      padding: EdgeInsets.fromLTRB(4, 4, 4, 4),
+      decoration: BoxDecoration(
+        color: _bar,
+        borderRadius: BorderRadius.circular(22),
+      ),
+      child: Row(
+        children: [
+          IconButton(
+            tooltip: 'إلغاء التسجيل',
+            icon: Icon(Icons.delete_outline_rounded, color: Color(0xFFE53935)),
+            onPressed: cancelRecording,
+          ),
+          Expanded(
+            child: SizedBox(
+              height: 36,
+              child: CustomPaint(
+                painter: _LevelPainter(levels, paused),
+                size: Size.infinite,
+              ),
+            ),
+          ),
+          SizedBox(width: 6),
+          Text(
+            clock(elapsed),
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          IconButton(
+            tooltip: paused ? 'متابعة التسجيل' : 'إيقاف مؤقت',
+            icon: Icon(
+              paused ? Icons.mic_rounded : Icons.pause_rounded,
+              color: Colors.white,
+            ),
+            onPressed: togglePause,
+          ),
+          IconButton(
+            tooltip: 'إرسال',
+            icon: Icon(Icons.send_rounded, color: _accent),
+            onPressed: finishRecording,
+          ),
+        ],
+      ),
+    );
+  }
 
   Future<void> playVoice(String url) async {
     try {
@@ -996,87 +1133,86 @@ class _GroupChatScreenState extends State<_GroupChatBody> {
                 ),
               ),
             if (canPost && group != null)
-              Padding(
-                padding: EdgeInsets.fromLTRB(8, 4, 8, 22),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Container(
-                        padding: EdgeInsets.symmetric(horizontal: 6),
-                        decoration: BoxDecoration(
-                          color: _bar,
-                          borderRadius: BorderRadius.circular(26),
-                        ),
-                        child: Row(
-                          children: [
-                            Padding(
-                              padding: EdgeInsets.all(8),
-                              child: Icon(
-                                Icons.sentiment_satisfied_alt_outlined,
-                                color: _muted,
+              if (recording) recordingBar(),
+            Padding(
+              padding: EdgeInsets.fromLTRB(8, 4, 8, 22),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Container(
+                      padding: EdgeInsets.symmetric(horizontal: 6),
+                      decoration: BoxDecoration(
+                        color: _bar,
+                        borderRadius: BorderRadius.circular(26),
+                      ),
+                      child: Row(
+                        children: [
+                          Padding(
+                            padding: EdgeInsets.all(8),
+                            child: Icon(
+                              Icons.sentiment_satisfied_alt_outlined,
+                              color: _muted,
+                            ),
+                          ),
+                          Expanded(
+                            child: TextField(
+                              controller: input,
+                              minLines: 1,
+                              maxLines: 4,
+                              onChanged: (_) => setState(() {}),
+                              style: TextStyle(color: Colors.white),
+                              decoration: InputDecoration(
+                                hintText: isStaff
+                                    ? 'اكتب للمجموعة'
+                                    : 'اطرح سؤالك',
+                                hintStyle: TextStyle(color: _muted),
+                                border: InputBorder.none,
+                                isDense: true,
                               ),
                             ),
-                            Expanded(
-                              child: TextField(
-                                controller: input,
-                                minLines: 1,
-                                maxLines: 4,
-                                onChanged: (_) => setState(() {}),
-                                style: TextStyle(color: Colors.white),
-                                decoration: InputDecoration(
-                                  hintText: isStaff
-                                      ? 'اكتب للمجموعة'
-                                      : 'اطرح سؤالك',
-                                  hintStyle: TextStyle(color: _muted),
-                                  border: InputBorder.none,
-                                  isDense: true,
-                                ),
-                              ),
+                          ),
+                          IconButton(
+                            tooltip: 'إرفاق',
+                            icon: Icon(
+                              Icons.attach_file_rounded,
+                              color: _muted,
                             ),
-                            IconButton(
-                              tooltip: 'إرفاق',
-                              icon: Icon(
-                                Icons.attach_file_rounded,
-                                color: _muted,
-                              ),
-                              onPressed: sending ? null : pickAttachment,
-                            ),
-                          ],
-                        ),
+                            onPressed: sending ? null : pickAttachment,
+                          ),
+                        ],
                       ),
                     ),
-                    SizedBox(width: 6),
-                    GestureDetector(
-                      onTap: sending
-                          ? null
-                          : (typing ? () => send() : toggleRecording),
-                      child: CircleAvatar(
-                        radius: 24,
-                        backgroundColor: recording
-                            ? Color(0xFFE53935)
-                            : _accent,
-                        child: sending
-                            ? SizedBox(
-                                width: 18,
-                                height: 18,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: Colors.white,
-                                ),
-                              )
-                            : Icon(
-                                typing
-                                    ? Icons.send_rounded
-                                    : (recording
-                                          ? Icons.stop_rounded
-                                          : Icons.mic_rounded),
+                  ),
+                  SizedBox(width: 6),
+                  GestureDetector(
+                    onTap: sending
+                        ? null
+                        : (typing ? () => send() : toggleRecording),
+                    child: CircleAvatar(
+                      radius: 24,
+                      backgroundColor: recording ? Color(0xFFE53935) : _accent,
+                      child: sending
+                          ? SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
                                 color: Colors.white,
                               ),
-                      ),
+                            )
+                          : Icon(
+                              typing
+                                  ? Icons.send_rounded
+                                  : (recording
+                                        ? Icons.stop_rounded
+                                        : Icons.mic_rounded),
+                              color: Colors.white,
+                            ),
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
+            ),
           ],
         ),
       ),
@@ -1686,4 +1822,35 @@ class _PollBox extends StatelessWidget {
       ],
     );
   }
+}
+
+/// The sound level line: the newest level on the right, paused in grey.
+class _LevelPainter extends CustomPainter {
+  _LevelPainter(this.levels, this.paused);
+
+  final List<double> levels;
+  final bool paused;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final n = levels.length;
+    if (n == 0) return;
+    final paint = Paint()
+      ..color = paused ? Colors.white38 : Colors.white
+      ..strokeCap = StrokeCap.round
+      ..strokeWidth = 3;
+    final step = size.width / 36;
+    for (var i = 0; i < n; i++) {
+      final x = size.width - (n - 1 - i) * step - 2;
+      final h = (4 + levels[i] * size.height).clamp(4.0, size.height);
+      canvas.drawLine(
+        Offset(x, size.height / 2 - h / 2),
+        Offset(x, size.height / 2 + h / 2),
+        paint,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _LevelPainter old) => true;
 }
