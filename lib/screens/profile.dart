@@ -2650,6 +2650,8 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
   String? university;
   String faculty = 'FST';
   String track = 'MPI';
+  // 'ذكر' or 'أنثى'; empty until the student chooses.
+  String gender = '';
   bool saving = false;
 
   @override
@@ -2668,6 +2670,7 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
         'university': university ?? '',
         'faculty': faculty,
         'track': track,
+        if (gender.isNotEmpty) 'gender': gender == 'ذكر' ? 'male' : 'female',
         'profile_completed': true,
       });
       widget.onDone();
@@ -2794,6 +2797,8 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
             choices(faculties, faculty, (v) => setState(() => faculty = v)),
             const AuthLabel('المسار', top: 14),
             choices(tracks, track, (v) => setState(() => track = v)),
+            const AuthLabel('الجنس', top: 14),
+            choices(['ذكر', 'أنثى'], gender, (v) => setState(() => gender = v)),
             const SizedBox(height: 22),
             EpsPrimaryButton(
               label: 'إنهاء الإعداد',

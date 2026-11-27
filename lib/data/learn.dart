@@ -501,6 +501,26 @@ const _packageFeatures = <String, List<String>>{
   'pkg_videos': ['videos', 'pdf'],
 };
 
+/// What the admin needs to know about a student.
+class EpsStudentInfo {
+  EpsStudentInfo.fromRow(Map<String, dynamic> r)
+    : id = _str(r['id']),
+      name = _str(r['name']),
+      phone = _str(r['phone']),
+      photo = _str(r['avatar_url']),
+      gender = _str(r['gender']),
+      status = _str(r['status']);
+
+  final String id;
+  final String name;
+  final String phone;
+  // A data URI or a web address; empty when the student has no photo.
+  final String photo;
+  // 'male', 'female' or empty.
+  final String gender;
+  final String status;
+}
+
 class EpsSectionFeatureSub {
   EpsSectionFeatureSub.fromRow(Map<String, dynamic> r)
     : id = _str(r['id']),
@@ -1700,6 +1720,18 @@ class LearnRepository {
       'user_id': userId,
       'emoji': emoji,
     }, onConflict: 'message_id,user_id');
+  }
+
+  /// Name, phone, photo, gender and status of some students (for the admin).
+  Future<Map<String, EpsStudentInfo>> studentInfo(List<String> ids) async {
+    if (ids.isEmpty) return {};
+    final rows = _list(
+      await client
+          .from('users')
+          .select('id, name, phone, avatar_url, gender, status')
+          .inFilter('id', ids.toSet().toList()),
+    );
+    return {for (final r in rows) _str(r['id']): EpsStudentInfo.fromRow(r)};
   }
 
   /// Name and photo of some users (the senders of a chat).

@@ -11,7 +11,7 @@ class AdminGroupRequests extends StatefulWidget {
 
 class _AdminGroupRequestsState extends State<AdminGroupRequests> {
   List<EpsGroupSub> subs = [];
-  Map<String, ({String name, String photo})> people = {};
+  Map<String, EpsStudentInfo> people = {};
   bool loading = true;
   String error = '';
 
@@ -26,7 +26,7 @@ class _AdminGroupRequestsState extends State<AdminGroupRequests> {
     setState(() => loading = true);
     try {
       final list = await learn.repo.groupSubscriptions();
-      final who = await learn.repo.usersById([
+      final who = await learn.repo.studentInfo([
         for (final s in list) s.studentId,
       ]);
       if (mounted) {
@@ -139,6 +139,13 @@ class _AdminGroupRequestsState extends State<AdminGroupRequests> {
                       'مرجع الدفع: ${s.transactionRef}',
                       style: const TextStyle(fontSize: 10, color: Eps.muted),
                     ),
+                  const SizedBox(height: 6),
+                  const Text(
+                    'نوع الاشتراك: مجموعة · يشمل: محادثة المجموعة، الصور والصوت والاستطلاعات',
+                    style: TextStyle(fontSize: 10, color: Eps.blue),
+                  ),
+                  const SizedBox(height: 8),
+                  StudentLine(info: people[s.studentId]),
                   const SizedBox(height: 8),
                   Row(
                     children: [

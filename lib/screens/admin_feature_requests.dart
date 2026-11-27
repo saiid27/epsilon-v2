@@ -11,9 +11,17 @@ class AdminFeatureRequests extends StatefulWidget {
 
 class _AdminFeatureRequestsState extends State<AdminFeatureRequests> {
   List<EpsSectionFeatureSub> subs = [];
-  Map<String, ({String name, String photo})> people = {};
+  Map<String, EpsStudentInfo> people = {};
   bool loading = true;
   String error = '';
+
+  static const _includes = {
+    'pkg_groups': 'PDF المواد، البث المباشر والحصص، المجموعات',
+    'pkg_videos': 'الفيديوهات المسجلة، PDF المواد',
+    'videos': 'الفيديوهات المسجلة',
+    'live': 'البث المباشر',
+    'assistant': 'مساعد Epsilon AI',
+  };
 
   static const _names = {
     'pkg_groups': 'باقة المجموعات',
@@ -34,7 +42,7 @@ class _AdminFeatureRequestsState extends State<AdminFeatureRequests> {
     setState(() => loading = true);
     try {
       final list = await learn.repo.sectionFeatureSubscriptions();
-      final who = await learn.repo.usersById([
+      final who = await learn.repo.studentInfo([
         for (final s in list) s.studentId,
       ]);
       if (mounted) {
@@ -132,7 +140,14 @@ class _AdminFeatureRequestsState extends State<AdminFeatureRequests> {
                     ),
                   ),
                   Text(
-                    '${people[s.studentId]?.name ?? 'طالب'} · ${formatMru(s.amount)} MRU · ${s.ref}',
+                    'يشمل: ${_includes[s.feature] ?? ''}',
+                    style: const TextStyle(fontSize: 10, color: Eps.blue),
+                  ),
+                  const SizedBox(height: 8),
+                  StudentLine(info: people[s.studentId]),
+                  const SizedBox(height: 4),
+                  Text(
+                    '${formatMru(s.amount)} MRU · ${s.ref}',
                     style: const TextStyle(fontSize: 10, color: Eps.muted),
                   ),
                   const SizedBox(height: 8),
