@@ -3,43 +3,48 @@ part of '../main.dart';
 /// The student reviews on the first screen, before sign-up. Only the reviews
 /// the admin left visible are shown; with none, nothing is shown.
 class StudentReviews extends StatelessWidget {
-  const StudentReviews({super.key});
+  const StudentReviews({this.sample, super.key});
+
+  /// Only for the local preview: sample reviews shown without the server.
+  final List<EpsReview>? sample;
 
   @override
   Widget build(BuildContext context) {
     final learn = LearnScope.of(context);
+    if (sample != null) return _list(sample!);
     return FutureBuilder<List<EpsReview>>(
       future: learn.repo.visibleReviews(),
-      builder: (context, snap) {
-        final list = snap.data ?? const <EpsReview>[];
-        if (list.isEmpty) return const SizedBox.shrink();
-        return Padding(
-          padding: const EdgeInsets.only(bottom: 18),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'ماذا يقول طلابنا',
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w900,
-                  color: Eps.ink,
-                ),
-              ),
-              const SizedBox(height: 8),
-              SizedBox(
-                height: 132,
-                child: ListView.separated(
-                  scrollDirection: Axis.horizontal,
-                  itemCount: list.length,
-                  separatorBuilder: (_, _) => const SizedBox(width: 10),
-                  itemBuilder: (context, i) => _ReviewCard(review: list[i]),
-                ),
-              ),
-            ],
+      builder: (context, snap) => _list(snap.data ?? const <EpsReview>[]),
+    );
+  }
+
+  Widget _list(List<EpsReview> list) {
+    if (list.isEmpty) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 18),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'ماذا يقول طلابنا',
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w900,
+              color: Eps.ink,
+            ),
           ),
-        );
-      },
+          const SizedBox(height: 8),
+          SizedBox(
+            height: 132,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              itemCount: list.length,
+              separatorBuilder: (_, _) => const SizedBox(width: 10),
+              itemBuilder: (context, i) => _ReviewCard(review: list[i]),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
