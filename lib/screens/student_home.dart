@@ -1509,6 +1509,15 @@ class HomeBanner extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 10),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(14),
+            child: Image.asset(
+              'assets/home/poster_epsilon.png',
+              width: double.infinity,
+              fit: BoxFit.cover,
+            ),
+          ),
+          const SizedBox(height: 10),
           const Row(
             children: [
               Expanded(child: _BannerImage('assets/home/student_girl.png')),
