@@ -60,6 +60,7 @@ part 'screens/group_checkout.dart';
 part 'screens/section_screen.dart';
 part 'screens/admin_all_prices.dart';
 part 'screens/admin_group_requests.dart';
+part 'screens/admin_feature_requests.dart';
 part 'screens/chat_list.dart';
 part 'screens/admin_sections.dart';
 part 'screens/chat_look.dart';

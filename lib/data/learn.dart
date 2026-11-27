@@ -319,6 +319,8 @@ class EpsSection {
         'videos': _int(r['feature_videos_price']),
         'live': _int(r['feature_live_price']),
         'assistant': _int(r['feature_assistant_price']),
+        'pkg_groups': _int(r['pkg_groups_price']),
+        'pkg_videos': _int(r['pkg_videos_price']),
       };
 
   final String id;
@@ -493,19 +495,31 @@ enum LiveState { live, upcoming, past }
 
 /// A student's subscription to one feature of a section (videos, live,
 /// assistant or groups); the subject's group is kept separately.
+/// What each section package opens: one subscription, all of its features.
+const _packageFeatures = <String, List<String>>{
+  'pkg_groups': ['groups', 'live', 'pdf'],
+  'pkg_videos': ['videos', 'pdf'],
+};
+
 class EpsSectionFeatureSub {
   EpsSectionFeatureSub.fromRow(Map<String, dynamic> r)
     : id = _str(r['id']),
+      ref = _str(r['request_ref']),
+      studentId = _str(r['student_id']),
       courseId = _str(r['course_id']),
       feature = _str(r['feature']),
       amount = _int(r['amount']),
+      receiptUrl = _str(r['receipt_url']),
       status = _str(r['status']),
       expiresAt = _date(r['expires_at']);
 
   final String id;
+  final String ref;
+  final String studentId;
   final String courseId;
   final String feature;
   final int amount;
+  final String receiptUrl;
   final String status;
   final DateTime? expiresAt;
 
@@ -848,6 +862,8 @@ class LearnRepository {
           'feature_videos_price': featurePrices['videos'] ?? 0,
           'feature_live_price': featurePrices['live'] ?? 0,
           'feature_assistant_price': featurePrices['assistant'] ?? 0,
+          'pkg_groups_price': featurePrices['pkg_groups'] ?? 0,
+          'pkg_videos_price': featurePrices['pkg_videos'] ?? 0,
         })
         .eq('id', id);
   }
@@ -910,15 +926,42 @@ class LearnRepository {
     return _list(rows).map(EpsSubscription.fromRow).toList();
   }
 
+  /// The section subscriptions of one student, or of everyone (the admin).
   Future<List<EpsSectionFeatureSub>> sectionFeatureSubscriptions({
-    required String studentId,
-  }) async => _list(
-    await client
+    String? studentId,
+  }) async {
+    var query = client.from('section_feature_subscriptions').select();
+    if (studentId != null) {
+      query = query.eq('student_id', studentId);
+    }
+    return _list(
+      await query.order('created_at', ascending: false),
+    ).map(EpsSectionFeatureSub.fromRow).toList();
+  }
+
+  /// The admin accepts or rejects a package payment; an accepted one lasts a month.
+  Future<void> reviewSectionFeature({
+    required EpsSectionFeatureSub sub,
+    required bool approve,
+    String reason = '',
+  }) {
+    final now = DateTime.now().toUtc();
+    return client
         .from('section_feature_subscriptions')
-        .select()
-        .eq('student_id', studentId)
-        .order('created_at', ascending: false),
-  ).map(EpsSectionFeatureSub.fromRow).toList();
+        .update({
+          'status': approve ? 'active' : 'rejected',
+          'rejection_reason': approve ? '' : reason,
+          'reviewed_at': now.toIso8601String(),
+          if (approve) 'starts_at': now.toIso8601String(),
+          if (approve)
+            'expires_at': DateTime(
+              now.year,
+              now.month + 1,
+              now.day,
+            ).toUtc().toIso8601String(),
+        })
+        .eq('id', sub.id);
+  }
 
   /// One request per student, section and feature; a new request replaces an
   /// earlier pending or rejected one.
@@ -2387,10 +2430,18 @@ class LearnStore extends ChangeNotifier {
       hasAccess(group.subjectId) ||
       groupSubs.any((g) => g.groupId == group.id && g.isActive);
 
+  /// A PDF opens with the full subject or a section package that includes it.
+  bool canOpenPdf(String? subjectId) =>
+      hasAccess(subjectId) || sectionFeatureFor(subjectId, 'pdf');
+
   /// Lessons and files: only a full subscription opens them.
   /// Whether the student has an active subscription to a feature of a section.
   bool hasFeature(String courseId, String feature) => featureSubs.any(
-    (f) => f.courseId == courseId && f.feature == feature && f.isActive,
+    (f) =>
+        f.courseId == courseId &&
+        f.isActive &&
+        (f.feature == feature ||
+            (_packageFeatures[f.feature]?.contains(feature) ?? false)),
   );
 
   bool hasGroupAccess(String? subjectId) =>

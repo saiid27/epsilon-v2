@@ -895,7 +895,7 @@ class PdfRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final learn = LearnScope.of(context);
-    final open = pdf.isFree || learn.hasAccess(pdf.subjectId);
+    final open = pdf.isFree || learn.canOpenPdf(pdf.subjectId);
     return GestureDetector(
       onTap: () => open
           ? pushPage(context, PdfViewerScreen(pdf: pdf))

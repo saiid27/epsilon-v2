@@ -453,7 +453,7 @@ class PdfViewerScreen extends StatelessWidget {
                   ),
                 ),
               ),
-              if (!learn.hasAccess(pdf.subjectId)) ...[
+              if (!learn.canOpenPdf(pdf.subjectId)) ...[
                 const SizedBox(height: 8),
                 const FreeUpsell(),
               ],

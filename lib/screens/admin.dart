@@ -194,6 +194,7 @@ class _AdminConsoleState extends State<AdminConsole> {
     ('الأقسام', Icons.category_outlined),
     ('كل الأسعار', Icons.price_change_outlined),
     ('طلبات المجموعات', Icons.groups_outlined),
+    ('طلبات الباقات', Icons.inventory_2_outlined),
   ];
 
   LearnRepository get repo => LearnScope.read(context).repo;
@@ -472,6 +473,7 @@ class _AdminConsoleState extends State<AdminConsole> {
                       14 => [const AdminSections()],
                       15 => [const AdminAllPrices()],
                       16 => [const AdminGroupRequests()],
+                      17 => [const AdminFeatureRequests()],
                       _ => plans(),
                     },
                   ),

@@ -16,8 +16,12 @@ class _AdminAllPricesState extends State<AdminAllPrices> {
     'videos': 'feature_videos_price',
     'live': 'feature_live_price',
     'assistant': 'feature_assistant_price',
+    'pkg_groups': 'pkg_groups_price',
+    'pkg_videos': 'pkg_videos_price',
   };
   static const _featureNames = {
+    'pkg_groups': 'باقة المجموعات (PDF والبث والمجموعات)',
+    'pkg_videos': 'باقة الاشتراك (الفيديوهات وPDF)',
     'videos': 'الفيديوهات المسجلة',
     'live': 'البث المباشر',
     'assistant': 'مساعد Epsilon AI',

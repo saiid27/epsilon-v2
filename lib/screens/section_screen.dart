@@ -1,6 +1,6 @@
 part of '../main.dart';
 
-/// What a student orders for a section's feature.
+/// What a student orders for a section package.
 class SectionFeatureOrder {
   const SectionFeatureOrder({
     required this.courseId,
@@ -13,53 +13,8 @@ class SectionFeatureOrder {
   final int amount;
 }
 
-/// The features of a section, in the order the screen shows them:
-/// key, name, short description, icon and tint.
-const _sectionFeatures = [
-  (
-    'groups',
-    'مجموعات المواد',
-    'محادثة كل مادة مع أستاذها، تختار مادة أو أكثر',
-    Icons.groups_rounded,
-    Color(0xFFEAF0FD),
-  ),
-  (
-    'videos',
-    'الفيديوهات المسجلة',
-    'شروحات مسجلة للمواد',
-    Icons.play_circle_rounded,
-    Color(0xFFFFF1E6),
-  ),
-  (
-    'live',
-    'البث المباشر',
-    'حصص مباشرة مع الأساتذة',
-    Icons.sensors_rounded,
-    Color(0xFFFDE8EE),
-  ),
-  (
-    'assistant',
-    'مساعد Epsilon AI',
-    'مساعد ذكي للدراسة في هذا القسم',
-    Icons.auto_awesome_rounded,
-    Color(0xFFE6F6EE),
-  ),
-];
-
-const _notActivated = 'لم تفعل بعد لهذا القسم';
-
-/// A subject has the content of a feature: a recorded video or a live session.
-bool _subjectHasFeature(LearnStore learn, String feature, String subjectId) {
-  if (feature == 'videos') {
-    return learn.lessonsFor(subjectId).any((l) => l.url.isNotEmpty);
-  }
-  if (feature == 'live') {
-    return learn.liveFor(subjectId).isNotEmpty;
-  }
-  return false;
-}
-
-/// One section: its features with their own prices and subscriptions.
+/// One section: its two packages, and the groups of its subjects. A group
+/// the student has not paid for is locked; tapping it opens its payment.
 class SectionScreen extends StatelessWidget {
   const SectionScreen({required this.courseId, required this.title, super.key});
 
@@ -74,6 +29,15 @@ class SectionScreen extends StatelessWidget {
     final subjects = learn.subjects
         .where((s) => s.courseId == courseId)
         .toList();
+    final groups =
+        [
+          for (final g in learn.chatGroups)
+            if (subjects.any((s) => s.id == g.subjectId)) g,
+        ]..sort((a, b) {
+          final ao = learn.canOpenGroup(a) ? 0 : 1;
+          final bo = learn.canOpenGroup(b) ? 0 : 1;
+          return ao.compareTo(bo);
+        });
     return EpsPage(
       title: title,
       children: [
@@ -83,21 +47,33 @@ class SectionScreen extends StatelessWidget {
             style: const TextStyle(fontSize: 11, color: Eps.muted),
           ),
         const SizedBox(height: 12),
-        for (final (key, name, desc, icon, tint) in _sectionFeatures)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 10),
-            child: _FeatureCard(
-              courseId: courseId,
-              sectionTitle: title,
-              feature: key,
-              name: name,
-              description: desc,
-              icon: icon,
-              tint: tint,
-              price: prices[key] ?? 0,
-              subjects: subjects,
-            ),
-          ),
+        _SectionPackageCard(
+          courseId: courseId,
+          sectionTitle: title,
+          feature: 'pkg_groups',
+          name: 'المجموعات',
+          items: const [
+            'PDF المواد',
+            'البث المباشر والحصص المجدولة',
+            'مجموعات المواد مع الأساتذة',
+          ],
+          icon: Icons.groups_rounded,
+          tint: const Color(0xFFEAF0FD),
+          price: prices['pkg_groups'] ?? 0,
+          extra: _GroupsList(groups: groups, subjects: subjects),
+        ),
+        const SizedBox(height: 10),
+        _SectionPackageCard(
+          courseId: courseId,
+          sectionTitle: title,
+          feature: 'pkg_videos',
+          name: 'الاشتراك',
+          items: const ['الفيديوهات المسجلة', 'PDF المواد'],
+          icon: Icons.play_circle_rounded,
+          tint: const Color(0xFFFFF1E6),
+          price: prices['pkg_videos'] ?? 0,
+        ),
+        const SizedBox(height: 10),
         FlatCard(
           onTap: () => pushPage(
             context,
@@ -127,39 +103,33 @@ class SectionScreen extends StatelessWidget {
   }
 }
 
-/// A feature's card: its state, price, the subjects that have it, and the
-/// subscribe button.
-class _FeatureCard extends StatelessWidget {
-  const _FeatureCard({
+/// A section package: what it includes, its price, and its state.
+class _SectionPackageCard extends StatelessWidget {
+  const _SectionPackageCard({
     required this.courseId,
     required this.sectionTitle,
     required this.feature,
     required this.name,
-    required this.description,
+    required this.items,
     required this.icon,
     required this.tint,
     required this.price,
-    required this.subjects,
+    this.extra,
   });
 
   final String courseId;
   final String sectionTitle;
   final String feature;
   final String name;
-  final String description;
+  final List<String> items;
   final IconData icon;
   final Color tint;
   final int price;
-  final List<EpsSubject> subjects;
+  final Widget? extra;
 
   @override
   Widget build(BuildContext context) {
     final learn = LearnScope.of(context);
-    final groupsOn = learn.chatGroups.any(
-      (g) => g.price > 0 && subjects.any((s) => s.id == g.subjectId),
-    );
-    // Groups are priced per subject; the other features per section.
-    final available = feature == 'groups' ? groupsOn : price > 0;
     final active = learn.featureSubs
         .where(
           (f) => f.courseId == courseId && f.feature == feature && f.isActive,
@@ -170,41 +140,24 @@ class _FeatureCard extends StatelessWidget {
           (f) => f.courseId == courseId && f.feature == feature && f.isPending,
         )
         .firstOrNull;
-    final bought = feature == 'groups'
-        ? learn.chatGroups
-              .where(
-                (g) =>
-                    subjects.any((s) => s.id == g.subjectId) &&
-                    learn.canOpenGroup(g),
-              )
-              .length
-        : 0;
+    final available = price > 0;
 
     final String status;
     final Color statusColor;
     if (!available) {
-      status = _notActivated;
+      status = 'لم تفعل بعد لهذا القسم';
       statusColor = Eps.orangeInk;
-    } else if (feature == 'groups' && bought > 0) {
-      status =
-          '✓ اشتركت في $bought من ${learn.chatGroups.where((g) => subjects.any((s) => s.id == g.subjectId)).length} مجموعات';
-      statusColor = Eps.green;
     } else if (active != null) {
       status = '✓ مفعّلة';
       statusColor = Eps.green;
     } else if (pending != null) {
       status = 'قيد المراجعة';
       statusColor = Eps.orangeInk;
-    } else if (feature == 'groups') {
-      status = 'تختار مجموعة كل مادة بسعرها';
-      statusColor = Eps.muted;
     } else {
       status = '${formatMru(price)} MRU / شهر';
       statusColor = Eps.blue;
     }
-
     final showButton = available && active == null && pending == null;
-    final perSubject = feature == 'videos' || feature == 'live';
 
     return Container(
       padding: const EdgeInsets.all(14),
@@ -219,116 +172,191 @@ class _FeatureCard extends StatelessWidget {
           Row(
             children: [
               Container(
-                width: 40,
-                height: 40,
+                width: 42,
+                height: 42,
                 decoration: BoxDecoration(
                   color: tint,
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(13),
                 ),
-                child: Icon(icon, color: Eps.blue, size: 20),
+                child: Icon(icon, color: Eps.blue, size: 21),
               ),
               const SizedBox(width: 10),
               Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      name,
-                      style: const TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w900,
-                        color: Eps.ink,
-                      ),
-                    ),
-                    Text(
-                      description,
-                      style: const TextStyle(fontSize: 10.5, color: Eps.muted),
-                    ),
-                  ],
+                child: Text(
+                  name,
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w900,
+                    color: Eps.ink,
+                  ),
+                ),
+              ),
+              Text(
+                status,
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w800,
+                  color: statusColor,
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 8),
-          Text(
-            status,
-            style: TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.w800,
-              color: statusColor,
-            ),
-          ),
-          if (perSubject && available) ...[
-            const SizedBox(height: 8),
-            for (final s in subjects)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 6),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        s.displayName,
-                        style: const TextStyle(fontSize: 12, color: Eps.ink),
-                      ),
+          const SizedBox(height: 10),
+          for (final item in items)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 5),
+              child: Row(
+                children: [
+                  Icon(
+                    active != null
+                        ? Icons.check_circle_rounded
+                        : Icons.check_rounded,
+                    size: 15,
+                    color: Eps.green,
+                  ),
+                  const SizedBox(width: 7),
+                  Expanded(
+                    child: Text(
+                      item,
+                      style: const TextStyle(fontSize: 11, color: Eps.ink),
                     ),
-                    _subjectHasFeature(learn, feature, s.id)
-                        ? const Text(
-                            '✓ متوفر',
-                            style: TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w800,
-                              color: Eps.green,
-                            ),
-                          )
-                        : const Text(
-                            _notActivated,
-                            style: TextStyle(
-                              fontSize: 10,
-                              color: Eps.orangeInk,
-                            ),
-                          ),
-                  ],
-                ),
+                  ),
+                ],
               ),
-          ],
-          if (perSubject && !available) ...[
-            const SizedBox(height: 4),
-            const Text(
-              _notActivated,
-              style: TextStyle(fontSize: 10, color: Eps.orangeInk),
             ),
-          ],
+          if (extra != null) ...[const SizedBox(height: 8), extra!],
           if (showButton) ...[
             const SizedBox(height: 10),
             EpsPrimaryButton(
-              label: feature == 'groups'
-                  ? 'اختر المجموعات'
-                  : 'اشترك · ${formatMru(price)} MRU / شهر',
-              icon: feature == 'groups'
-                  ? Icons.chevron_left_rounded
-                  : Icons.shopping_bag_outlined,
+              label: 'اشترك · ${formatMru(price)} MRU / شهر',
+              icon: Icons.shopping_bag_outlined,
               color: Eps.navy,
-              onPressed: () {
-                if (feature == 'groups') {
-                  pushPage(context, GroupsCatalogScreen(courseId: courseId));
-                  return;
-                }
-                pushPage(
-                  context,
-                  SectionFeatureCheckoutScreen(
-                    courseId: courseId,
-                    sectionTitle: sectionTitle,
-                    feature: feature,
-                    name: name,
-                    description: description,
-                    price: price,
-                  ),
-                );
-              },
+              onPressed: () => pushPage(
+                context,
+                SectionFeatureCheckoutScreen(
+                  courseId: courseId,
+                  sectionTitle: sectionTitle,
+                  feature: feature,
+                  name: name,
+                  description: items.join(' · '),
+                  price: price,
+                ),
+              ),
             ),
           ],
         ],
       ),
+    );
+  }
+}
+
+/// The section's groups: an open group opens, a locked one opens its payment.
+class _GroupsList extends StatelessWidget {
+  const _GroupsList({required this.groups, required this.subjects});
+
+  final List<EpsChatGroup> groups;
+  final List<EpsSubject> subjects;
+
+  @override
+  Widget build(BuildContext context) {
+    final learn = LearnScope.of(context);
+    if (groups.isEmpty) {
+      return const Text(
+        'لا توجد مجموعات في هذا القسم بعد.',
+        style: TextStyle(fontSize: 10, color: Eps.muted),
+      );
+    }
+    return Column(
+      children: [
+        for (final g in groups)
+          Builder(
+            builder: (context) {
+              final subject = subjects
+                  .where((s) => s.id == g.subjectId)
+                  .firstOrNull;
+              final open = learn.canOpenGroup(g);
+              final name = g.name.isNotEmpty
+                  ? g.name
+                  : (subject?.displayName ?? 'مجموعة');
+              final String note;
+              if (open) {
+                note = 'مفتوحة';
+              } else if (g.price > 0) {
+                note = '${formatMru(g.price)} MRU / شهر';
+              } else {
+                note = 'غير متاحة بعد';
+              }
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 6),
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(12),
+                  onTap: () {
+                    if (open) {
+                      pushPage(
+                        context,
+                        GroupChatScreen(
+                          group: g,
+                          subjectName: subject?.displayName ?? '',
+                        ),
+                      );
+                    } else if (g.price > 0) {
+                      pushPage(context, GroupCheckoutScreen(group: g));
+                    }
+                  },
+                  child: Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: open ? Eps.greenSoft : const Color(0xFFF4F6FB),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          open
+                              ? Icons.lock_open_rounded
+                              : Icons.lock_outline_rounded,
+                          size: 16,
+                          color: open ? Eps.green : Eps.muted,
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                name,
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w900,
+                                  color: Eps.ink,
+                                ),
+                              ),
+                              Text(
+                                subject?.displayName ?? '',
+                                style: const TextStyle(
+                                  fontSize: 9,
+                                  color: Eps.blue,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Text(
+                          note,
+                          style: TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w800,
+                            color: open ? Eps.green : Eps.muted,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              );
+            },
+          ),
+      ],
     );
   }
 }
