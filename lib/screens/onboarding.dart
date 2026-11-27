@@ -346,6 +346,7 @@ class _ArcPainter extends CustomPainter {
 class _OnboardingSlide {
   const _OnboardingSlide({
     required this.icon,
+    this.image,
     required this.eyebrow,
     required this.title,
     required this.text,
@@ -357,6 +358,8 @@ class _OnboardingSlide {
   });
 
   final IconData icon;
+  // A student illustration; when set it replaces the icon.
+  final String? image;
   final String eyebrow;
   final String title;
   final String text;
@@ -370,6 +373,7 @@ class _OnboardingSlide {
 const _onboardingSlides = [
   _OnboardingSlide(
     icon: Icons.videocam_outlined,
+    image: 'assets/home/student_girl.png',
     eyebrow: 'فصول بلا حدود',
     title: 'جلسات مباشرة\nمع أفضل الأساتذة',
     text: 'تابع الشرح لحظة بلحظة، اطرح أسئلتك وتفاعل مع زملائك من أي مكان.',
@@ -381,6 +385,7 @@ const _onboardingSlides = [
   ),
   _OnboardingSlide(
     icon: Icons.sports_esports_outlined,
+    image: 'assets/home/student_boy.png',
     eyebrow: 'تعلم باللعب',
     title: 'اختبارات QCM\nتجعل التعلم ممتعاً',
     text: 'اكسب النقاط، حافظ على سلسلتك وتنافس أسبوعياً على لوحة المتصدرين.',
@@ -392,6 +397,7 @@ const _onboardingSlides = [
   ),
   _OnboardingSlide(
     icon: Icons.credit_card_outlined,
+    image: 'assets/home/graduation.png',
     eyebrow: 'بسيط وآمن',
     title: 'اشترك وادفع\nبالطريقة التي تناسبك',
     text: 'خطط مرنة ودفع محلي عبر Bankily ومصرفي والسداد مع متابعة فورية.',
@@ -617,7 +623,13 @@ class _OnboardingArt extends StatelessWidget {
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Icon(slide.icon, size: 58, color: c),
+                    if (slide.image != null)
+                      SizedBox(
+                        height: 190,
+                        child: Image.asset(slide.image!, fit: BoxFit.contain),
+                      )
+                    else
+                      Icon(slide.icon, size: 58, color: c),
                     const SizedBox(height: 21),
                     Container(
                       width: 35,
