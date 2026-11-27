@@ -1030,6 +1030,9 @@ class _LiveRoomScreenState extends State<LiveRoomScreen> {
             LiveKitViewerStage(session: session, teacherName: teacher?.name)
           else
             _VideoStage(session: session, teacherName: teacher?.name),
+          // The admin sets the stream link; it sits right under the video.
+          if (session.liveUrl.trim().isNotEmpty)
+            _StreamLinkBar(url: session.liveUrl.trim()),
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
             child: Row(
@@ -1505,6 +1508,52 @@ class _ReactButton extends StatelessWidget {
                 size: wide ? 14 : 18,
                 color: wide ? Eps.blue : Eps.ink,
               ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// The stream link under the video: opens in the browser, for a student who
+/// watches from a computer.
+class _StreamLinkBar extends StatelessWidget {
+  const _StreamLinkBar({required this.url});
+
+  final String url;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(12, 9, 8, 9),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(Eps.radius),
+          boxShadow: Eps.cardShadow,
+        ),
+        child: Row(
+          children: [
+            const Icon(Icons.link_rounded, size: 18, color: Eps.blue),
+            const SizedBox(width: 8),
+            const Expanded(
+              child: Text(
+                'رابط البث',
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w900,
+                  color: Eps.ink,
+                ),
+              ),
+            ),
+            TextButton(
+              onPressed: () => launchUrl(
+                Uri.parse(url),
+                mode: LaunchMode.externalApplication,
+              ),
+              child: const Text('افتح في المتصفح'),
+            ),
           ],
         ),
       ),
