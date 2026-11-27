@@ -59,7 +59,6 @@ class _AuthScreenState extends State<AuthScreen> {
                     if (registerMode && freeSignup) ...[
                       const FreePlanStrip(),
                       const SizedBox(height: 14),
-                      const StudentReviews(),
                       const RegisterCard(
                         key: ValueKey('register-free'),
                         free: true,
@@ -81,6 +80,7 @@ class _AuthScreenState extends State<AuthScreen> {
                       const SizedBox(height: 17),
                       AuthFreeCard(onCreate: () => setMode(true, free: true)),
                     ],
+                    const StudentReviews(),
                   ],
                 ),
                 if (registerMode)
