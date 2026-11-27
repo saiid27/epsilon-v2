@@ -2560,8 +2560,11 @@ class LearnStore extends ChangeNotifier {
       groupSubs.any((g) => g.groupId == group.id && g.isActive);
 
   /// A PDF opens with the full subject or a section package that includes it.
+  /// PDFs open for any paid student: a subject, a section package, or a group.
   bool canOpenPdf(String? subjectId) =>
-      hasAccess(subjectId) || sectionFeatureFor(subjectId, 'pdf');
+      hasAccess(subjectId) ||
+      sectionFeatureFor(subjectId, 'pdf') ||
+      isSubscribed;
 
   /// Lessons and files: only a full subscription opens them.
   /// Whether the student has an active subscription to a feature of a section.
@@ -2580,8 +2583,12 @@ class LearnStore extends ChangeNotifier {
             s.subjectId == subjectId && s.status == SubscriptionStatus.active,
       );
 
+  /// Any paid access: a subject, a group, or a section package. A student with
+  /// only a group still browses the app (PDFs, results, profile).
   bool get isSubscribed =>
-      subscriptions.any((s) => s.status == SubscriptionStatus.active);
+      subscriptions.any((s) => s.status == SubscriptionStatus.active) ||
+      groupSubs.any((g) => g.isActive) ||
+      featureSubs.any((f) => f.isActive);
 
   List<EpsSubject> get activeSubjects => [
     for (final s in subjects)
