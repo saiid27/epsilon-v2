@@ -7,6 +7,8 @@ import 'dart:typed_data';
 
 import 'dart:async';
 
+import 'push.dart';
+
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -2371,6 +2373,7 @@ class LearnStore extends ChangeNotifier {
       pdfs = results[8]! as List<EpsPdf>;
       liveSessions = results[9]! as List<EpsLiveSession>;
       reminders = results[10]! as Set<String>;
+      await FirebasePush.saveFor(id);
       _syncReminders();
       quizzes = results[11]! as List<EpsQuiz>;
       attempts = results[12]! as List<EpsAttempt>;

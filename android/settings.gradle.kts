@@ -20,6 +20,8 @@ pluginManagement {
 plugins {
     id("dev.flutter.flutter-plugin-loader") version "1.0.0"
     id("com.android.application") version "9.1.1" apply false
+    // Firebase: used only when android/app/google-services.json is present.
+    id("com.google.gms.google-services") version "4.4.2" apply false
 }
 
 include(":app")

@@ -32,6 +32,7 @@ import 'package:webview_flutter_android/webview_flutter_android.dart';
 import 'package:webview_flutter_wkwebview/webview_flutter_wkwebview.dart';
 
 import 'data/learn.dart';
+import 'data/push.dart';
 import 'platform/web_tools.dart';
 import 'supabase_repository.dart';
 import 'supabase_config.dart';
@@ -141,6 +142,7 @@ Future<void> main() async {
   );
 
   final backendStatus = await BackendBootstrap.initialize();
+  await FirebasePush.init();
   runApp(EpsilonApp(backendStatus: backendStatus));
 }
 

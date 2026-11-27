@@ -31,6 +31,8 @@ dependencies:
   record: ^7.2.0
   google_fonts: ^9.0.0
   image_picker: ^1.2.4
+  firebase_core: ^5.2.0
+  firebase_messaging: ^17.1.0
 
 dev_dependencies:
   flutter_test:
