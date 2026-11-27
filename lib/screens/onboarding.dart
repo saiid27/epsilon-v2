@@ -105,32 +105,6 @@ class _StartupSplashScreenState extends State<StartupSplashScreen>
                                     ),
                                   ),
                                   Positioned(
-                                    left: 0,
-                                    top: 40 + sin(t) * 6,
-                                    child: Transform.rotate(
-                                      angle: sin(t) * 0.07,
-                                      child: const _FloatTile(
-                                        icon: Icons.school_outlined,
-                                        color: Eps.blue,
-                                        size: 84,
-                                        image: 'assets/home/student_girl.png',
-                                      ),
-                                    ),
-                                  ),
-                                  Positioned(
-                                    right: 0,
-                                    top: 40 - sin(t * 1.1) * 6.5,
-                                    child: Transform.rotate(
-                                      angle: 0.03 - sin(t * 1.1) * 0.08,
-                                      child: const _FloatTile(
-                                        icon: Icons.school_outlined,
-                                        color: Eps.blue,
-                                        size: 84,
-                                        image: 'assets/home/student_boy.png',
-                                      ),
-                                    ),
-                                  ),
-                                  Positioned(
                                     left: 62,
                                     top: -36 + sin(t * 0.9) * 5,
                                     child: Transform.rotate(
