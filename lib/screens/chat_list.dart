@@ -78,9 +78,15 @@ List<EpsChatGroup> visibleChatGroups(
     for (final s in learn.subjects)
       if (learn.hasAccess(s.id)) s.courseId,
   };
+  // A student belongs to one faculty: only the groups of that faculty.
+  final myFaculty = (learn.profile?.faculty ?? '').trim();
   return [
     for (final g in learn.chatGroups)
-      if (sections.contains(learn.courseOf(g.subjectId))) g,
+      if (sections.contains(learn.courseOf(g.subjectId)) &&
+          (myFaculty.isEmpty ||
+              (learn.subjectById(g.subjectId)?.faculty ?? '').trim() ==
+                  myFaculty))
+        g,
   ];
 }
 
