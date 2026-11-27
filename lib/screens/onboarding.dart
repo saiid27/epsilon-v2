@@ -485,85 +485,90 @@ class _EpsOnboardingState extends State<EpsOnboarding> {
               Expanded(
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(25, 24, 25, 20),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        item.eyebrow,
-                        style: const TextStyle(
-                          color: Eps.blue,
-                          fontSize: 9,
-                          fontWeight: FontWeight.w800,
-                          letterSpacing: 0.2,
-                          height: 1.5,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        item.title,
-                        style: const TextStyle(
-                          fontSize: 24,
-                          fontWeight: FontWeight.w400,
-                          color: Eps.ink,
-                          height: 1.35,
-                        ),
-                      ),
-                      const SizedBox(height: 7),
-                      ConstrainedBox(
-                        constraints: const BoxConstraints(maxWidth: 320),
-                        child: Text(
-                          item.text,
+                  child: SingleChildScrollView(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          item.eyebrow,
                           style: const TextStyle(
-                            fontSize: 10,
-                            color: Eps.muted,
-                            height: 1.8,
+                            color: Eps.blue,
+                            fontSize: 9,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: 0.2,
+                            height: 1.5,
                           ),
                         ),
-                      ),
-                      const Spacer(),
-                      Row(
-                        children: [
-                          for (var i = 0; i < _onboardingSlides.length; i++)
-                            AnimatedContainer(
-                              duration: const Duration(milliseconds: 220),
-                              margin: const EdgeInsetsDirectional.only(end: 5),
-                              width: i == slide ? 19 : 5,
-                              height: 5,
-                              decoration: BoxDecoration(
-                                color: i == slide
-                                    ? Eps.blue
-                                    : const Color(0xFFCCD1DE),
-                                borderRadius: BorderRadius.circular(9),
-                              ),
-                            ),
-                          const Spacer(),
-                          GestureDetector(
-                            key: const ValueKey('onboarding-next'),
-                            onTap: next,
-                            child: Container(
-                              width: 49,
-                              height: 49,
-                              decoration: BoxDecoration(
-                                color: Eps.blue,
-                                borderRadius: BorderRadius.circular(16),
-                                boxShadow: const [
-                                  BoxShadow(
-                                    color: Color(0x3B2F5BD3),
-                                    blurRadius: 22,
-                                    offset: Offset(0, 10),
-                                  ),
-                                ],
-                              ),
-                              child: const Icon(
-                                Icons.chevron_right_rounded,
-                                color: Colors.white,
-                                size: 24,
-                              ),
+                        const SizedBox(height: 8),
+                        Text(
+                          item.title,
+                          style: const TextStyle(
+                            fontSize: 24,
+                            fontWeight: FontWeight.w400,
+                            color: Eps.ink,
+                            height: 1.35,
+                          ),
+                        ),
+                        const SizedBox(height: 7),
+                        ConstrainedBox(
+                          constraints: const BoxConstraints(maxWidth: 320),
+                          child: Text(
+                            item.text,
+                            style: const TextStyle(
+                              fontSize: 10,
+                              color: Eps.muted,
+                              height: 1.8,
                             ),
                           ),
-                        ],
-                      ),
-                    ],
+                        ),
+                        const Spacer(),
+                        Row(
+                          children: [
+                            for (var i = 0; i < _onboardingSlides.length; i++)
+                              AnimatedContainer(
+                                duration: const Duration(milliseconds: 220),
+                                margin: const EdgeInsetsDirectional.only(
+                                  end: 5,
+                                ),
+                                width: i == slide ? 19 : 5,
+                                height: 5,
+                                decoration: BoxDecoration(
+                                  color: i == slide
+                                      ? Eps.blue
+                                      : const Color(0xFFCCD1DE),
+                                  borderRadius: BorderRadius.circular(9),
+                                ),
+                              ),
+                            const Spacer(),
+                            GestureDetector(
+                              key: const ValueKey('onboarding-next'),
+                              onTap: next,
+                              child: Container(
+                                width: 49,
+                                height: 49,
+                                decoration: BoxDecoration(
+                                  color: Eps.blue,
+                                  borderRadius: BorderRadius.circular(16),
+                                  boxShadow: const [
+                                    BoxShadow(
+                                      color: Color(0x3B2F5BD3),
+                                      blurRadius: 22,
+                                      offset: Offset(0, 10),
+                                    ),
+                                  ],
+                                ),
+                                child: const Icon(
+                                  Icons.chevron_right_rounded,
+                                  color: Colors.white,
+                                  size: 24,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const StudentReviews(),
+                      ],
+                    ),
                   ),
                 ),
               ),
