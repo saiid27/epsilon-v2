@@ -105,24 +105,41 @@ class _StartupSplashScreenState extends State<StartupSplashScreen>
                                     ),
                                   ),
                                   Positioned(
-                                    left: 42,
-                                    top: 13 + sin(t) * 6,
+                                    left: 0,
+                                    top: 40 + sin(t) * 6,
                                     child: Transform.rotate(
-                                      angle: sin(t) * 0.087,
+                                      angle: sin(t) * 0.07,
                                       child: const _FloatTile(
-                                        icon: Icons.menu_book_outlined,
+                                        icon: Icons.school_outlined,
                                         color: Eps.blue,
+                                        size: 84,
+                                        image: 'assets/home/student_girl.png',
                                       ),
                                     ),
                                   ),
                                   Positioned(
-                                    right: 39,
-                                    top: 62 - sin(t * 1.1) * 6.5,
+                                    right: 0,
+                                    top: 40 - sin(t * 1.1) * 6.5,
                                     child: Transform.rotate(
-                                      angle: 0.03 + sin(t * 1.1) * 0.11,
+                                      angle: 0.03 - sin(t * 1.1) * 0.08,
                                       child: const _FloatTile(
-                                        icon: Icons.edit_outlined,
-                                        color: Color(0xFFB57A00),
+                                        icon: Icons.school_outlined,
+                                        color: Eps.blue,
+                                        size: 84,
+                                        image: 'assets/home/student_boy.png',
+                                      ),
+                                    ),
+                                  ),
+                                  Positioned(
+                                    left: 62,
+                                    top: -36 + sin(t * 0.9) * 5,
+                                    child: Transform.rotate(
+                                      angle: sin(t * 0.9) * 0.05,
+                                      child: const _FloatTile(
+                                        icon: Icons.school_outlined,
+                                        color: Eps.blue,
+                                        size: 66,
+                                        image: 'assets/home/graduation.png',
                                       ),
                                     ),
                                   ),
@@ -220,29 +237,45 @@ class _FloatTile extends StatelessWidget {
     required this.color,
     this.size = 42,
     this.iconSize = 24,
+    this.image,
   });
 
   final IconData icon;
   final Color color;
   final double size;
   final double iconSize;
+  // A student photo shown alone in its own tile; replaces the icon.
+  final String? image;
 
   @override
   Widget build(BuildContext context) {
+    final decoration = BoxDecoration(
+      color: const Color(0xB5FFFFFF),
+      borderRadius: BorderRadius.circular(14),
+      boxShadow: const [
+        BoxShadow(
+          color: Color(0x17223B7B),
+          blurRadius: 20,
+          offset: Offset(0, 8),
+        ),
+      ],
+    );
+    if (image != null) {
+      return Container(
+        width: size,
+        height: size,
+        padding: const EdgeInsets.all(4),
+        decoration: decoration,
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(11),
+          child: Image.asset(image!, fit: BoxFit.cover),
+        ),
+      );
+    }
     return Container(
       width: size,
       height: size,
-      decoration: BoxDecoration(
-        color: const Color(0xB5FFFFFF),
-        borderRadius: BorderRadius.circular(14),
-        boxShadow: const [
-          BoxShadow(
-            color: Color(0x17223B7B),
-            blurRadius: 20,
-            offset: Offset(0, 8),
-          ),
-        ],
-      ),
+      decoration: decoration,
       child: Icon(icon, color: color, size: iconSize),
     );
   }
