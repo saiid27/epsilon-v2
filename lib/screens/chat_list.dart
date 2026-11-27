@@ -285,8 +285,9 @@ class _ChatListScreenState extends State<ChatListScreen> {
       return g.starred ? 1 << 30 : t.millisecondsSinceEpoch ~/ 1000;
     }
 
+    final isAdmin = StoreScope.of(context).currentUser?.role == UserRole.admin;
     return EpsPage(
-      title: 'المجموعات',
+      title: isAdmin ? 'نظرة عامة على المجموعات' : 'المجموعات',
       action: Row(
         mainAxisSize: MainAxisSize.min,
         children: [

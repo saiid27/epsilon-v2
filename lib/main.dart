@@ -6880,7 +6880,7 @@ class AdminDashboard extends StatelessWidget {
     final admin = store.currentUser;
     final actions = [
       AdminQuickActionData(
-        title: 'المجموعات',
+        title: 'نظرة عامة على المجموعات',
         metric: '${learn.chatGroups.length}',
         icon: Icons.forum_rounded,
         color: const Color(0xFF2860C8),
