@@ -191,6 +191,7 @@ class _QuizzesTabState extends State<QuizzesTab> {
         child: ListView(
           padding: const EdgeInsets.fromLTRB(18, 0, 18, 32),
           children: [
+            const FeatureArt('assets/art/quiz_badge.png'),
             TabTitle(
               small: 'اختبر معلوماتك',
               title: 'الاختبارات',
@@ -1211,6 +1212,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
     return EpsPage(
       title: 'لوحة المتصدرين',
       children: [
+        const FeatureArt('assets/art/goal_target.png', height: 130),
         EpsSegmented(
           labels: const ['أسبوعي', 'كل الأوقات', 'حسب المادة'],
           index: tab,

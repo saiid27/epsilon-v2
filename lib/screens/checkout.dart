@@ -41,6 +41,7 @@ class SectionsScreen extends StatelessWidget {
     return EpsPage(
       title: tr('اختر القسم', 'Choisir une section'),
       children: [
+        const FeatureArt('assets/art/graduation.png', height: 130),
         const Text(
           'اختر قسمك أولاً، ثم اختر المواد التي تريد الاشتراك فيها.',
           style: TextStyle(fontSize: 9, color: Eps.muted),
@@ -2254,6 +2255,7 @@ class PaymentConfirmationScreen extends StatelessWidget {
         child: ListView(
           padding: const EdgeInsets.fromLTRB(22, 120, 22, 32),
           children: [
+            const FeatureArt('assets/art/success_celebrate.png'),
             Center(
               child: Container(
                 width: 128,

@@ -1341,6 +1341,7 @@ class UpgradeScreen extends StatelessWidget {
         onPressed: () => pushPage(context, const SectionsScreen()),
       ),
       children: [
+        const FeatureArt('assets/art/app_phone.png', height: 150),
         Container(
           height: 118,
           decoration: BoxDecoration(
@@ -3574,6 +3575,7 @@ class _StudentFilesScreenState extends State<StudentFilesScreen> {
           crossAxisSpacing: 10,
           childAspectRatio: 1.25,
           children: [
+            const FeatureArt('assets/art/tablet_files.png'),
             for (final code in codes)
               _LibraryCard(
                 title: labels[code] ?? code,

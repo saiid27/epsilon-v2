@@ -607,6 +607,7 @@ class LiveTab extends StatelessWidget {
         child: ListView(
           padding: const EdgeInsets.fromLTRB(18, 0, 18, 32),
           children: [
+            const FeatureArt('assets/art/live_teacher.png'),
             TabTitle(
               small: 'تعلم مع أساتذتك',
               title: 'الجلسات المباشرة',

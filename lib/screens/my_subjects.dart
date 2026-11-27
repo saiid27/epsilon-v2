@@ -72,6 +72,7 @@ class MySubjectsTab extends StatelessWidget {
         child: ListView(
           padding: const EdgeInsets.fromLTRB(18, 0, 18, 32),
           children: [
+            const FeatureArt('assets/art/study_writing.png', height: 130),
             TabTitle(
               small: 'مكتبتك الدراسية',
               title: 'موادي',

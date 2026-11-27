@@ -42,6 +42,7 @@ flutter:
   assets:
     - assets/onboarding/
     - assets/home/
+    - assets/art/
     - assets/sounds/
     - assets/fonts/
   fonts:
