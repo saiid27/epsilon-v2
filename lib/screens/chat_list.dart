@@ -184,6 +184,11 @@ class _ChatListScreenState extends State<ChatListScreen> {
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
+              if (!_staff && groups.any(learn.canOpenGroup))
+                const FeatureArt(
+                  'assets/art/success_celebrate.png',
+                  height: 110,
+                ),
               DropdownButtonFormField<String>(
                 initialValue: subjectId,
                 decoration: const InputDecoration(labelText: 'المادة'),

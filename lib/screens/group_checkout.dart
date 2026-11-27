@@ -213,6 +213,7 @@ class GroupsCatalogScreen extends StatelessWidget {
     return EpsPage(
       title: 'المجموعات',
       children: [
+        const FeatureArt('assets/art/live_teacher.png', height: 130),
         const Text(
           'اختر المجموعة التي تريدها، واشترك في كل مجموعة على حدة.',
           style: TextStyle(fontSize: 10, color: Eps.muted),
