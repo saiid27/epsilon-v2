@@ -196,6 +196,7 @@ class _AdminConsoleState extends State<AdminConsole> {
     ('طلبات المجموعات', Icons.groups_outlined),
     ('طلبات الباقات', Icons.inventory_2_outlined),
     ('نظرة عامة على المجموعات', Icons.forum_outlined),
+    ('تقييمات الطلاب', Icons.star_outline_rounded),
   ];
 
   LearnRepository get repo => LearnScope.read(context).repo;
@@ -475,6 +476,7 @@ class _AdminConsoleState extends State<AdminConsole> {
                       15 => [const AdminAllPrices()],
                       16 => [const AdminGroupRequests()],
                       17 => [const AdminFeatureRequests()],
+                      19 => [const AdminReviews()],
                       18 => [
                         EpsPrimaryButton(
                           label: 'نظرة عامة على المجموعات',

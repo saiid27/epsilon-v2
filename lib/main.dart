@@ -64,6 +64,7 @@ part 'screens/admin_group_requests.dart';
 part 'screens/admin_feature_requests.dart';
 part 'screens/student_avatar.dart';
 part 'screens/feature_art.dart';
+part 'screens/reviews.dart';
 part 'screens/chat_list.dart';
 part 'screens/admin_sections.dart';
 part 'screens/chat_look.dart';
@@ -6881,6 +6882,13 @@ class AdminDashboard extends StatelessWidget {
     final learn = LearnScope.of(context);
     final admin = store.currentUser;
     final actions = [
+      AdminQuickActionData(
+        title: 'تقييمات الطلاب',
+        metric: '',
+        icon: Icons.star_rounded,
+        color: const Color(0xFFF1B91C),
+        onTap: () => pushPage(context, const AdminReviews()),
+      ),
       AdminQuickActionData(
         title: 'نظرة عامة على المجموعات',
         metric: '${learn.chatGroups.length}',

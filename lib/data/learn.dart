@@ -552,6 +552,26 @@ class EpsSectionFeatureSub {
   bool get isPending => status == 'pending';
 }
 
+/// A student's review shown on the first screen. The admin decides visibility.
+class EpsReview {
+  EpsReview.fromRow(Map<String, dynamic> r)
+    : id = _str(r['id']),
+      name = _str(r['name']),
+      role = _str(r['role']),
+      text = _str(r['text']),
+      rating = _int(r['rating'], 5),
+      visible = r['is_visible'] != false,
+      sortOrder = _int(r['sort_order']);
+
+  final String id;
+  final String name;
+  final String role;
+  final String text;
+  final int rating;
+  final bool visible;
+  final int sortOrder;
+}
+
 /// A private conversation between a student and a teacher.
 class EpsDirectThread {
   EpsDirectThread.fromRow(Map<String, dynamic> r)
@@ -1788,6 +1808,55 @@ class LearnRepository {
     final row = await client.from('chat_groups').select().eq('id', id).single();
     return EpsChatGroup.fromRow(Map<String, dynamic>.from(row));
   }
+
+  /// The reviews the admin has left visible, for the first screen (no sign-in needed).
+  Future<List<EpsReview>> visibleReviews() async => _list(
+    await client
+        .from('app_reviews')
+        .select()
+        .eq('is_visible', true)
+        .order('sort_order')
+        .order('created_at'),
+  ).map(EpsReview.fromRow).toList();
+
+  /// Every review, visible or hidden (the admin).
+  Future<List<EpsReview>> allReviews() async => _list(
+    await client
+        .from('app_reviews')
+        .select()
+        .order('sort_order')
+        .order('created_at'),
+  ).map(EpsReview.fromRow).toList();
+
+  Future<void> saveReview({
+    String? id,
+    required String name,
+    required String role,
+    required String text,
+    required int rating,
+    required bool visible,
+    required int sortOrder,
+  }) async {
+    final values = {
+      'name': name.trim(),
+      'role': role.trim(),
+      'text': text.trim(),
+      'rating': rating.clamp(1, 5),
+      'is_visible': visible,
+      'sort_order': sortOrder,
+    };
+    if (id == null) {
+      await client.from('app_reviews').insert(values);
+    } else {
+      await client.from('app_reviews').update(values).eq('id', id);
+    }
+  }
+
+  Future<void> setReviewVisible(String id, bool visible) =>
+      client.from('app_reviews').update({'is_visible': visible}).eq('id', id);
+
+  Future<void> deleteReview(String id) =>
+      client.from('app_reviews').delete().eq('id', id);
 
   /// Every group, oldest first.
   Future<List<EpsChatGroup>> allChatGroups() async => _list(
