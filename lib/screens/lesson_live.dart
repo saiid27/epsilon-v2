@@ -1031,7 +1031,7 @@ class _LiveRoomScreenState extends State<LiveRoomScreen> {
           else
             _VideoStage(session: session, teacherName: teacher?.name),
           // The admin sets the stream link; it sits right under the video.
-          if (session.liveUrl.trim().isNotEmpty)
+          if (session.showLink && session.liveUrl.trim().isNotEmpty)
             _StreamLinkBar(url: session.liveUrl.trim()),
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),

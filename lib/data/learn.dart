@@ -593,6 +593,7 @@ class EpsLiveSession {
       startsAt = _date(r['starts_at']) ?? DateTime.now(),
       durationMinutes = _int(r['duration_minutes'], 60),
       liveUrl = _str(r['live_url']),
+      showLink = _bool(r['show_link']),
       recordingUrl = _str(r['recording_url']),
       isFree = _bool(r['is_free']),
       isLiveFlag = _bool(r['is_live']),
@@ -608,6 +609,8 @@ class EpsLiveSession {
   final DateTime startsAt;
   final int durationMinutes;
   final String liveUrl;
+  // The admin decides whether the link is shown to students.
+  final bool showLink;
   final String recordingUrl;
   final bool isFree;
   final bool isLiveFlag;

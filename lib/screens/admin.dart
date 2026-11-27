@@ -1015,6 +1015,11 @@ class _AdminConsoleState extends State<AdminConsole> {
       'live_url',
       'رابط خارجي (اختياري، اتركه فارغاً للبث داخل التطبيق)',
     ),
+    const _Field(
+      'show_link',
+      'إظهار رابط البث للطلاب',
+      kind: _FieldKind.toggle,
+    ),
     const _Field('recording_url', 'رابط التسجيل بعد الجلسة'),
     const _Field('attendees_count', 'عدد المشاهدين', kind: _FieldKind.number),
     const _Field('is_free', 'جلسة مجانية', kind: _FieldKind.toggle),
