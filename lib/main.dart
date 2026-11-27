@@ -6876,8 +6876,30 @@ class AdminDashboard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final store = StoreScope.of(context);
+    final learn = LearnScope.of(context);
     final admin = store.currentUser;
     final actions = [
+      AdminQuickActionData(
+        title: 'المجموعات',
+        metric: '${learn.chatGroups.length}',
+        icon: Icons.forum_rounded,
+        color: const Color(0xFF2860C8),
+        onTap: () => pushPage(context, const ChatListScreen()),
+      ),
+      AdminQuickActionData(
+        title: 'طلبات المجموعات',
+        metric: '${learn.groupSubs.where((g) => g.isPending).length}',
+        icon: Icons.groups_rounded,
+        color: const Color(0xFF1E9E63),
+        onTap: () => pushPage(context, const AdminGroupRequests()),
+      ),
+      AdminQuickActionData(
+        title: 'طلبات الباقات',
+        metric: '${learn.featureSubs.where((f) => f.isPending).length}',
+        icon: Icons.inventory_2_rounded,
+        color: const Color(0xFFB07A12),
+        onTap: () => pushPage(context, const AdminFeatureRequests()),
+      ),
       AdminQuickActionData(
         title: 'الحسابات',
         metric: '${store.visibleStudents.length}',
